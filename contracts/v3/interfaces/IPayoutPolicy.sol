@@ -23,5 +23,8 @@ interface IPayoutPolicy {
     function claimable(address account) external view returns (uint256);
     function claim(address to) external returns (uint256 amount);
 
+    // Accrue streamed rewards for a beneficiary over current epoch (only vault)
+    function accrueFor(address beneficiary, uint256 amount) external;
+
     function lastHarvestAt() external view returns (uint256);
 }

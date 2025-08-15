@@ -11,4 +11,9 @@ interface IShareToken is IERC20 {
     function setTransferable(bool transferable) external;
     function setTransferFeeBps(uint16 bps) external; // capped by vault/factory
     function setFeeReceiver(address receiver) external; // typically farm owner
+
+    // Protocol rake config
+    function setProtocolFee(address receiver, uint16 rakeBps) external;
+    function protocolFeeReceiver() external view returns (address);
+    function protocolRakeBps() external view returns (uint16);
 }

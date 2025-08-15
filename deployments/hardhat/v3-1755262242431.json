@@ -1,0 +1,65 @@
+{
+  "network": "hardhat",
+  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "contracts": {
+    "DXPToken": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    "FarmFactory": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+    "ProtocolCore": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "MockLiquidityManager": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
+    "vaults": {
+      "staking": {
+        "StrategyRouter": "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853",
+        "LockupPolicy": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
+        "PayoutPolicy": "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
+        "StakeholderRegistry": "0x610178dA211FEF7D417bC0e6FeD39F05609AD788",
+        "BaseVault": "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82"
+      },
+      "lending": {
+        "StrategyRouter": "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
+        "LockupPolicy": "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c",
+        "PayoutPolicy": "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d",
+        "StakeholderRegistry": "0x59b670e9fA9D0A427751Af201D676719a970857b",
+        "BaseVault": "0xa85233C63b9Ee964Add6F2cffe00Fd84eb32338f"
+      }
+    }
+  },
+  "params": {
+    "ASSET_TOKEN": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    "USDC_TOKEN": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    "FALLBACK_BONUS_RATIO": "70",
+    "PROTOCOL_FEE_RATE": "10",
+    "RESERVE_RATIO": "50",
+    "STAKE": {
+      "VAULT_NAME": "Dexponent Staking Vault",
+      "VAULT_SYMBOL": "dSTAKE",
+      "FARM_ID": "1",
+      "LOCK_ENABLED": false,
+      "LOCK_ALLOW_EARLY": true,
+      "LOCK_EARLY_BPS": 200,
+      "LOCK_SECONDS": 0,
+      "LOCK_POST_MODE": 0,
+      "PAYOUT_MODE": 0,
+      "PAYOUT_STREAM_BPS": 3000,
+      "PAYOUT_COMPOUND_BPS": 7000,
+      "PAYOUT_EPOCH": "86400",
+      "PAYOUT_MIN_HARVEST": "300",
+      "PAYOUT_COMPOUND_ON_LOCK": true
+    },
+    "LEND": {
+      "VAULT_NAME": "Dexponent Lending Vault",
+      "VAULT_SYMBOL": "dLEND",
+      "FARM_ID": "2",
+      "LOCK_ENABLED": true,
+      "LOCK_ALLOW_EARLY": true,
+      "LOCK_EARLY_BPS": 500,
+      "LOCK_SECONDS": 1209600,
+      "LOCK_POST_MODE": 1,
+      "PAYOUT_MODE": 1,
+      "PAYOUT_STREAM_BPS": 0,
+      "PAYOUT_COMPOUND_BPS": 10000,
+      "PAYOUT_EPOCH": "86400",
+      "PAYOUT_MIN_HARVEST": "300",
+      "PAYOUT_COMPOUND_ON_LOCK": true
+    }
+  }
+}

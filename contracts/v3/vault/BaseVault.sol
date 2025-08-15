@@ -181,14 +181,91 @@ contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
     function harvest() external override nonReentrant whenNotPaused returns (uint256 netAssets) {
         require(address(router) != address(0), "RouterMissing");
         require(address(payoutPolicy) != address(0), "PayoutMissing");
-        // Router expected to realize rewards and return base assets to this vault
+        // Realize rewards (base asset returned to this vault)
         netAssets = router.harvest();
-        // Payout/compound split handled by policy; for MVP we'll keep all in vault until policy is wired
-        // Future: payoutPolicy.onHarvest(netAssets)
+        if (netAssets == 0) return 0;
+
+        // Compute streamed vs compounded portions per policy
+        (uint256 streamed, /*uint256 compounded*/ ) = payoutPolicy.onHarvest(netAssets);
+        if (streamed == 0) {
+            return netAssets; // everything compounded/retained -> PPS increases
+        }
+
+        // Split streamed portion among stakeholders
+        require(address(stakeholderRegistry) != address(0), "RegistryMissing");
+        IStakeholderRegistry.Splits memory s = stakeholderRegistry.getSplits();
+        uint256 ownerAmt = (streamed * s.ownerBps) / 10_000;
+        uint256 verifierAmt = (streamed * s.verifierBps) / 10_000;
+        // LP streamed portion is retained in vault as idle (benefits LPs via PPS)
+
+        // Apply protocol rake on the owner portion using ShareToken settings
+        address protocolReceiver = shareToken.protocolFeeReceiver();
+        uint16 protocolRakeBps = shareToken.protocolRakeBps();
+        uint256 protocolCut = protocolReceiver == address(0) ? 0 : (ownerAmt * protocolRakeBps) / 10_000;
+        uint256 ownerNet = ownerAmt - protocolCut;
+
+        // Move streamed funds into the payout policy for linear vesting
+        IERC20(asset).safeTransfer(address(payoutPolicy), ownerNet + protocolCut + verifierAmt);
+
+        // Accrue for owner recipient (net of protocol rake)
+        address ownerRecipient = stakeholderRegistry.ownerRecipient();
+        if (ownerNet > 0 && ownerRecipient != address(0)) {
+            payoutPolicy.accrueFor(ownerRecipient, ownerNet);
+        }
+
+        // Accrue for protocol receiver (protocol cut streams as well)
+        if (protocolCut > 0) {
+            payoutPolicy.accrueFor(protocolReceiver, protocolCut);
+        }
+
+        // Accrue for verifiers equally (if any active)
+        if (verifierAmt > 0) {
+            address[] memory verifiers = stakeholderRegistry.activeVerifiers();
+            uint256 n = verifiers.length;
+            if (n > 0) {
+                uint256 each = verifierAmt / n;
+                uint256 remainder = verifierAmt - (each * n);
+                for (uint256 i = 0; i < n; i++) {
+                    if (each > 0) payoutPolicy.accrueFor(verifiers[i], each);
+                }
+                // keep any dust remainder in policy under owner recipient for simplicity
+                if (remainder > 0 && ownerRecipient != address(0)) {
+                    payoutPolicy.accrueFor(ownerRecipient, remainder);
+                }
+            }
+        }
+    }
+
+    // Harvest only if minHarvestInterval has elapsed
+    function harvestIfNeeded() external nonReentrant whenNotPaused returns (bool harvested, uint256 netAssets) {
+        require(address(payoutPolicy) != address(0) && address(router) != address(0), "ModulesMissing");
+        IPayoutPolicy.Config memory cfg = payoutPolicy.getConfig();
+        uint256 last = payoutPolicy.lastHarvestAt();
+        if (block.timestamp < last + cfg.minHarvestInterval) {
+            return (false, 0);
+        }
+        netAssets = this.harvest();
+        return (true, netAssets);
     }
 
     function rebalance(uint16[] calldata targetBps) external override onlyOwner whenNotPaused {
         require(address(router) != address(0), "RouterMissing");
         router.rebalance(targetBps);
+    }
+
+    // Allocate idle assets from this vault to strategies via router according to target bps
+    function allocateToStrategies(uint256 amount) external onlyOwner whenNotPaused returns (uint256 deployed) {
+        require(address(router) != address(0), "RouterMissing");
+        require(amount > 0, "ZeroAmount");
+        IERC20(asset).forceApprove(address(router), 0);
+        IERC20(asset).forceApprove(address(router), amount);
+        deployed = router.allocate(amount);
+    }
+
+    // Pull assets back from strategies to this vault according to target bps
+    function deallocateFromStrategies(uint256 amount) external onlyOwner whenNotPaused returns (uint256 received) {
+        require(address(router) != address(0), "RouterMissing");
+        require(amount > 0, "ZeroAmount");
+        received = router.deallocate(amount);
     }
 }
