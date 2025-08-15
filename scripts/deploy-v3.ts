@@ -34,6 +34,39 @@ async function main() {
   const PAYOUT_MIN_HARVEST = BigInt(env("PAYOUT_MIN_HARVEST", "300")!); // 5 min
   const PAYOUT_COMPOUND_ON_LOCK = env("PAYOUT_COMPOUND_ON_LOCK", "true") === "true";
 
+  // Per-vault overrides (staking vs lending)
+  // Staking (streaming focus)
+  const STAKE_VAULT_NAME = env("STAKE_VAULT_NAME", "Dexponent Staking Vault")!;
+  const STAKE_VAULT_SYMBOL = env("STAKE_VAULT_SYMBOL", "dSTAKE")!;
+  const STAKE_FARM_ID = BigInt(env("STAKE_FARM_ID", "1")!);
+  const STAKE_LOCK_ENABLED = env("STAKE_LOCK_ENABLED", "false") === "true";
+  const STAKE_LOCK_ALLOW_EARLY = env("STAKE_LOCK_ALLOW_EARLY", "true") === "true";
+  const STAKE_LOCK_EARLY_BPS = Number(env("STAKE_LOCK_EARLY_BPS", "200")); // 2%
+  const STAKE_LOCK_SECONDS = Number(env("STAKE_LOCK_SECONDS", "0"));
+  const STAKE_LOCK_POST_MODE = Number(env("STAKE_LOCK_POST_MODE", "0"));
+  const STAKE_PAYOUT_MODE = Number(env("STAKE_PAYOUT_MODE", String(PAYOUT_MODE))); // default stream
+  const STAKE_PAYOUT_STREAM_BPS = Number(env("STAKE_PAYOUT_STREAM_BPS", String(PAYOUT_STREAM_BPS)));
+  const STAKE_PAYOUT_COMPOUND_BPS = Number(env("STAKE_PAYOUT_COMPOUND_BPS", String(PAYOUT_COMPOUND_BPS)));
+  const STAKE_PAYOUT_EPOCH = BigInt(env("STAKE_PAYOUT_EPOCH", String(PAYOUT_EPOCH))!);
+  const STAKE_PAYOUT_MIN_HARVEST = BigInt(env("STAKE_PAYOUT_MIN_HARVEST", String(PAYOUT_MIN_HARVEST))!);
+  const STAKE_PAYOUT_COMPOUND_ON_LOCK = env("STAKE_PAYOUT_COMPOUND_ON_LOCK", String(PAYOUT_COMPOUND_ON_LOCK)) === "true";
+
+  // Lending (lockup focus)
+  const LEND_VAULT_NAME = env("LEND_VAULT_NAME", "Dexponent Lending Vault")!;
+  const LEND_VAULT_SYMBOL = env("LEND_VAULT_SYMBOL", "dLEND")!;
+  const LEND_FARM_ID = BigInt(env("LEND_FARM_ID", "2")!);
+  const LEND_LOCK_ENABLED = env("LEND_LOCK_ENABLED", "true") === "true";
+  const LEND_LOCK_ALLOW_EARLY = env("LEND_LOCK_ALLOW_EARLY", "true") === "true";
+  const LEND_LOCK_EARLY_BPS = Number(env("LEND_LOCK_EARLY_BPS", "500")); // 5%
+  const LEND_LOCK_SECONDS = Number(env("LEND_LOCK_SECONDS", "1209600")); // 14 days
+  const LEND_LOCK_POST_MODE = Number(env("LEND_LOCK_POST_MODE", "1"));
+  const LEND_PAYOUT_MODE = Number(env("LEND_PAYOUT_MODE", "1")); // default Lockup
+  const LEND_PAYOUT_STREAM_BPS = Number(env("LEND_PAYOUT_STREAM_BPS", "0"));
+  const LEND_PAYOUT_COMPOUND_BPS = Number(env("LEND_PAYOUT_COMPOUND_BPS", "10000"));
+  const LEND_PAYOUT_EPOCH = BigInt(env("LEND_PAYOUT_EPOCH", String(PAYOUT_EPOCH))!);
+  const LEND_PAYOUT_MIN_HARVEST = BigInt(env("LEND_PAYOUT_MIN_HARVEST", String(PAYOUT_MIN_HARVEST))!);
+  const LEND_PAYOUT_COMPOUND_ON_LOCK = env("LEND_PAYOUT_COMPOUND_ON_LOCK", "true") === "true";
+
   // 1) Deploy DXPToken
   console.log("Deploying DXPToken...");
   const DXPFactory = await ethers.getContractFactory("DXPToken");
@@ -95,84 +128,114 @@ async function main() {
   console.log("Approving deployer as farm owner in ProtocolCore...");
   await (await core.setApprovedFarmOwner(deployerAddress, true)).wait();
 
-  // 5) Deploy StrategyRouter with the base asset
-  console.log("Deploying StrategyRouter...");
+  // 5-9) Deploy two vault stacks with their own routers, policies, registry, and wire them
   const StrategyRouter = await ethers.getContractFactory("StrategyRouter");
-  const router = await StrategyRouter.deploy(ASSET_TOKEN);
-  await router.waitForDeployment();
-  const routerAddr = await router.getAddress();
-  console.log("StrategyRouter:", routerAddr);
-
-  // 6) Deploy Policies
-  console.log("Deploying LockupPolicy...");
-  const lockCfg = {
-    enabled: LOCK_ENABLED,
-    allowEarlyExit: LOCK_ALLOW_EARLY,
-    earlyExitBps: LOCK_EARLY_BPS,
-    lockupSeconds: BigInt(LOCK_SECONDS),
-    postLockMode: LOCK_POST_MODE,
-  };
   const LockupPolicy = await ethers.getContractFactory("LockupPolicy");
-  const lockup = await LockupPolicy.deploy(lockCfg);
-  await lockup.waitForDeployment();
-  const lockupAddr = await lockup.getAddress();
-  console.log("LockupPolicy:", lockupAddr);
-
-  console.log("Deploying PayoutPolicy...");
-  const payoutCfg = {
-    mode: PAYOUT_MODE,
-    streamBps: PAYOUT_STREAM_BPS,
-    compoundBps: PAYOUT_COMPOUND_BPS,
-    epoch: PAYOUT_EPOCH,
-    minHarvestInterval: PAYOUT_MIN_HARVEST,
-    compoundLpOnLock: PAYOUT_COMPOUND_ON_LOCK,
-  };
   const PayoutPolicy = await ethers.getContractFactory("PayoutPolicy");
-  const payout = await PayoutPolicy.deploy(payoutCfg);
-  await payout.waitForDeployment();
-  const payoutAddr = await payout.getAddress();
-  console.log("PayoutPolicy:", payoutAddr);
-
-  // 7) Deploy StakeholderRegistry(core, farmId)
-  // For initial setup, we use farmId=0 (Root Farm semantics) so registry can read verifiers from core.
-  const FARM_ID = BigInt(env("FARM_ID", "0")!);
-  console.log("Deploying StakeholderRegistry (farmId=", FARM_ID.toString(), ")...");
   const StakeholderRegistry = await ethers.getContractFactory("StakeholderRegistry");
-  const stakeholders = await StakeholderRegistry.deploy(
-    coreAddr,
-    FARM_ID,
-  );
-  await stakeholders.waitForDeployment();
-  const stakeholdersAddr = await stakeholders.getAddress();
-  console.log("StakeholderRegistry:", stakeholdersAddr);
+  const BaseVault = await ethers.getContractFactory("BaseVault");
 
-  // Optionally set initial splits (LP/Owner/Verifier) to 7000/2500/500
+  // --- Staking Vault (streaming payouts) ---
+  console.log("Deploying Staking StrategyRouter...");
+  const stakeRouter = await StrategyRouter.deploy(ASSET_TOKEN);
+  await stakeRouter.waitForDeployment();
+  const stakeRouterAddr = await stakeRouter.getAddress();
+  console.log("Staking Router:", stakeRouterAddr);
+
+  console.log("Deploying Staking Policies...");
+  const stakeLockCfg = {
+    enabled: STAKE_LOCK_ENABLED,
+    allowEarlyExit: STAKE_LOCK_ALLOW_EARLY,
+    earlyExitBps: STAKE_LOCK_EARLY_BPS,
+    lockupSeconds: BigInt(STAKE_LOCK_SECONDS),
+    postLockMode: STAKE_LOCK_POST_MODE,
+  };
+  const stakeLock = await LockupPolicy.deploy(stakeLockCfg);
+  await stakeLock.waitForDeployment();
+  const stakeLockAddr = await stakeLock.getAddress();
+
+  const stakePayoutCfg = {
+    mode: STAKE_PAYOUT_MODE,
+    streamBps: STAKE_PAYOUT_STREAM_BPS,
+    compoundBps: STAKE_PAYOUT_COMPOUND_BPS,
+    epoch: STAKE_PAYOUT_EPOCH,
+    minHarvestInterval: STAKE_PAYOUT_MIN_HARVEST,
+    compoundLpOnLock: STAKE_PAYOUT_COMPOUND_ON_LOCK,
+  };
+  const stakePayout = await PayoutPolicy.deploy(stakePayoutCfg);
+  await stakePayout.waitForDeployment();
+  const stakePayoutAddr = await stakePayout.getAddress();
+
+  console.log("Deploying Staking StakeholderRegistry (farmId=", STAKE_FARM_ID.toString(), ")...");
+  const stakeRegistry = await StakeholderRegistry.deploy(coreAddr, STAKE_FARM_ID);
+  await stakeRegistry.waitForDeployment();
+  const stakeRegistryAddr = await stakeRegistry.getAddress();
   if (env("SET_INITIAL_SPLITS", "true") === "true") {
-    console.log("Setting initial splits on StakeholderRegistry...");
-    await (await stakeholders.setSplits(7000, 2500, 500)).wait();
-    await (await stakeholders.setOwnerRecipient(deployerAddress)).wait();
+    await (await stakeRegistry.setSplits(7000, 2500, 500)).wait();
+    await (await stakeRegistry.setOwnerRecipient(deployerAddress)).wait();
   }
 
-  // 8) Deploy BaseVault(asset, name, symbol)
-  const VAULT_NAME = env("VAULT_NAME", "Dexponent Vault Shares")!;
-  const VAULT_SYMBOL = env("VAULT_SYMBOL", "dShares")!;
-  console.log("Deploying BaseVault...");
-  const BaseVault = await ethers.getContractFactory("BaseVault");
-  const vault = await BaseVault.deploy(
-    ASSET_TOKEN,
-    VAULT_NAME,
-    VAULT_SYMBOL,
-  );
-  await vault.waitForDeployment();
-  const vaultAddr = await vault.getAddress();
-  console.log("BaseVault:", vaultAddr);
+  console.log("Deploying Staking BaseVault...");
+  const stakeVault = await BaseVault.deploy(ASSET_TOKEN, STAKE_VAULT_NAME, STAKE_VAULT_SYMBOL);
+  await stakeVault.waitForDeployment();
+  const stakeVaultAddr = await stakeVault.getAddress();
+  console.log("Staking Vault:", stakeVaultAddr);
+  console.log("Wiring Staking Vault modules...");
+  await (await stakeVault.setStrategyRouter(stakeRouterAddr)).wait();
+  await (await stakeVault.setPayoutPolicy(stakePayoutAddr)).wait();
+  await (await stakeVault.setLockupPolicy(stakeLockAddr)).wait();
+  await (await stakeVault.setStakeholderRegistry(stakeRegistryAddr)).wait();
 
-  // 9) Wire BaseVault modules
-  console.log("Wiring BaseVault modules...");
-  await (await vault.setStrategyRouter(routerAddr)).wait();
-  await (await vault.setPayoutPolicy(payoutAddr)).wait();
-  await (await vault.setLockupPolicy(lockupAddr)).wait();
-  await (await vault.setStakeholderRegistry(stakeholdersAddr)).wait();
+  // --- Lending Vault (lockup payouts) ---
+  console.log("Deploying Lending StrategyRouter...");
+  const lendRouter = await StrategyRouter.deploy(ASSET_TOKEN);
+  await lendRouter.waitForDeployment();
+  const lendRouterAddr = await lendRouter.getAddress();
+  console.log("Lending Router:", lendRouterAddr);
+
+  console.log("Deploying Lending Policies...");
+  const lendLockCfg = {
+    enabled: LEND_LOCK_ENABLED,
+    allowEarlyExit: LEND_LOCK_ALLOW_EARLY,
+    earlyExitBps: LEND_LOCK_EARLY_BPS,
+    lockupSeconds: BigInt(LEND_LOCK_SECONDS),
+    postLockMode: LEND_LOCK_POST_MODE,
+  };
+  const lendLock = await LockupPolicy.deploy(lendLockCfg);
+  await lendLock.waitForDeployment();
+  const lendLockAddr = await lendLock.getAddress();
+
+  const lendPayoutCfg = {
+    mode: LEND_PAYOUT_MODE,
+    streamBps: LEND_PAYOUT_STREAM_BPS,
+    compoundBps: LEND_PAYOUT_COMPOUND_BPS,
+    epoch: LEND_PAYOUT_EPOCH,
+    minHarvestInterval: LEND_PAYOUT_MIN_HARVEST,
+    compoundLpOnLock: LEND_PAYOUT_COMPOUND_ON_LOCK,
+  };
+  const lendPayout = await PayoutPolicy.deploy(lendPayoutCfg);
+  await lendPayout.waitForDeployment();
+  const lendPayoutAddr = await lendPayout.getAddress();
+
+  console.log("Deploying Lending StakeholderRegistry (farmId=", LEND_FARM_ID.toString(), ")...");
+  const lendRegistry = await StakeholderRegistry.deploy(coreAddr, LEND_FARM_ID);
+  await lendRegistry.waitForDeployment();
+  const lendRegistryAddr = await lendRegistry.getAddress();
+  if (env("SET_INITIAL_SPLITS", "true") === "true") {
+    await (await lendRegistry.setSplits(7000, 2500, 500)).wait();
+    await (await lendRegistry.setOwnerRecipient(deployerAddress)).wait();
+  }
+
+  console.log("Deploying Lending BaseVault...");
+  const lendVault = await BaseVault.deploy(ASSET_TOKEN, LEND_VAULT_NAME, LEND_VAULT_SYMBOL);
+  await lendVault.waitForDeployment();
+  const lendVaultAddr = await lendVault.getAddress();
+  console.log("Lending Vault:", lendVaultAddr);
+  console.log("Wiring Lending Vault modules...");
+  await (await lendVault.setStrategyRouter(lendRouterAddr)).wait();
+  await (await lendVault.setPayoutPolicy(lendPayoutAddr)).wait();
+  await (await lendVault.setLockupPolicy(lendLockAddr)).wait();
+  await (await lendVault.setStakeholderRegistry(lendRegistryAddr)).wait();
 
   // Save addresses
   const addresses = {
@@ -183,11 +246,22 @@ async function main() {
       FarmFactory: farmFactoryAddr,
       ProtocolCore: coreAddr,
       MockLiquidityManager: mockLmAddr,
-      StrategyRouter: routerAddr,
-      LockupPolicy: lockupAddr,
-      PayoutPolicy: payoutAddr,
-      StakeholderRegistry: stakeholdersAddr,
-      BaseVault: vaultAddr,
+      vaults: {
+        staking: {
+          StrategyRouter: stakeRouterAddr,
+          LockupPolicy: stakeLockAddr,
+          PayoutPolicy: stakePayoutAddr,
+          StakeholderRegistry: stakeRegistryAddr,
+          BaseVault: stakeVaultAddr,
+        },
+        lending: {
+          StrategyRouter: lendRouterAddr,
+          LockupPolicy: lendLockAddr,
+          PayoutPolicy: lendPayoutAddr,
+          StakeholderRegistry: lendRegistryAddr,
+          BaseVault: lendVaultAddr,
+        },
+      },
     },
     params: {
       ASSET_TOKEN,
@@ -195,20 +269,40 @@ async function main() {
       FALLBACK_BONUS_RATIO: FALLBACK_BONUS_RATIO.toString(),
       PROTOCOL_FEE_RATE: PROTOCOL_FEE_RATE.toString(),
       RESERVE_RATIO: RESERVE_RATIO.toString(),
-      LOCK_ENABLED,
-      LOCK_ALLOW_EARLY,
-      LOCK_EARLY_BPS,
-      LOCK_SECONDS,
-      LOCK_POST_MODE,
-      PAYOUT_MODE,
-      PAYOUT_STREAM_BPS,
-      PAYOUT_COMPOUND_BPS,
-      PAYOUT_EPOCH: PAYOUT_EPOCH.toString(),
-      PAYOUT_MIN_HARVEST: PAYOUT_MIN_HARVEST.toString(),
-      PAYOUT_COMPOUND_ON_LOCK,
-      FARM_ID: FARM_ID.toString(),
-      VAULT_NAME,
-      VAULT_SYMBOL,
+      // Staking config snapshot
+      STAKE: {
+        VAULT_NAME: STAKE_VAULT_NAME,
+        VAULT_SYMBOL: STAKE_VAULT_SYMBOL,
+        FARM_ID: STAKE_FARM_ID.toString(),
+        LOCK_ENABLED: STAKE_LOCK_ENABLED,
+        LOCK_ALLOW_EARLY: STAKE_LOCK_ALLOW_EARLY,
+        LOCK_EARLY_BPS: STAKE_LOCK_EARLY_BPS,
+        LOCK_SECONDS: STAKE_LOCK_SECONDS,
+        LOCK_POST_MODE: STAKE_LOCK_POST_MODE,
+        PAYOUT_MODE: STAKE_PAYOUT_MODE,
+        PAYOUT_STREAM_BPS: STAKE_PAYOUT_STREAM_BPS,
+        PAYOUT_COMPOUND_BPS: STAKE_PAYOUT_COMPOUND_BPS,
+        PAYOUT_EPOCH: STAKE_PAYOUT_EPOCH.toString(),
+        PAYOUT_MIN_HARVEST: STAKE_PAYOUT_MIN_HARVEST.toString(),
+        PAYOUT_COMPOUND_ON_LOCK: STAKE_PAYOUT_COMPOUND_ON_LOCK,
+      },
+      // Lending config snapshot
+      LEND: {
+        VAULT_NAME: LEND_VAULT_NAME,
+        VAULT_SYMBOL: LEND_VAULT_SYMBOL,
+        FARM_ID: LEND_FARM_ID.toString(),
+        LOCK_ENABLED: LEND_LOCK_ENABLED,
+        LOCK_ALLOW_EARLY: LEND_LOCK_ALLOW_EARLY,
+        LOCK_EARLY_BPS: LEND_LOCK_EARLY_BPS,
+        LOCK_SECONDS: LEND_LOCK_SECONDS,
+        LOCK_POST_MODE: LEND_LOCK_POST_MODE,
+        PAYOUT_MODE: LEND_PAYOUT_MODE,
+        PAYOUT_STREAM_BPS: LEND_PAYOUT_STREAM_BPS,
+        PAYOUT_COMPOUND_BPS: LEND_PAYOUT_COMPOUND_BPS,
+        PAYOUT_EPOCH: LEND_PAYOUT_EPOCH.toString(),
+        PAYOUT_MIN_HARVEST: LEND_PAYOUT_MIN_HARVEST.toString(),
+        PAYOUT_COMPOUND_ON_LOCK: LEND_PAYOUT_COMPOUND_ON_LOCK,
+      },
     },
   } as const;
 
