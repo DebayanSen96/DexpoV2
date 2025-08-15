@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "../interfaces/IStakeholderRegistry.sol";
-import "../interfaces/IProtocolCore.sol";
+import "../../interfaces/IProtocolCore.sol";
 
 contract StakeholderRegistry is IStakeholderRegistry, Ownable {
     Splits private _splits; // lp, owner, verifier
@@ -15,7 +15,7 @@ contract StakeholderRegistry is IStakeholderRegistry, Ownable {
     event SplitsSet(uint16 lpBps, uint16 ownerBps, uint16 verifierBps);
     event OwnerRecipientSet(address recipient);
 
-    constructor(address core, uint256 farmId_) {
+    constructor(address core, uint256 farmId_) Ownable(msg.sender) {
         require(core != address(0), "CoreZero");
         protocolCore = IProtocolCore(core);
         farmId = farmId_;

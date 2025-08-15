@@ -2,8 +2,8 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -46,7 +46,7 @@ contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
     event LockupPolicySet(address indexed policy);
     event StakeholderRegistrySet(address indexed registry);
 
-    constructor(address asset_, string memory name_, string memory symbol_) {
+    constructor(address asset_, string memory name_, string memory symbol_) Ownable(msg.sender) {
         require(asset_ != address(0), "InvalidAsset");
         asset = asset_;
 
@@ -54,7 +54,7 @@ contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
         ShareToken token = new ShareToken(name_, symbol_);
         token.setMinter(address(this));
         token.transferOwnership(msg.sender);
-        shareToken = token;
+        shareToken = IShareToken(address(token));
     }
 
     // --- Admin wiring ---

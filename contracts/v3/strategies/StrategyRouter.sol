@@ -21,7 +21,7 @@ contract StrategyRouter is IStrategyRouter, Ownable {
     EnumerableSet.Bytes32Set private _ids;
     mapping(bytes32 => Allocation) public alloc;
 
-    constructor(address asset_) { asset = asset_; }
+    constructor(address asset_) Ownable(msg.sender) { asset = asset_; }
 
     function allocations() external view override returns (
         bytes32[] memory ids,

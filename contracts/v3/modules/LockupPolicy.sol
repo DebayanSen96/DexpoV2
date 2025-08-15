@@ -12,7 +12,7 @@ contract LockupPolicy is ILockupPolicy, Ownable {
 
     event LockConfigSet(LockConfig cfg);
 
-    constructor(LockConfig memory cfg_) { _cfg = cfg_; }
+    constructor(LockConfig memory cfg_) Ownable(msg.sender) { _cfg = cfg_; }
 
     function setLockConfig(LockConfig calldata cfg) external override onlyOwner {
         _cfg = cfg;

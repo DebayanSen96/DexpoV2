@@ -17,7 +17,7 @@ contract PayoutPolicy is IPayoutPolicy, Ownable {
 
     event ConfigSet(Config cfg);
 
-    constructor(Config memory cfg_) { _cfg = cfg_; }
+    constructor(Config memory cfg_) Ownable(msg.sender) { _cfg = cfg_; }
 
     function setConfig(Config calldata cfg) external override onlyOwner {
         _cfg = cfg;

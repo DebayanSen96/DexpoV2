@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "../interfaces/IShareToken.sol";
 
 /**
  * @title ShareToken (v3)
@@ -11,7 +12,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
  *         - Transfer fee (<= 15%) split between farm owner and protocol rake
  *         - Mint/Burn restricted to the configured vault (minter)
  */
-contract ShareToken is ERC20, Ownable {
+contract ShareToken is ERC20, Ownable, IShareToken {
     error TransfersDisabled();
     error InvalidMinter();
     error FeeTooHigh();
@@ -37,7 +38,7 @@ contract ShareToken is ERC20, Ownable {
     event FeeReceiverSet(address indexed receiver);
     event ProtocolFeeSet(address indexed receiver, uint16 rakeBps);
 
-    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
+    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) Ownable(msg.sender) {}
 
     // --- Admin ---
 
@@ -84,38 +85,35 @@ contract ShareToken is ERC20, Ownable {
 
     // --- Transfers with optional fee ---
 
-    function _transfer(address from, address to, uint256 amount) internal override {
+    function _update(address from, address to, uint256 value) internal override {
+        // Only block regular transfers when disabled (allow mint/burn)
         if (!transferable && from != address(0) && to != address(0)) {
             revert TransfersDisabled();
         }
 
-        uint256 fee = 0;
         if (
             transferFeeBps > 0 &&
             from != address(0) &&
             to != address(0) &&
             feeReceiver != address(0)
         ) {
-            fee = (amount * transferFeeBps) / 10_000;
+            uint256 fee = (value * transferFeeBps) / 10_000;
             if (fee > 0) {
                 uint256 protocolCut = protocolFeeReceiver == address(0) ? 0 : (fee * protocolRakeBps) / 10_000;
                 uint256 ownerCut = fee - protocolCut;
 
-                // send net amount to recipient
-                uint256 sendAmt = amount - fee;
-                super._transfer(from, to, sendAmt);
-
-                // route fee splits
+                uint256 sendAmt = value - fee;
+                super._update(from, to, sendAmt);
                 if (ownerCut > 0) {
-                    super._transfer(from, feeReceiver, ownerCut);
+                    super._update(from, feeReceiver, ownerCut);
                 }
                 if (protocolCut > 0) {
-                    super._transfer(from, protocolFeeReceiver, protocolCut);
+                    super._update(from, protocolFeeReceiver, protocolCut);
                 }
                 return;
             }
         }
 
-        super._transfer(from, to, amount);
+        super._update(from, to, value);
     }
 }
