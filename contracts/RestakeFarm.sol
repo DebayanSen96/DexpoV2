@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+/**
+ * DEPRECATED: v1 RestakeFarm is no longer used for new deployments.
+ * Dexponent v2 replaces farm templates with a modular Vault + StrategyRouter design under `contracts/v2/`.
+ * This contract remains for historical/reference only.
+ */
+
 import "./Farm.sol";
 import "./interfaces/IRootFarm.sol"; 
 import "./interfaces/IDXPToken.sol"; 

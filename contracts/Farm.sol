@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+/**
+ * DEPRECATED: This is a v2 farm contract and is no longer used for new deployments.
+ * Dexponent v3 consolidates farms into a single modular Vault + StrategyRouter architecture
+ * with adapters and policies. For new farms, use the v3 contracts under `contracts/v3/`.
+ * This file remains for historical/reference purposes only.
+ */
+
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/BaseClaimToken.sol"; // Claim token interface.

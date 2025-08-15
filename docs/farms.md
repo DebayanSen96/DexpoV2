@@ -1,5 +1,8 @@
 # Farms (Base, Root, Restake) and Factory
 
+> Deprecated (v2): The farm templates described here (`contracts/Farm.sol`, `contracts/RestakeFarm.sol`, and related factory/roots) are deprecated in Dexponent v3.
+> New deployments should use the v3 modular design based on a single `BaseVault` + `StrategyRouter` with adapters and policies. See `docs/v3-architecture.md` and `contracts/v3/`.
+
 This document details farm behavior across `contracts/Farm.sol`, `contracts/RootFarm.sol`, `contracts/RestakeFarm.sol`, and the factory in `contracts/FarmFactory.sol`.
 
 - __Base Farm__: `contracts/Farm.sol`
