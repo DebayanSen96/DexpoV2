@@ -1,15 +1,18 @@
 {
-  "name": "Dexponent v3",
+  "name": "dexponent-v3",
   "version": "1.0.0",
-  "type": "module",
+  "scripts": {
+    "deploy:v3": "hardhat run scripts/deploy-v3.ts",
+    "deploy:v3:sepolia": "hardhat run scripts/deploy-v3.ts --network sepolia"
+  },
   "devDependencies": {
-    "@nomicfoundation/hardhat-ignition": "^3.0.0",
-    "@nomicfoundation/hardhat-toolbox-viem": "^5.0.0",
+    "@nomicfoundation/hardhat-ethers": "^3.1.0",
     "@openzeppelin/contracts": "^5.4.0",
     "@types/node": "^22.17.1",
+    "ethers": "^6.13.4",
     "forge-std": "github:foundry-rs/forge-std#v1.9.4",
-    "hardhat": "^3.0.0",
-    "typescript": "~5.8.0",
-    "viem": "^2.33.3"
+    "hardhat": "^2.26.0",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.8.0"
   }
 }
