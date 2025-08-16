@@ -180,6 +180,12 @@ async function main() {
   const stakeRcpt = await stakeTx.wait();
   const stakeFarmId = (await core.nextFarmId()).toString();
   const stakeVaultAddr = await core.farmAddressOf(stakeFarmId);
+  // Fetch full vault module addresses from ProtocolCore registry
+  const stakeDetails = await core.vaultsById(BigInt(stakeFarmId));
+  const stakeRouterAddr: string = stakeDetails.router;
+  const stakePayoutAddr: string = stakeDetails.payoutPolicy;
+  const stakeLockupAddr: string = stakeDetails.lockupPolicy;
+  const stakeRegistryAddr: string = stakeDetails.stakeholderRegistry;
 
   // --- Lending Vault (lockup payouts) ---
   console.log("Deploying Lending MockStrategyAdapter...");
@@ -220,6 +226,12 @@ async function main() {
   const lendRcpt = await lendTx.wait();
   const lendFarmId = (await core.nextFarmId()).toString();
   const lendVaultAddr = await core.farmAddressOf(lendFarmId);
+  // Fetch full vault module addresses from ProtocolCore registry
+  const lendDetails = await core.vaultsById(BigInt(lendFarmId));
+  const lendRouterAddr: string = lendDetails.router;
+  const lendPayoutAddr: string = lendDetails.payoutPolicy;
+  const lendLockupAddr: string = lendDetails.lockupPolicy;
+  const lendRegistryAddr: string = lendDetails.stakeholderRegistry;
 
   // Save addresses
   const addresses = {
@@ -236,8 +248,22 @@ async function main() {
         lending: { MockStrategyAdapter: lendAdapterAddr },
       },
       vaults: {
-        staking: { BaseVault: stakeVaultAddr },
-        lending: { BaseVault: lendVaultAddr },
+        staking: {
+          BaseVault: stakeVaultAddr,
+          StrategyRouter: stakeRouterAddr,
+          PayoutPolicy: stakePayoutAddr,
+          LockupPolicy: stakeLockupAddr,
+          StakeholderRegistry: stakeRegistryAddr,
+          MockStrategyAdapter: stakeAdapterAddr,
+        },
+        lending: {
+          BaseVault: lendVaultAddr,
+          StrategyRouter: lendRouterAddr,
+          PayoutPolicy: lendPayoutAddr,
+          LockupPolicy: lendLockupAddr,
+          StakeholderRegistry: lendRegistryAddr,
+          MockStrategyAdapter: lendAdapterAddr,
+        },
       },
     },
     params: {
