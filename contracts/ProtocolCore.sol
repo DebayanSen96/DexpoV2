@@ -44,6 +44,7 @@ import "./vDXPToken.sol";
 import "./interfaces/IRootFarm.sol";
 import "./interfaces/IConsensus.sol";
 import "./interfaces/IFarmFactory.sol";
+import "./v3/interfaces/IVaultFactory.sol";
 import "./interfaces/ILiquidityManager.sol";
 import "./interfaces/IBridgeAdapter.sol";
 
@@ -107,10 +108,24 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     // ───────────────────────────────────────────────────────────
     //                 REGISTRY - FARMS & OWNERS
     // ───────────────────────────────────────────────────────────
-    mapping(address => FarmDetails) public farms; // farmAddr ➜ details
-    mapping(uint256 => address) public farmAddressOf; // farmId   ➜ farmAddr
+    mapping(address => FarmDetails) public farms; // farmAddr ➜ details (legacy + v3 baseVault)
+    mapping(uint256 => address) public farmAddressOf; // farmId   ➜ farmAddr/baseVault
     mapping(address => bool) public approvedFarmOwners;
     IRootFarm public rootFarm; // id 0
+
+    // V3 Vault registry (modules per farmId)
+    struct VaultDetails {
+        address baseVault;
+        address owner;
+        address asset;
+        uint256 farmId;
+        address router;
+        address payoutPolicy;
+        address lockupPolicy;
+        address stakeholderRegistry;
+    }
+    mapping(uint256 => VaultDetails) public vaultsById; // farmId ➜ v3 vault modules
+    mapping(address => uint256) public vaultIdOf; // baseVault ➜ farmId
 
     // ───────────────────────────────────────────────────────────
     //                     YIELDS & CONSENSUS
@@ -148,7 +163,8 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     //                 EXTERNAL MODULE REFERENCES
     // ───────────────────────────────────────────────────────────
     ILiquidityManager public liquidityManager;
-    IFarmFactory public farmFactory;
+    IFarmFactory public farmFactory; // legacy (deprecated creation)
+    IVaultFactory public vaultFactory; // v3 vault stack factory
     IBridgeAdapter public bridgeAdapter;
     IConsensus public consensus; // pulls verifier rounds
 
@@ -171,6 +187,15 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         address indexed owner
     );
     event FarmOwnerApproved(address indexed farmOwner, bool approved);
+    event VaultCreated(
+        uint256 indexed farmId,
+        address indexed baseVault,
+        address indexed owner,
+        address router,
+        address payoutPolicy,
+        address lockupPolicy,
+        address stakeholderRegistry
+    );
 
     event BenchmarkYieldUpdated(uint256 indexed farmId, uint256 newYield);
     event ConsensusModuleUpdated(address indexed consensusAddr);
@@ -240,6 +265,16 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         _;
     }
 
+    /**
+     * @dev Restricts caller to a registered legacy Farm or a registered v3 BaseVault
+     */
+    modifier onlyApprovedFarmOrVault() {
+        bool isLegacy = (farms[msg.sender].farmAddress == msg.sender) || (msg.sender == address(rootFarm));
+        bool isV3 = vaultIdOf[msg.sender] != 0; // farmId 0 is root; vault ids start at 1
+        require(isLegacy || isV3, "ProtocolCore: not farm/vault");
+        _;
+    }
+
     // ───────────────────────────────────────────────────────────
     //                       CONSTRUCTOR
     // ───────────────────────────────────────────────────────────
@@ -269,6 +304,14 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
 
         // deploy governance/vote token (vDXP) and leave minter with this core
         vdxpToken = new vDXPToken("vDXP Token", "vDXP", address(this), 0);
+    }
+
+    // ───────────────────────────────────────────────────────────
+    //                   V3 VAULT FACTORY WIRING
+    // ───────────────────────────────────────────────────────────
+    function setVaultFactory(address f) external onlyOwner {
+        require(f != address(0), "zero address");
+        vaultFactory = IVaultFactory(f);
     }
 
     // ───────────────────────────────────────────────────────────
@@ -370,65 +413,86 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         bool isRestaked,
         address rootFarmAddress
     ) external nonReentrant returns (uint256 farmId, address farmAddr) {
+        revert("deprecated");
+    }
+
+    // ───────────────────────────────────────────────────────────
+    //                       V3 VAULT CREATION
+    // ───────────────────────────────────────────────────────────
+    uint256 public nextFarmId; // starts at 0, v3 vault ids begin at 1 (0 reserved for Root)
+
+    function createApprovedVault(
+        address asset,
+        string memory vaultName,
+        string memory vaultSymbol,
+        address ownerRecipient,
+        uint16 lpBps,
+        uint16 ownerBps,
+        uint16 verifierBps,
+        IVaultFactory.LockConfig calldata lockCfg,
+        IVaultFactory.PayoutConfig calldata payoutCfg,
+        bytes32[] calldata adapterKeys,
+        address[] calldata adapterAddrs,
+        uint16[] calldata adapterBps
+    ) external nonReentrant returns (uint256 farmIdOut, address baseVault) {
         require(approvedFarmOwners[msg.sender], "Not an approved farm owner");
-        require(
-            verifierIncentiveSplit +
-                yieldYodaIncentiveSplit +
-                lpIncentiveSplit ==
-                100,
-            "Incentive split must equal 100"
+        require(address(vaultFactory) != address(0), "No VaultFactory");
+        require(uint256(lpBps) + ownerBps + verifierBps == 10_000, "Split!=100%");
+
+        // Assign new farmId (reserve 0 for RootFarm)
+        unchecked { nextFarmId += 1; }
+        farmIdOut = nextFarmId;
+
+        IVaultFactory.VaultAddresses memory addrs = vaultFactory.createVaultStack(
+            asset,
+            vaultName,
+            vaultSymbol,
+            address(this),
+            farmIdOut,
+            msg.sender,
+            ownerRecipient,
+            lpBps,
+            ownerBps,
+            verifierBps,
+            lockCfg,
+            payoutCfg,
+            adapterKeys,
+            adapterAddrs,
+            adapterBps
         );
 
-        // 1) Deploy the claim token for this farm
-        FarmClaimToken farmClaimToken = new FarmClaimToken(
-            claimName,
-            claimSymbol,
-            address(this)
-        );
-
-        // 2) Branch on restake vs. standard
-        if (isRestaked) {
-            (farmId, farmAddr) = farmFactory.createRestakeFarm(
-                salt,
-                asset,
-                maturityPeriod,
-                verifierIncentiveSplit,
-                yieldYodaIncentiveSplit,
-                lpIncentiveSplit,
-                strategy,
-                address(farmClaimToken),
-                msg.sender,
-                rootFarmAddress
-            );
-        } else {
-            (farmId, farmAddr) = farmFactory.createFarm(
-                salt,
-                asset,
-                maturityPeriod,
-                verifierIncentiveSplit,
-                yieldYodaIncentiveSplit,
-                lpIncentiveSplit,
-                strategy,
-                address(farmClaimToken),
-                msg.sender
-            );
-        }
-
-        // 3) Record in ProtocolCore’s registry
-        farmAddressOf[farmId] = farmAddr;
-        farms[farmAddr] = FarmDetails({
-            farmAddress: farmAddr,
+        // Registry entries for backwards compatibility & v3 tracking
+        farmAddressOf[farmIdOut] = addrs.baseVault;
+        farms[addrs.baseVault] = FarmDetails({
+            farmAddress: addrs.baseVault,
             owner: msg.sender,
             asset: asset,
-            farmId: farmId
+            farmId: farmIdOut
         });
 
-        // 4) Hand off claim-token control to the farm
-        farmClaimToken.setMinter(farmAddr);
-        farmClaimToken.setAssociatedFarm(farmAddr);
-        farmClaimToken.transferOwnership(farmAddr);
+        vaultsById[farmIdOut] = VaultDetails({
+            baseVault: addrs.baseVault,
+            owner: msg.sender,
+            asset: asset,
+            farmId: farmIdOut,
+            router: addrs.router,
+            payoutPolicy: addrs.payoutPolicy,
+            lockupPolicy: addrs.lockupPolicy,
+            stakeholderRegistry: addrs.stakeholderRegistry
+        });
+        vaultIdOf[addrs.baseVault] = farmIdOut;
 
-        emit FarmCreated(farmId, farmAddr, msg.sender);
+        emit VaultCreated(
+            farmIdOut,
+            addrs.baseVault,
+            msg.sender,
+            addrs.router,
+            addrs.payoutPolicy,
+            addrs.lockupPolicy,
+            addrs.stakeholderRegistry
+        );
+
+        return (farmIdOut, addrs.baseVault);
     }
 
     // ───────────────────────────────────────────────────────────
@@ -627,7 +691,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         address lp,
         uint256 principal,
         uint256 depositMaturity
-    ) external nonReentrant onlyApprovedFarm {
+    ) external nonReentrant onlyApprovedFarmOrVault {
         require(lp != address(0), "Invalid lp");
         // Retrieve details of the calling farm.
         FarmDetails memory farmDetails = farms[msg.sender];
@@ -696,7 +760,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         address lp,
         uint256 amountWithdrawn,
         bool isEarly
-    ) external nonReentrant onlyApprovedFarm {
+    ) external nonReentrant onlyApprovedFarmOrVault {
         BonusRecord storage rec = bonusRecords[farmId][lp];
         require(rec.pinned, "No pinned bonus or already unpinned");
 
@@ -722,7 +786,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     function unpinPosition(
         uint256 farmId,
         address lp
-    ) external nonReentrant onlyApprovedFarm {
+    ) external nonReentrant onlyApprovedFarmOrVault {
         BonusRecord storage rec = bonusRecords[farmId][lp];
         require(rec.pinned, "No pinned bonus or already unpinned");
         rec.pinned = false;

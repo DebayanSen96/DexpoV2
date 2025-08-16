@@ -2,7 +2,9 @@ import type { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-ethers";
 
 const networks: HardhatUserConfig["networks"] = {
-  hardhat: {},
+  hardhat: {
+    allowUnlimitedContractSize: true,
+  },
 };
 
 if (process.env.SEPOLIA_RPC_URL) {

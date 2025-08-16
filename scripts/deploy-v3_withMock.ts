@@ -128,28 +128,26 @@ async function main() {
   console.log("Approving deployer as farm owner in ProtocolCore...");
   await (await core.setApprovedFarmOwner(deployerAddress, true)).wait();
 
-  // 5-9) Deploy two vault stacks with their own routers, policies, registry, and wire them
-  const StrategyRouter = await ethers.getContractFactory("StrategyRouter");
+  // 5) Deploy VaultFactory and set it in ProtocolCore
+  console.log("Deploying VaultFactory...");
+  const VaultFactory = await ethers.getContractFactory("VaultFactory");
+  const factory = await VaultFactory.deploy(coreAddr);
+  await factory.waitForDeployment();
+  const factoryAddr = await factory.getAddress();
+  console.log("VaultFactory:", factoryAddr);
+  console.log("Wiring VaultFactory in ProtocolCore...");
+  await (await core.setVaultFactory(factoryAddr)).wait();
+
+  // 6) Deploy strategy adapters used in allocations
   const MockStrategyAdapter = await ethers.getContractFactory("MockStrategyAdapter");
-  const LockupPolicy = await ethers.getContractFactory("LockupPolicy");
-  const PayoutPolicy = await ethers.getContractFactory("PayoutPolicy");
-  const StakeholderRegistry = await ethers.getContractFactory("StakeholderRegistry");
-  const BaseVault = await ethers.getContractFactory("BaseVault");
 
   // --- Staking Vault (streaming payouts) ---
-  console.log("Deploying Staking StrategyRouter...");
-  const stakeRouter = await StrategyRouter.deploy(ASSET_TOKEN);
-  await stakeRouter.waitForDeployment();
-  const stakeRouterAddr = await stakeRouter.getAddress();
-  console.log("Staking Router:", stakeRouterAddr);
-
   console.log("Deploying Staking MockStrategyAdapter...");
   const stakeAdapter = await MockStrategyAdapter.deploy(ASSET_TOKEN);
   await stakeAdapter.waitForDeployment();
   const stakeAdapterAddr = await stakeAdapter.getAddress();
   console.log("Staking MockAdapter:", stakeAdapterAddr);
-
-  console.log("Deploying Staking Policies...");
+  console.log("Creating Staking Vault via ProtocolCore.createApprovedVault...");
   const stakeLockCfg = {
     enabled: STAKE_LOCK_ENABLED,
     allowEarlyExit: STAKE_LOCK_ALLOW_EARLY,
@@ -157,10 +155,6 @@ async function main() {
     lockupSeconds: BigInt(STAKE_LOCK_SECONDS),
     postLockMode: STAKE_LOCK_POST_MODE,
   };
-  const stakeLock = await LockupPolicy.deploy(stakeLockCfg);
-  await stakeLock.waitForDeployment();
-  const stakeLockAddr = await stakeLock.getAddress();
-
   const stakePayoutCfg = {
     mode: STAKE_PAYOUT_MODE,
     streamBps: STAKE_PAYOUT_STREAM_BPS,
@@ -169,56 +163,31 @@ async function main() {
     minHarvestInterval: STAKE_PAYOUT_MIN_HARVEST,
     compoundLpOnLock: STAKE_PAYOUT_COMPOUND_ON_LOCK,
   };
-  const stakePayout = await PayoutPolicy.deploy(ASSET_TOKEN, stakePayoutCfg);
-  await stakePayout.waitForDeployment();
-  const stakePayoutAddr = await stakePayout.getAddress();
-
-  console.log("Deploying Staking StakeholderRegistry (farmId=", STAKE_FARM_ID.toString(), ")...");
-  const stakeRegistry = await StakeholderRegistry.deploy(coreAddr, STAKE_FARM_ID);
-  await stakeRegistry.waitForDeployment();
-  const stakeRegistryAddr = await stakeRegistry.getAddress();
-  if (env("SET_INITIAL_SPLITS", "true") === "true") {
-    await (await stakeRegistry.setSplits(7000, 2500, 500)).wait();
-    await (await stakeRegistry.setOwnerRecipient(deployerAddress)).wait();
-  }
-
-  console.log("Deploying Staking BaseVault...");
-  const stakeVault = await BaseVault.deploy(ASSET_TOKEN, STAKE_VAULT_NAME, STAKE_VAULT_SYMBOL);
-  await stakeVault.waitForDeployment();
-  const stakeVaultAddr = await stakeVault.getAddress();
-  console.log("Staking Vault:", stakeVaultAddr);
-  console.log("Wiring Staking Vault modules...");
-  await (await stakeVault.setStrategyRouter(stakeRouterAddr)).wait();
-  await (await stakeVault.setPayoutPolicy(stakePayoutAddr)).wait();
-  // authorize vault in payout policy for streaming accruals
-  await (await stakePayout.setVault(stakeVaultAddr)).wait();
-  await (await stakeVault.setLockupPolicy(stakeLockAddr)).wait();
-  await (await stakeVault.setStakeholderRegistry(stakeRegistryAddr)).wait();
-
-  // Set single-allocation to staking adapter at 100%
-  console.log("Setting Staking allocations -> 100% MockAdapter...");
-  await (await stakeRouter.setAllocations([
-    ethers.id("STAKE_MOCK"),
-  ], [
-    stakeAdapterAddr,
-  ], [
-    10000,
-  ])).wait();
+  const stakeTx = await core.createApprovedVault(
+    ASSET_TOKEN,
+    STAKE_VAULT_NAME,
+    STAKE_VAULT_SYMBOL,
+    deployerAddress,
+    7000, // lpBps
+    2500, // ownerBps
+    500,  // verifierBps
+    stakeLockCfg,
+    stakePayoutCfg,
+    [ethers.id("STAKE_MOCK")],
+    [stakeAdapterAddr],
+    [10000],
+  );
+  const stakeRcpt = await stakeTx.wait();
+  const stakeFarmId = (await core.nextFarmId()).toString();
+  const stakeVaultAddr = await core.farmAddressOf(stakeFarmId);
 
   // --- Lending Vault (lockup payouts) ---
-  console.log("Deploying Lending StrategyRouter...");
-  const lendRouter = await StrategyRouter.deploy(ASSET_TOKEN);
-  await lendRouter.waitForDeployment();
-  const lendRouterAddr = await lendRouter.getAddress();
-  console.log("Lending Router:", lendRouterAddr);
-
   console.log("Deploying Lending MockStrategyAdapter...");
   const lendAdapter = await MockStrategyAdapter.deploy(ASSET_TOKEN);
   await lendAdapter.waitForDeployment();
   const lendAdapterAddr = await lendAdapter.getAddress();
   console.log("Lending MockAdapter:", lendAdapterAddr);
-
-  console.log("Deploying Lending Policies...");
+  console.log("Creating Lending Vault via ProtocolCore.createApprovedVault...");
   const lendLockCfg = {
     enabled: LEND_LOCK_ENABLED,
     allowEarlyExit: LEND_LOCK_ALLOW_EARLY,
@@ -226,10 +195,6 @@ async function main() {
     lockupSeconds: BigInt(LEND_LOCK_SECONDS),
     postLockMode: LEND_LOCK_POST_MODE,
   };
-  const lendLock = await LockupPolicy.deploy(lendLockCfg);
-  await lendLock.waitForDeployment();
-  const lendLockAddr = await lendLock.getAddress();
-
   const lendPayoutCfg = {
     mode: LEND_PAYOUT_MODE,
     streamBps: LEND_PAYOUT_STREAM_BPS,
@@ -238,40 +203,23 @@ async function main() {
     minHarvestInterval: LEND_PAYOUT_MIN_HARVEST,
     compoundLpOnLock: LEND_PAYOUT_COMPOUND_ON_LOCK,
   };
-  const lendPayout = await PayoutPolicy.deploy(ASSET_TOKEN, lendPayoutCfg);
-  await lendPayout.waitForDeployment();
-  const lendPayoutAddr = await lendPayout.getAddress();
-
-  console.log("Deploying Lending StakeholderRegistry (farmId=", LEND_FARM_ID.toString(), ")...");
-  const lendRegistry = await StakeholderRegistry.deploy(coreAddr, LEND_FARM_ID);
-  await lendRegistry.waitForDeployment();
-  const lendRegistryAddr = await lendRegistry.getAddress();
-  if (env("SET_INITIAL_SPLITS", "true") === "true") {
-    await (await lendRegistry.setSplits(7000, 2500, 500)).wait();
-    await (await lendRegistry.setOwnerRecipient(deployerAddress)).wait();
-  }
-
-  console.log("Deploying Lending BaseVault...");
-  const lendVault = await BaseVault.deploy(ASSET_TOKEN, LEND_VAULT_NAME, LEND_VAULT_SYMBOL);
-  await lendVault.waitForDeployment();
-  const lendVaultAddr = await lendVault.getAddress();
-  console.log("Lending Vault:", lendVaultAddr);
-  console.log("Wiring Lending Vault modules...");
-  await (await lendVault.setStrategyRouter(lendRouterAddr)).wait();
-  await (await lendVault.setPayoutPolicy(lendPayoutAddr)).wait();
-  await (await lendPayout.setVault(lendVaultAddr)).wait();
-  await (await lendVault.setLockupPolicy(lendLockAddr)).wait();
-  await (await lendVault.setStakeholderRegistry(lendRegistryAddr)).wait();
-
-  // Set single-allocation to lending adapter at 100%
-  console.log("Setting Lending allocations -> 100% MockAdapter...");
-  await (await lendRouter.setAllocations([
-    ethers.id("LEND_MOCK"),
-  ], [
-    lendAdapterAddr,
-  ], [
-    10000,
-  ])).wait();
+  const lendTx = await core.createApprovedVault(
+    ASSET_TOKEN,
+    LEND_VAULT_NAME,
+    LEND_VAULT_SYMBOL,
+    deployerAddress,
+    7000,
+    2500,
+    500,
+    lendLockCfg,
+    lendPayoutCfg,
+    [ethers.id("LEND_MOCK")],
+    [lendAdapterAddr],
+    [10000],
+  );
+  const lendRcpt = await lendTx.wait();
+  const lendFarmId = (await core.nextFarmId()).toString();
+  const lendVaultAddr = await core.farmAddressOf(lendFarmId);
 
   // Save addresses
   const addresses = {
@@ -281,24 +229,15 @@ async function main() {
       DXPToken: dxpAddr,
       FarmFactory: farmFactoryAddr,
       ProtocolCore: coreAddr,
+      VaultFactory: factoryAddr,
       MockLiquidityManager: mockLmAddr,
+      adapters: {
+        staking: { MockStrategyAdapter: stakeAdapterAddr },
+        lending: { MockStrategyAdapter: lendAdapterAddr },
+      },
       vaults: {
-        staking: {
-          StrategyRouter: stakeRouterAddr,
-          MockStrategyAdapter: stakeAdapterAddr,
-          LockupPolicy: stakeLockAddr,
-          PayoutPolicy: stakePayoutAddr,
-          StakeholderRegistry: stakeRegistryAddr,
-          BaseVault: stakeVaultAddr,
-        },
-        lending: {
-          StrategyRouter: lendRouterAddr,
-          MockStrategyAdapter: lendAdapterAddr,
-          LockupPolicy: lendLockAddr,
-          PayoutPolicy: lendPayoutAddr,
-          StakeholderRegistry: lendRegistryAddr,
-          BaseVault: lendVaultAddr,
-        },
+        staking: { BaseVault: stakeVaultAddr },
+        lending: { BaseVault: lendVaultAddr },
       },
     },
     params: {
@@ -311,7 +250,7 @@ async function main() {
       STAKE: {
         VAULT_NAME: STAKE_VAULT_NAME,
         VAULT_SYMBOL: STAKE_VAULT_SYMBOL,
-        FARM_ID: STAKE_FARM_ID.toString(),
+        FARM_ID: stakeFarmId,
         LOCK_ENABLED: STAKE_LOCK_ENABLED,
         LOCK_ALLOW_EARLY: STAKE_LOCK_ALLOW_EARLY,
         LOCK_EARLY_BPS: STAKE_LOCK_EARLY_BPS,
@@ -328,7 +267,7 @@ async function main() {
       LEND: {
         VAULT_NAME: LEND_VAULT_NAME,
         VAULT_SYMBOL: LEND_VAULT_SYMBOL,
-        FARM_ID: LEND_FARM_ID.toString(),
+        FARM_ID: lendFarmId,
         LOCK_ENABLED: LEND_LOCK_ENABLED,
         LOCK_ALLOW_EARLY: LEND_LOCK_ALLOW_EARLY,
         LOCK_EARLY_BPS: LEND_LOCK_EARLY_BPS,
