@@ -1,0 +1,417 @@
+import express from 'express';
+import type { Request, Response } from 'express';
+import cors from 'cors';
+import { z } from 'zod';
+import { ethers } from 'ethers';
+import path from 'path';
+import fs from 'fs/promises';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// Verbose logging toggle
+const VERBOSE = process.env.VERBOSE === '1' || process.env.VERBOSE === 'true';
+const dbg = (...args: unknown[]) => { if (VERBOSE) console.log('[debug]', ...args); };
+
+// ---- Types (runtime validated via zod) ----
+const addr = z.string().regex(/^0x[a-fA-F0-9]{40}$/);
+const bytes32 = z.string().regex(/^0x[a-fA-F0-9]{64}$/);
+
+const StrategySchema = z.object({
+  key: bytes32,
+  adapter: addr.optional(),
+  bps: z.number().int().min(0).max(10000),
+});
+
+const VaultCreationPayloadSchema = z.object({
+  creator: addr,
+  asset: addr,
+  vaultName: z.string().min(1),
+  vaultSymbol: z.string().min(1),
+  recipients: z.object({ ownerRecipient: addr }),
+  splits: z.object({
+    lpBps: z.number().int().min(0).max(10000),
+    ownerBps: z.number().int().min(0).max(10000),
+    verifierBps: z.number().int().min(0).max(10000),
+  }),
+  lockConfig: z.object({
+    enabled: z.boolean(),
+    allowEarlyExit: z.boolean(),
+    earlyExitBps: z.number().int().min(0).max(10000),
+    lockupSeconds: z.number().int().min(0),
+    postLockMode: z.number().int().min(0).max(255),
+  }),
+  payoutConfig: z.object({
+    mode: z.union([z.literal('Stream'), z.literal('Lockup'), z.number().int().min(0).max(1)]),
+    streamBps: z.number().int().min(0).max(10000),
+    compoundBps: z.number().int().min(0).max(10000),
+    epochSeconds: z.number().int().min(1),
+    minHarvestIntervalSeconds: z.number().int().min(0),
+    compoundLpOnLock: z.boolean(),
+  }),
+  strategies: z.array(StrategySchema).optional(),
+  shareToken: z.object({
+    transferable: z.boolean(),
+    transferFeeBps: z.number().int().min(0).max(1500),
+    feeReceiver: addr.optional(),
+    protocolFeeReceiver: addr.optional(),
+    protocolRakeBps: z.number().int().min(0).max(2000).optional(),
+  }).optional(),
+  meta: z.object({ chainId: z.number().int().optional() }).optional(),
+});
+
+const CreateVaultRequestSchema = z.object({
+  network: z.enum(['localhost', 'hardhat', 'basesepolia', 'base']),
+  payload: VaultCreationPayloadSchema,
+  addresses: z.object({
+    protocolCore: addr.optional(),
+    vaultFactory: addr.optional(),
+  }).optional(),
+  ownerPrivateKey: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
+});
+
+// ---- Minimal ABIs ----
+const ProtocolCoreAbi = [
+  'function approvedFarmOwners(address) view returns (bool)',
+  'function createApprovedVault(address asset,string vaultName,string vaultSymbol,address ownerRecipient,uint16 lpBps,uint16 ownerBps,uint16 verifierBps,tuple(bool enabled,bool allowEarlyExit,uint16 earlyExitBps,uint256 lockupSeconds,uint8 postLockMode) lockCfg,tuple(uint8 mode,uint16 streamBps,uint16 compoundBps,uint256 epoch,uint256 minHarvestInterval,bool compoundLpOnLock) payoutCfg,bytes32[] adapterKeys,address[] adapterAddrs,uint16[] adapterBps) returns (uint256 farmIdOut,address baseVault)',
+  'function vaultsById(uint256) view returns (address baseVault,address owner,address asset,uint256 farmId,address router,address payoutPolicy,address lockupPolicy,address stakeholderRegistry)'
+];
+
+const VaultCreatedEvent = [
+  'event VaultCreated(uint256 indexed farmId,address indexed baseVault,address indexed owner,address router,address payoutPolicy,address lockupPolicy,address stakeholderRegistry)'
+];
+
+// Minimal ABIs for BaseVault and ShareToken configuration
+const BaseVaultAbi = [
+  'function shareToken() view returns (address)'
+];
+const ShareTokenAbi = [
+  'function setTransferable(bool enabled)',
+  'function setTransferFeeBps(uint16 bps)',
+  'function setFeeReceiver(address receiver)',
+  'function setProtocolFee(address receiver,uint16 rakeBps)',
+  'function protocolFeeReceiver() view returns (address)',
+  'function protocolRakeBps() view returns (uint16)'
+];
+
+// ---- Helpers ----
+function resolveRpcUrl(network: 'localhost'|'hardhat'|'basesepolia'|'base'): string {
+  switch (network) {
+    case 'localhost':
+    case 'hardhat':
+      return process.env.LOCALHOST_RPC_URL || 'http://127.0.0.1:8545';
+    case 'basesepolia':
+      return process.env.BASE_SEPOLIA_RPC_URL || 'https://sepolia.base.org';
+    case 'base':
+      return process.env.BASE_MAINNET_RPC_URL || 'https://mainnet.base.org';
+  }
+}
+
+function resolveSignerKey(network: string, fallback?: string): string | undefined {
+  if (fallback) return fallback;
+  if (process.env.PRIVATE_KEY) return process.env.PRIVATE_KEY;
+  switch (network) {
+    case 'localhost':
+    case 'hardhat':
+      return process.env.LOCALHOST_PRIVATE_KEY;
+    case 'basesepolia':
+      return process.env.BASE_SEPOLIA_PRIVATE_KEY;
+    case 'base':
+      return process.env.BASE_MAINNET_PRIVATE_KEY;
+    default:
+      return undefined;
+  }
+}
+
+async function readLatestDeploymentFor(network: string): Promise<any | undefined> {
+  try {
+    const dir = path.join(process.cwd(), 'deployments', network);
+    const files = await fs.readdir(dir);
+    const jsons = files.filter(f => f.endsWith('.json')).sort();
+    if (jsons.length === 0) return undefined;
+    const latest = jsons[jsons.length - 1];
+    const raw = await fs.readFile(path.join(dir, latest), 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function toPayoutMode(v: string | number): number {
+  if (typeof v === 'number') return v;
+  return v === 'Lockup' ? 1 : 0;
+}
+
+function assertSplitSum(lp: number, owner: number, verifier: number) {
+  if (lp + owner + verifier !== 10000) {
+    throw new Error('Split must sum to 10000');
+  }
+}
+
+function ensureStrategiesSum(strats?: { bps: number }[]) {
+  if (!strats || strats.length === 0) return;
+  const sum = strats.reduce((a, s) => a + s.bps, 0);
+  if (sum !== 10000) throw new Error('Strategy bps must sum to 10000');
+}
+
+async function main() {
+  const app = express();
+  app.use(cors());
+  app.use(express.json({ limit: '1mb' }));
+
+  // Request logger (method, path, status, duration)
+  app.use((req: Request, res: Response, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      const ms = Date.now() - start;
+      console.log(`[${req.method}] ${req.originalUrl} -> ${res.statusCode} ${ms}ms`);
+    });
+    dbg('headers', req.headers);
+    next();
+  });
+
+  app.get('/health', (_req: Request, res: Response) => {
+    console.log('GET /health');
+    res.json({ ok: true });
+  });
+
+  app.post('/api/v3/create-vault', async (req: Request, res: Response) => {
+    try {
+      console.log('POST /api/v3/create-vault');
+      const parsed = CreateVaultRequestSchema.parse(req.body);
+      const { network, payload } = parsed;
+      dbg('payload.creator', payload.creator);
+      dbg('payload.asset', payload.asset);
+
+      // pre-validate
+      assertSplitSum(payload.splits.lpBps, payload.splits.ownerBps, payload.splits.verifierBps);
+      ensureStrategiesSum(payload.strategies);
+      dbg('splits', payload.splits);
+      dbg('strategies', payload.strategies);
+      if (payload.shareToken) {
+        dbg('shareToken', payload.shareToken);
+        if (payload.shareToken.transferFeeBps > 0 && !payload.shareToken.feeReceiver) {
+          return res.status(400).json({ error: 'shareToken.feeReceiver required when transferFeeBps > 0' });
+        }
+      }
+
+      const rpcUrl = resolveRpcUrl(network);
+      const pk = resolveSignerKey(network, parsed.ownerPrivateKey);
+      if (!pk) {
+        console.warn('No signer private key available');
+        return res.status(400).json({ error: 'No signer private key available' });
+      }
+
+      const provider = new ethers.JsonRpcProvider(rpcUrl);
+      const baseSigner = new ethers.Wallet(pk, provider);
+      const signer = new ethers.NonceManager(baseSigner);
+      const signerAddr = await signer.getAddress();
+      console.log('rpcUrl', rpcUrl);
+      console.log('signer', signerAddr);
+
+      if (signerAddr.toLowerCase() !== payload.creator.toLowerCase()) {
+        console.warn('Signer does not match payload.creator');
+        return res.status(400).json({ error: 'Signer does not match payload.creator' });
+      }
+
+      // Resolve addresses from request or deployments (ProtocolCore required; VaultFactory optional)
+      let protocolCore = parsed.addresses?.protocolCore;
+      let vaultFactory = parsed.addresses?.vaultFactory;
+      if (!protocolCore || !vaultFactory) {
+        const dep = await readLatestDeploymentFor(network);
+        if (!dep && !protocolCore) {
+          return res.status(400).json({ error: `No deployments found for network ${network} and no addresses provided` });
+        }
+        protocolCore = protocolCore || dep?.contracts?.ProtocolCore;
+        vaultFactory = vaultFactory || dep?.contracts?.VaultFactory;
+      }
+      if (!protocolCore) {
+        return res.status(400).json({ error: 'Missing ProtocolCore address' });
+      }
+      console.log('Using ProtocolCore', protocolCore);
+      if (vaultFactory) {
+        console.log('Using VaultFactory', vaultFactory);
+      } else {
+        console.warn('VaultFactory not found in request or deployments; continuing without it');
+      }
+
+      const iface = new ethers.Interface([...ProtocolCoreAbi, ...VaultCreatedEvent]);
+      const core = new ethers.Contract(protocolCore, ProtocolCoreAbi, signer);
+
+      // Sanity: ensure caller is approved farm owner
+      const approved: boolean = await core.approvedFarmOwners(signerAddr);
+      console.log('approvedFarmOwner', approved);
+      if (!approved) {
+        console.warn('Signer is not an approved farm owner in ProtocolCore');
+        return res.status(403).json({ error: 'Signer is not an approved farm owner in ProtocolCore' });
+      }
+
+      // Build configs
+      const lockCfg = {
+        enabled: payload.lockConfig.enabled,
+        allowEarlyExit: payload.lockConfig.allowEarlyExit,
+        earlyExitBps: payload.lockConfig.earlyExitBps,
+        lockupSeconds: payload.lockConfig.lockupSeconds,
+        postLockMode: payload.lockConfig.postLockMode,
+      };
+      const payoutCfg = {
+        mode: toPayoutMode(payload.payoutConfig.mode),
+        streamBps: payload.payoutConfig.streamBps,
+        compoundBps: payload.payoutConfig.compoundBps,
+        epoch: payload.payoutConfig.epochSeconds,
+        minHarvestInterval: payload.payoutConfig.minHarvestIntervalSeconds,
+        compoundLpOnLock: payload.payoutConfig.compoundLpOnLock,
+      };
+      dbg('lockCfg', lockCfg);
+      dbg('payoutCfg', payoutCfg);
+
+      type Strategy = { key: string; adapter?: string; bps: number };
+      const strategies: Strategy[] = (payload.strategies as unknown as Strategy[]) || [];
+      const adapterKeys = strategies.map((s: Strategy) => s.key);
+      const adapterAddrs = strategies.map((s: Strategy) => s.adapter || ethers.ZeroAddress);
+      const adapterBps = strategies.map((s: Strategy) => s.bps);
+      dbg('adapterKeys', adapterKeys);
+      dbg('adapterAddrs', adapterAddrs);
+      dbg('adapterBps', adapterBps);
+
+      // Call createApprovedVault
+      console.log('Submitting createApprovedVault');
+      const tx = await core.createApprovedVault(
+        payload.asset,
+        payload.vaultName,
+        payload.vaultSymbol,
+        payload.recipients.ownerRecipient,
+        payload.splits.lpBps,
+        payload.splits.ownerBps,
+        payload.splits.verifierBps,
+        lockCfg,
+        payoutCfg,
+        adapterKeys,
+        adapterAddrs,
+        adapterBps
+      );
+      console.log('txHash', tx.hash);
+      const receipt = await tx.wait();
+      console.log('mined', receipt.blockNumber);
+
+      // Try to parse VaultCreated
+      let farmId: string | undefined;
+      let modules: any = {};
+      try {
+        for (const log of receipt.logs) {
+          try {
+            const parsedLog = iface.parseLog(log);
+            if (parsedLog?.name === 'VaultCreated') {
+              farmId = (parsedLog.args[0] as bigint).toString();
+              modules = {
+                baseVault: parsedLog.args[1] as string,
+                owner: parsedLog.args[2] as string,
+                router: parsedLog.args[3] as string,
+                payoutPolicy: parsedLog.args[4] as string,
+                lockupPolicy: parsedLog.args[5] as string,
+                stakeholderRegistry: parsedLog.args[6] as string,
+              };
+              break;
+            }
+          } catch {}
+        }
+      } catch {}
+      if (farmId) console.log('VaultCreated event farmId', farmId);
+
+      // If not found in logs, fall back to view
+      if (!farmId) {
+        // Heuristic: last farm id increments; try a small search window
+        // In strict mode, client can query separately.
+      }
+
+      // If still missing some fields, query vaultsById
+      if (farmId) {
+        const all = await core.vaultsById(farmId);
+        modules = {
+          baseVault: all[0],
+          owner: all[1],
+          asset: all[2],
+          farmId: (all[3] as bigint).toString(),
+          router: all[4],
+          payoutPolicy: all[5],
+          lockupPolicy: all[6],
+          stakeholderRegistry: all[7],
+        };
+        console.log('Modules', modules);
+      }
+
+      // Apply ShareToken configuration (if provided) as the owner after deployment
+      if (payload.shareToken) {
+        try {
+          const baseVaultAddr: string | undefined = modules.baseVault as string | undefined;
+          if (baseVaultAddr && baseVaultAddr !== ethers.ZeroAddress) {
+            console.log('Applying ShareToken config to baseVault', baseVaultAddr);
+            const vault = new ethers.Contract(baseVaultAddr, BaseVaultAbi, signer);
+            const stAddr: string = await vault.shareToken();
+            console.log('ShareToken address', stAddr);
+            const st = new ethers.Contract(stAddr, ShareTokenAbi, signer);
+            const cfg = payload.shareToken;
+
+            // Transferability
+            const t1 = await st.setTransferable(cfg.transferable);
+            console.log('setTransferable tx', t1.hash);
+            await t1.wait();
+
+            // Transfer fee bps
+            const t2 = await st.setTransferFeeBps(cfg.transferFeeBps);
+            console.log('setTransferFeeBps tx', t2.hash);
+            await t2.wait();
+
+            // Fee receiver (owner/farm recipient)
+            if (cfg.feeReceiver) {
+              const t3 = await st.setFeeReceiver(cfg.feeReceiver);
+              console.log('setFeeReceiver tx', t3.hash);
+              await t3.wait();
+            }
+
+            // Protocol fee receiver and rake (if either provided)
+            if (cfg.protocolFeeReceiver !== undefined || cfg.protocolRakeBps !== undefined) {
+              const currentReceiver: string = await st.protocolFeeReceiver();
+              const currentRake: number = await st.protocolRakeBps();
+              const recv = cfg.protocolFeeReceiver ?? currentReceiver;
+              const rake = cfg.protocolRakeBps ?? currentRake;
+              const t4 = await st.setProtocolFee(recv, rake);
+              console.log('setProtocolFee tx', t4.hash);
+              await t4.wait();
+            }
+
+            // Include ShareToken address in response modules
+            (modules as any).shareToken = stAddr;
+          } else {
+            console.warn('No baseVault resolved; skipping ShareToken config');
+          }
+        } catch (e) {
+          console.error('Failed to apply ShareToken config', e);
+        }
+      }
+
+      return res.json({
+        network,
+        protocolCore,
+        vaultFactory,
+        txHash: receipt.hash,
+        farmId,
+        modules,
+      });
+    } catch (err: any) {
+      console.error('Error in /api/v3/create-vault', err);
+      const msg = err?.message || 'Unknown error';
+      return res.status(500).json({ error: msg });
+    }
+  });
+
+  const port = Number(process.env.PORT || 3001);
+  app.listen(port, () => {
+    console.log(`Dexponent v3 API listening on :${port}`);
+  });
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

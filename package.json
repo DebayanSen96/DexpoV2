@@ -3,11 +3,21 @@
   "version": "1.0.0",
   "scripts": {
     "deploy:v3": "hardhat run scripts/deploy-v3.ts",
-    "deploy:v3:sepolia": "hardhat run scripts/deploy-v3.ts --network sepolia"
+    "deploy:v3:sepolia": "hardhat run scripts/deploy-v3.ts --network sepolia",
+    "api:typecheck": "tsc -p server/tsconfig.json --noEmit",
+    "api:start": "ts-node server/index.ts"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^3.1.0",
     "@openzeppelin/contracts": "^5.4.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
     "@types/node": "^22.17.1",
     "ethers": "^6.13.4",
     "forge-std": "github:foundry-rs/forge-std#v1.9.4",

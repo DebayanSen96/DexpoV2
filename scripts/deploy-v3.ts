@@ -124,6 +124,16 @@ async function main() {
   console.log("Wiring LiquidityManager in ProtocolCore...");
   await (await core.setLiquidityManager(mockLmAddr)).wait();
 
+  // 5) Deploy VaultFactory (v3) and wire into ProtocolCore
+  console.log("Deploying v3 VaultFactory...");
+  const VaultFactory = await ethers.getContractFactory("VaultFactory");
+  const vaultFactory = await VaultFactory.deploy(coreAddr);
+  await vaultFactory.waitForDeployment();
+  const vaultFactoryAddr = await vaultFactory.getAddress();
+  console.log("VaultFactory:", vaultFactoryAddr);
+  console.log("Wiring VaultFactory in ProtocolCore...");
+  await (await core.setVaultFactory(vaultFactoryAddr)).wait();
+
   // Optionally approve deployer as farm owner in core (useful for tests)
   console.log("Approving deployer as farm owner in ProtocolCore...");
   await (await core.setApprovedFarmOwner(deployerAddress, true)).wait();
@@ -162,7 +172,7 @@ async function main() {
     minHarvestInterval: STAKE_PAYOUT_MIN_HARVEST,
     compoundLpOnLock: STAKE_PAYOUT_COMPOUND_ON_LOCK,
   };
-  const stakePayout = await PayoutPolicy.deploy(stakePayoutCfg);
+  const stakePayout = await PayoutPolicy.deploy(ASSET_TOKEN, stakePayoutCfg);
   await stakePayout.waitForDeployment();
   const stakePayoutAddr = await stakePayout.getAddress();
 
@@ -213,7 +223,7 @@ async function main() {
     minHarvestInterval: LEND_PAYOUT_MIN_HARVEST,
     compoundLpOnLock: LEND_PAYOUT_COMPOUND_ON_LOCK,
   };
-  const lendPayout = await PayoutPolicy.deploy(lendPayoutCfg);
+  const lendPayout = await PayoutPolicy.deploy(ASSET_TOKEN, lendPayoutCfg);
   await lendPayout.waitForDeployment();
   const lendPayoutAddr = await lendPayout.getAddress();
 
@@ -245,6 +255,7 @@ async function main() {
       DXPToken: dxpAddr,
       FarmFactory: farmFactoryAddr,
       ProtocolCore: coreAddr,
+      VaultFactory: vaultFactoryAddr,
       MockLiquidityManager: mockLmAddr,
       vaults: {
         staking: {
