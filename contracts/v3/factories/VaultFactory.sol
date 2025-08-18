@@ -48,7 +48,7 @@ contract VaultFactory is IVaultFactory, Ownable {
         uint16[] calldata adapterBps
     ) external onlyCore returns (VaultAddresses memory addrs) {
         // 1) Deploy components (factory temporarily owns them)
-        StrategyRouter router = new StrategyRouter(asset);
+        StrategyRouter router = new StrategyRouter(asset, core);
         LockupPolicy lockup = new LockupPolicy(
             ILockupPolicy.LockConfig({
                 enabled: lockCfg.enabled,

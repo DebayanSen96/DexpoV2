@@ -6,6 +6,7 @@ import { ethers } from 'ethers';
 import path from 'path';
 import fs from 'fs/promises';
 import dotenv from 'dotenv';
+import { deployUniV3AdapterAndWire } from './services/strategyService';
 
 dotenv.config();
 
@@ -70,10 +71,36 @@ const CreateVaultRequestSchema = z.object({
   ownerPrivateKey: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
 });
 
+const DeployStrategyRequestSchema = z.object({
+  network: z.enum(['localhost', 'hardhat', 'basesepolia', 'base']),
+  ownerPrivateKey: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
+  // Identify target router either directly or via farmId on ProtocolCore
+  router: addr.optional(),
+  farmId: z.union([z.string(), z.number()]).optional(),
+  addresses: z.object({
+    protocolCore: addr.optional(),
+  }).optional(),
+  // Strategy config (MVP: staking via UniV3WethToWstETHAdapter)
+  strategyKey: z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional(),
+  bps: z.number().int().min(0).max(10000).optional(),
+  deployOnly: z.boolean().optional(),
+  // Adapter params (optional overrides)
+  baseAsset: addr.optional(),
+  wstETH: addr.optional(),
+  swapRouter: addr.optional(),
+  quoter: addr.optional(),
+  poolFee: z.number().int().min(1).max(1_000_000).optional(),
+  slippageBps: z.number().int().min(0).max(2000).optional(),
+  minDeposit: z.union([z.string(), z.number()]).optional(),
+  minWithdraw: z.union([z.string(), z.number()]).optional(),
+});
+
 // ---- Minimal ABIs ----
 const ProtocolCoreAbi = [
+  'function owner() view returns (address)',
   'function approvedFarmOwners(address) view returns (bool)',
   'function createApprovedVault(address asset,string vaultName,string vaultSymbol,address ownerRecipient,uint16 lpBps,uint16 ownerBps,uint16 verifierBps,tuple(bool enabled,bool allowEarlyExit,uint16 earlyExitBps,uint256 lockupSeconds,uint8 postLockMode) lockCfg,tuple(uint8 mode,uint16 streamBps,uint16 compoundBps,uint256 epoch,uint256 minHarvestInterval,bool compoundLpOnLock) payoutCfg,tuple(bool transferable,uint16 transferFeeBps,address feeReceiver,address protocolFeeReceiver,uint16 protocolRakeBps) stCfg,bytes32[] adapterKeys,address[] adapterAddrs,uint16[] adapterBps) returns (uint256 farmIdOut,address baseVault)',
+  'function createApprovedVaultFor(address creator,address asset,string vaultName,string vaultSymbol,address ownerRecipient,uint16 lpBps,uint16 ownerBps,uint16 verifierBps,tuple(bool enabled,bool allowEarlyExit,uint16 earlyExitBps,uint256 lockupSeconds,uint8 postLockMode) lockCfg,tuple(uint8 mode,uint16 streamBps,uint16 compoundBps,uint256 epoch,uint256 minHarvestInterval,bool compoundLpOnLock) payoutCfg,tuple(bool transferable,uint16 transferFeeBps,address feeReceiver,address protocolFeeReceiver,uint16 protocolRakeBps) stCfg,bytes32[] adapterKeys,address[] adapterAddrs,uint16[] adapterBps) returns (uint256 farmIdOut,address baseVault)',
   'function vaultsById(uint256) view returns (address baseVault,address owner,address asset,uint256 farmId,address router,address payoutPolicy,address lockupPolicy,address stakeholderRegistry)'
 ];
 
@@ -170,6 +197,74 @@ async function main() {
     next();
   });
 
+  // Deploy and wire a UniV3 staking adapter to a router (or farm via ProtocolCore)
+  app.post('/api/v3/strategies/deploy-and-wire', async (req: Request, res: Response) => {
+    try {
+      console.log('POST /api/v3/strategies/deploy-and-wire');
+      const parsed = DeployStrategyRequestSchema.parse(req.body);
+      const { network, router: routerIn, farmId, addresses, strategyKey, bps, deployOnly, baseAsset, wstETH, swapRouter, quoter, poolFee, slippageBps, minDeposit, minWithdraw } = parsed;
+
+      const rpcUrl = resolveRpcUrl(network);
+      const pk = resolveSignerKey(network, parsed.ownerPrivateKey);
+      if (!pk) return res.status(400).json({ error: 'No signer private key available' });
+      const provider = new ethers.JsonRpcProvider(rpcUrl);
+      const baseSigner = new ethers.Wallet(pk, provider);
+      const signer = new ethers.NonceManager(baseSigner);
+      const signerAddr = await signer.getAddress();
+
+      // Resolve router address
+      let routerAddr = routerIn;
+      if (!routerAddr) {
+        if (!farmId) return res.status(400).json({ error: 'Provide router or farmId' });
+        // Resolve ProtocolCore
+        let protocolCore = addresses?.protocolCore;
+        if (!protocolCore) {
+          const dep = await readLatestDeploymentFor(network);
+          protocolCore = dep?.contracts?.ProtocolCore;
+        }
+        if (!protocolCore) return res.status(400).json({ error: 'Missing ProtocolCore address to resolve farm router' });
+        const core = new ethers.Contract(protocolCore, ProtocolCoreAbi, signer);
+        const info = await core.vaultsById(farmId);
+        routerAddr = info[4];
+      }
+
+      if (!routerAddr) return res.status(400).json({ error: 'Unable to resolve router address' });
+
+      // Deploy adapter and wire allocations (require router owner)
+      const result = await deployUniV3AdapterAndWire(network, {
+        provider,
+        signer,
+        router: routerAddr,
+        strategyKey,
+        bps,
+        deployOnly,
+        baseAsset,
+        wstETH,
+        swapRouter,
+        quoter,
+        poolFee,
+        slippageBps,
+        minDeposit,
+        minWithdraw,
+      });
+
+      return res.json({
+        network,
+        router: routerAddr,
+        adapter: result.adapter,
+        strategyKey: result.strategyKeyUsed,
+        txs: {
+          deploy: result.deployTxHash,
+          configs: result.configTxHashes,
+          allocation: result.allocationTxHash,
+        },
+      });
+    } catch (err: any) {
+      console.error('Error in /api/v3/strategies/deploy-and-wire', err);
+      return res.status(500).json({ error: err?.message || 'Unknown error' });
+    }
+  });
+
   app.get('/health', (_req: Request, res: Response) => {
     console.log('GET /health');
     res.json({ ok: true });
@@ -209,10 +304,8 @@ async function main() {
       console.log('rpcUrl', rpcUrl);
       console.log('signer', signerAddr);
 
-      if (signerAddr.toLowerCase() !== payload.creator.toLowerCase()) {
-        console.warn('Signer does not match payload.creator');
-        return res.status(400).json({ error: 'Signer does not match payload.creator' });
-      }
+      // Note: We no longer require signer == payload.creator.
+      // Server uses env key (protocol owner) to deploy. ProtocolCore must authorize this signer.
 
       // Resolve addresses from request or deployments (ProtocolCore required; VaultFactory optional)
       let protocolCore = parsed.addresses?.protocolCore;
@@ -237,13 +330,23 @@ async function main() {
 
       const iface = new ethers.Interface([...ProtocolCoreAbi, ...VaultCreatedEvent]);
       const core = new ethers.Contract(protocolCore, ProtocolCoreAbi, signer);
-
-      // Sanity: ensure caller is approved farm owner
-      const approved: boolean = await core.approvedFarmOwners(signerAddr);
-      console.log('approvedFarmOwner', approved);
-      if (!approved) {
-        console.warn('Signer is not an approved farm owner in ProtocolCore');
-        return res.status(403).json({ error: 'Signer is not an approved farm owner in ProtocolCore' });
+      const coreOwner: string = await core.owner();
+      const isProtocolOwner = coreOwner.toLowerCase() === signerAddr.toLowerCase();
+      if (isProtocolOwner) {
+        const creatorApproved: boolean = await core.approvedFarmOwners(payload.creator);
+        console.log('creator.approvedFarmOwner', creatorApproved);
+        if (!creatorApproved) {
+          return res.status(403).json({ error: 'Creator is not an approved farm owner in ProtocolCore' });
+        }
+      } else {
+        const signerApproved: boolean = await core.approvedFarmOwners(signerAddr);
+        console.log('signer.approvedFarmOwner', signerApproved);
+        if (!signerApproved) {
+          return res.status(403).json({ error: 'Signer is not an approved farm owner in ProtocolCore' });
+        }
+        if (payload.creator.toLowerCase() !== signerAddr.toLowerCase()) {
+          return res.status(403).json({ error: 'Only protocol owner may create vaults for another creator' });
+        }
       }
 
       // Build configs
@@ -284,8 +387,9 @@ async function main() {
       dbg('adapterBps', adapterBps);
 
       // Call createApprovedVault
-      console.log('Submitting createApprovedVault');
-      const tx = await core.createApprovedVault(
+      console.log('Submitting createApprovedVaultFor');
+      const tx = await core.createApprovedVaultFor(
+        payload.creator,
         payload.asset,
         payload.vaultName,
         payload.vaultSymbol,

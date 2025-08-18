@@ -1,12 +1,5 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { ethers } from 'ethers';
-
-// Minimal ABI for approval checks
-const ProtocolCoreAbi = [
-  'function approvedFarmOwners(address) view returns (bool)',
-  'function setApprovedFarmOwner(address,bool)'
-];
 
 async function readLatestDeployment(network: string) {
   const dir = path.join(process.cwd(), 'deployments', network);
@@ -20,37 +13,24 @@ async function readLatestDeployment(network: string) {
 async function main() {
   // Config
   const network = 'localhost';
-  const rpcUrl = process.env.LOCALHOST_RPC_URL || 'http://127.0.0.1:8545';
   const serverUrl = process.env.API_URL || 'http://127.0.0.1:3001';
 
-  // Use provided private key (ensure 0x prefix)
-  // Default to Hardhat account #0 if PK not provided
-  let pk = process.env.PK || 'ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
-  if (!pk.startsWith('0x')) pk = '0x' + pk;
-
-  const provider = new ethers.JsonRpcProvider(rpcUrl);
-  const wallet = new ethers.Wallet(pk, provider);
-  const creator = await wallet.getAddress();
+  // Creator address to assign vault ownership to (no private key needed)
+  const creator = process.env.CREATOR_ADDRESS || process.env.CREATOR;
+  if (!creator || !/^0x[a-fA-F0-9]{40}$/.test(creator)) {
+    throw new Error('Set CREATOR_ADDRESS env var to a valid address');
+  }
 
   // Read deployment for asset address
   const dep = await readLatestDeployment(network);
   const asset: string = dep.params?.ASSET_TOKEN || dep.contracts?.DXPToken;
   if (!asset) throw new Error('Could not resolve asset token from deployments');
 
-  // Ensure creator is approved as farm owner in ProtocolCore
-  const coreAddr: string | undefined = dep.contracts?.ProtocolCore;
-  if (!coreAddr) throw new Error('Could not resolve ProtocolCore from deployments');
-  const core = new ethers.Contract(coreAddr, ProtocolCoreAbi, wallet);
-  const isApproved: boolean = await core.approvedFarmOwners(creator);
-  if (!isApproved) {
-    const tx = await core.setApprovedFarmOwner(creator, true);
-    await tx.wait();
-  }
+  // Note: Do not attempt on-chain approvals here; server will use its signer.
 
   // Build payload
   const payload = {
     network: network as 'localhost',
-    ownerPrivateKey: pk,
     payload: {
       creator,
       asset,
@@ -84,11 +64,9 @@ async function main() {
     },
   };
 
-  // Print request payload (redact PK unless SHOW_PK=1)
-  const showPk = process.env.SHOW_PK === '1' || process.env.SHOW_PK === 'true';
-  const printable = { ...payload, ownerPrivateKey: showPk ? payload.ownerPrivateKey : '***redacted***' };
+  // Print request payload
   console.log('Request Payload:');
-  console.log(JSON.stringify(printable, null, 2));
+  console.log(JSON.stringify(payload, null, 2));
   console.log('POST', `${serverUrl}/api/v3/create-vault`);
 
   // POST to server

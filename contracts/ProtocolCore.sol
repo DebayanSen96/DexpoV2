@@ -497,6 +497,93 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         return (farmIdOut, addrs.baseVault);
     }
 
+    /**
+     * @notice Create a new v3 vault for a specified `creator` (farm owner).
+     *         Protocol owner may call this for any approved farm owner. A farm owner
+     *         may call this only for themselves.
+     */
+    function createApprovedVaultFor(
+        address creator,
+        address asset,
+        string memory vaultName,
+        string memory vaultSymbol,
+        address ownerRecipient,
+        uint16 lpBps,
+        uint16 ownerBps,
+        uint16 verifierBps,
+        IVaultFactory.LockConfig calldata lockCfg,
+        IVaultFactory.PayoutConfig calldata payoutCfg,
+        IVaultFactory.ShareTokenConfig calldata stCfg,
+        bytes32[] calldata adapterKeys,
+        address[] calldata adapterAddrs,
+        uint16[] calldata adapterBps
+    ) external nonReentrant returns (uint256 farmIdOut, address baseVault) {
+        require(address(vaultFactory) != address(0), "No VaultFactory");
+        require(uint256(lpBps) + ownerBps + verifierBps == 10_000, "Split!=100%");
+
+        bool isProtocolOwner = (msg.sender == owner());
+        if (isProtocolOwner) {
+            require(approvedFarmOwners[creator], "Creator not approved");
+        } else {
+            require(approvedFarmOwners[msg.sender], "Not an approved farm owner");
+            require(msg.sender == creator, "Sender!=creator");
+        }
+
+        unchecked { nextFarmId += 1; }
+        farmIdOut = nextFarmId;
+
+        IVaultFactory.VaultAddresses memory addrs = vaultFactory.createVaultStack(
+            asset,
+            vaultName,
+            vaultSymbol,
+            address(this),
+            farmIdOut,
+            creator,
+            ownerRecipient,
+            lpBps,
+            ownerBps,
+            verifierBps,
+            lockCfg,
+            payoutCfg,
+            stCfg,
+            adapterKeys,
+            adapterAddrs,
+            adapterBps
+        );
+
+        farmAddressOf[farmIdOut] = addrs.baseVault;
+        farms[addrs.baseVault] = FarmDetails({
+            farmAddress: addrs.baseVault,
+            owner: creator,
+            asset: asset,
+            farmId: farmIdOut
+        });
+
+        vaultsById[farmIdOut] = VaultDetails({
+            baseVault: addrs.baseVault,
+            owner: creator,
+            asset: asset,
+            farmId: farmIdOut,
+            router: addrs.router,
+            payoutPolicy: addrs.payoutPolicy,
+            lockupPolicy: addrs.lockupPolicy,
+            stakeholderRegistry: addrs.stakeholderRegistry
+        });
+        vaultIdOf[addrs.baseVault] = farmIdOut;
+
+        emit VaultCreated(
+            farmIdOut,
+            addrs.baseVault,
+            creator,
+            addrs.router,
+            addrs.payoutPolicy,
+            addrs.lockupPolicy,
+            addrs.stakeholderRegistry
+        );
+
+        return (farmIdOut, addrs.baseVault);
+    }
+
     // ───────────────────────────────────────────────────────────
     //                    VERIFIER STAKING LOGIC
     // ───────────────────────────────────────────────────────────

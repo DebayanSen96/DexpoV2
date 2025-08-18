@@ -8,6 +8,10 @@ import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "../interfaces/IStrategyRouter.sol";
 import "../interfaces/IStrategyAdapter.sol";
 
+interface IOwnable {
+    function owner() external view returns (address);
+}
+
 /**
  * @title StrategyRouter (v3)
  * @notice Holds target allocations and will orchestrate deposits/withdrawals across adapters.
@@ -18,13 +22,22 @@ contract StrategyRouter is IStrategyRouter, Ownable {
     using SafeERC20 for IERC20;
 
     address public immutable override asset;
+    address public immutable protocolCore;
 
     struct Allocation { address adapter; uint16 bps; }
 
     EnumerableSet.Bytes32Set private _ids;
     mapping(bytes32 => Allocation) public alloc;
 
-    constructor(address asset_) Ownable(msg.sender) { asset = asset_; }
+    constructor(address asset_, address protocolCore_) Ownable(msg.sender) {
+        asset = asset_;
+        protocolCore = protocolCore_;
+    }
+
+    modifier onlyOwnerOrProtocolOwner() {
+        if (msg.sender != owner() && msg.sender != IOwnable(protocolCore).owner()) revert("Unauthorized");
+        _;
+    }
 
     function allocations() external view override returns (
         bytes32[] memory ids,
@@ -47,7 +60,7 @@ contract StrategyRouter is IStrategyRouter, Ownable {
         bytes32[] calldata ids,
         address[] calldata adapters,
         uint16[] calldata bps
-    ) external override onlyOwner {
+    ) external override onlyOwnerOrProtocolOwner {
         require(ids.length == adapters.length && ids.length == bps.length, "LenMismatch");
         uint256 sum;
         // reset existing set
@@ -109,7 +122,7 @@ contract StrategyRouter is IStrategyRouter, Ownable {
         }
     }
 
-    function rebalance(uint16[] calldata targetBps) external override onlyOwner {
+    function rebalance(uint16[] calldata targetBps) external override onlyOwnerOrProtocolOwner {
         uint256 n = _ids.length();
         require(targetBps.length == n, "LenMismatch");
         uint256 sum = 0;

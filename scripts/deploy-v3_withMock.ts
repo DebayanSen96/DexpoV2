@@ -147,7 +147,7 @@ async function main() {
   await stakeAdapter.waitForDeployment();
   const stakeAdapterAddr = await stakeAdapter.getAddress();
   console.log("Staking MockAdapter:", stakeAdapterAddr);
-  console.log("Creating Staking Vault via ProtocolCore.createApprovedVault...");
+  console.log("Creating Staking Vault via ProtocolCore.createApprovedVaultFor...");
   const stakeLockCfg = {
     enabled: STAKE_LOCK_ENABLED,
     allowEarlyExit: STAKE_LOCK_ALLOW_EARLY,
@@ -163,7 +163,15 @@ async function main() {
     minHarvestInterval: STAKE_PAYOUT_MIN_HARVEST,
     compoundLpOnLock: STAKE_PAYOUT_COMPOUND_ON_LOCK,
   };
-  const stakeTx = await core.createApprovedVault(
+  const stakeShareTokenCfg = {
+    transferable: true,
+    transferFeeBps: 0,
+    feeReceiver: ethers.ZeroAddress,
+    protocolFeeReceiver: ethers.ZeroAddress,
+    protocolRakeBps: 0,
+  };
+  const stakeTx = await core.createApprovedVaultFor(
+    deployerAddress, // creator (farm owner)
     ASSET_TOKEN,
     STAKE_VAULT_NAME,
     STAKE_VAULT_SYMBOL,
@@ -173,19 +181,48 @@ async function main() {
     500,  // verifierBps
     stakeLockCfg,
     stakePayoutCfg,
+    stakeShareTokenCfg,
     [ethers.id("STAKE_MOCK")],
     [stakeAdapterAddr],
     [10000],
   );
   const stakeRcpt = await stakeTx.wait();
-  const stakeFarmId = (await core.nextFarmId()).toString();
-  const stakeVaultAddr = await core.farmAddressOf(stakeFarmId);
-  // Fetch full vault module addresses from ProtocolCore registry
-  const stakeDetails = await core.vaultsById(BigInt(stakeFarmId));
-  const stakeRouterAddr: string = stakeDetails.router;
-  const stakePayoutAddr: string = stakeDetails.payoutPolicy;
-  const stakeLockupAddr: string = stakeDetails.lockupPolicy;
-  const stakeRegistryAddr: string = stakeDetails.stakeholderRegistry;
+  // Parse VaultCreated event to get farmId and module addresses
+  const iface = new ethers.Interface([
+    'event VaultCreated(uint256 indexed farmId,address indexed baseVault,address indexed owner,address router,address payoutPolicy,address lockupPolicy,address stakeholderRegistry)'
+  ]);
+  let stakeFarmId = '';
+  let stakeVaultAddr = '';
+  let stakeRouterAddr = '';
+  let stakePayoutAddr = '';
+  let stakeLockupAddr = '';
+  let stakeRegistryAddr = '';
+  for (const log of stakeRcpt.logs) {
+    try {
+      const parsed = iface.parseLog(log);
+      if (parsed?.name === 'VaultCreated') {
+        stakeFarmId = (parsed.args[0] as bigint).toString();
+        stakeVaultAddr = parsed.args[1] as string;
+        stakeRouterAddr = parsed.args[3] as string;
+        stakePayoutAddr = parsed.args[4] as string;
+        stakeLockupAddr = parsed.args[5] as string;
+        stakeRegistryAddr = parsed.args[6] as string;
+        break;
+      }
+    } catch {}
+  }
+  if (!stakeFarmId) {
+    // Fallback to view if event parsing failed
+    const latestId = await core.nextFarmId();
+    const guessedId = (BigInt(latestId) /* next id */).toString();
+    const details = await core.vaultsById(BigInt(guessedId));
+    stakeFarmId = (details.farmId as bigint).toString();
+    stakeVaultAddr = details.baseVault as string;
+    stakeRouterAddr = details.router as string;
+    stakePayoutAddr = details.payoutPolicy as string;
+    stakeLockupAddr = details.lockupPolicy as string;
+    stakeRegistryAddr = details.stakeholderRegistry as string;
+  }
 
   // --- Lending Vault (lockup payouts) ---
   console.log("Deploying Lending MockStrategyAdapter...");
@@ -193,7 +230,7 @@ async function main() {
   await lendAdapter.waitForDeployment();
   const lendAdapterAddr = await lendAdapter.getAddress();
   console.log("Lending MockAdapter:", lendAdapterAddr);
-  console.log("Creating Lending Vault via ProtocolCore.createApprovedVault...");
+  console.log("Creating Lending Vault via ProtocolCore.createApprovedVaultFor...");
   const lendLockCfg = {
     enabled: LEND_LOCK_ENABLED,
     allowEarlyExit: LEND_LOCK_ALLOW_EARLY,
@@ -209,7 +246,15 @@ async function main() {
     minHarvestInterval: LEND_PAYOUT_MIN_HARVEST,
     compoundLpOnLock: LEND_PAYOUT_COMPOUND_ON_LOCK,
   };
-  const lendTx = await core.createApprovedVault(
+  const lendShareTokenCfg = {
+    transferable: true,
+    transferFeeBps: 0,
+    feeReceiver: ethers.ZeroAddress,
+    protocolFeeReceiver: ethers.ZeroAddress,
+    protocolRakeBps: 0,
+  };
+  const lendTx = await core.createApprovedVaultFor(
+    deployerAddress,
     ASSET_TOKEN,
     LEND_VAULT_NAME,
     LEND_VAULT_SYMBOL,
@@ -219,19 +264,43 @@ async function main() {
     500,
     lendLockCfg,
     lendPayoutCfg,
+    lendShareTokenCfg,
     [ethers.id("LEND_MOCK")],
     [lendAdapterAddr],
     [10000],
   );
   const lendRcpt = await lendTx.wait();
-  const lendFarmId = (await core.nextFarmId()).toString();
-  const lendVaultAddr = await core.farmAddressOf(lendFarmId);
-  // Fetch full vault module addresses from ProtocolCore registry
-  const lendDetails = await core.vaultsById(BigInt(lendFarmId));
-  const lendRouterAddr: string = lendDetails.router;
-  const lendPayoutAddr: string = lendDetails.payoutPolicy;
-  const lendLockupAddr: string = lendDetails.lockupPolicy;
-  const lendRegistryAddr: string = lendDetails.stakeholderRegistry;
+  let lendFarmId = '';
+  let lendVaultAddr = '';
+  let lendRouterAddr = '';
+  let lendPayoutAddr = '';
+  let lendLockupAddr = '';
+  let lendRegistryAddr = '';
+  for (const log of lendRcpt.logs) {
+    try {
+      const parsed = iface.parseLog(log);
+      if (parsed?.name === 'VaultCreated') {
+        lendFarmId = (parsed.args[0] as bigint).toString();
+        lendVaultAddr = parsed.args[1] as string;
+        lendRouterAddr = parsed.args[3] as string;
+        lendPayoutAddr = parsed.args[4] as string;
+        lendLockupAddr = parsed.args[5] as string;
+        lendRegistryAddr = parsed.args[6] as string;
+        break;
+      }
+    } catch {}
+  }
+  if (!lendFarmId) {
+    const latestId = await core.nextFarmId();
+    const guessedId = (BigInt(latestId)).toString();
+    const details = await core.vaultsById(BigInt(guessedId));
+    lendFarmId = (details.farmId as bigint).toString();
+    lendVaultAddr = details.baseVault as string;
+    lendRouterAddr = details.router as string;
+    lendPayoutAddr = details.payoutPolicy as string;
+    lendLockupAddr = details.lockupPolicy as string;
+    lendRegistryAddr = details.stakeholderRegistry as string;
+  }
 
   // Save addresses
   const addresses = {
