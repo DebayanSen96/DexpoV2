@@ -2,6 +2,8 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
@@ -14,15 +16,18 @@ interface IOwnable {
 
 /**
  * @title StrategyRouter (v3)
- * @notice Holds target allocations and will orchestrate deposits/withdrawals across adapters.
- *         MVP skeleton: stores allocations and exposes totalAssets() placeholder.
+ * @notice Holds target allocations and orchestrates deposits/withdrawals across adapters.
+ *         Access: wiring by owner/protocol owner; ops only by the configured vault.
  */
-contract StrategyRouter is IStrategyRouter, Ownable {
+contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using SafeERC20 for IERC20;
 
     address public immutable override asset;
     address public immutable protocolCore;
+
+    // Vault authorized to operate allocate/deallocate/harvest
+    address public vault;
 
     struct Allocation { address adapter; uint16 bps; }
 
@@ -38,6 +43,8 @@ contract StrategyRouter is IStrategyRouter, Ownable {
         if (msg.sender != owner() && msg.sender != IOwnable(protocolCore).owner()) revert("Unauthorized");
         _;
     }
+
+    event VaultSet(address indexed vault);
 
     function allocations() external view override returns (
         bytes32[] memory ids,
@@ -60,7 +67,7 @@ contract StrategyRouter is IStrategyRouter, Ownable {
         bytes32[] calldata ids,
         address[] calldata adapters,
         uint16[] calldata bps
-    ) external override onlyOwnerOrProtocolOwner {
+    ) external override onlyOwnerOrProtocolOwner whenNotPaused {
         require(ids.length == adapters.length && ids.length == bps.length, "LenMismatch");
         uint256 sum;
         // reset existing set
@@ -79,7 +86,20 @@ contract StrategyRouter is IStrategyRouter, Ownable {
         require(sum == 10_000, "SumBps");
     }
 
-    function allocate(uint256 amount) external override returns (uint256 deployed) {
+    // One-time vault setter used during initial wiring by the factory/owner
+    function setVault(address vault_) external onlyOwner {
+        require(vault_ != address(0), "VaultZero");
+        require(vault == address(0), "VaultSet");
+        vault = vault_;
+        emit VaultSet(vault_);
+    }
+
+    modifier onlyVault() {
+        require(msg.sender == vault, "NotVault");
+        _;
+    }
+
+    function allocate(uint256 amount) external override onlyVault nonReentrant whenNotPaused returns (uint256 deployed) {
         require(amount > 0, "ZeroAmount");
         uint256 n = _ids.length();
         require(n > 0, "NoAlloc");
@@ -102,7 +122,7 @@ contract StrategyRouter is IStrategyRouter, Ownable {
         }
     }
 
-    function deallocate(uint256 amount) external override returns (uint256 received) {
+    function deallocate(uint256 amount) external override onlyVault nonReentrant whenNotPaused returns (uint256 received) {
         require(amount > 0, "ZeroAmount");
         uint256 n = _ids.length();
         require(n > 0, "NoAlloc");
@@ -118,11 +138,11 @@ contract StrategyRouter is IStrategyRouter, Ownable {
 
         // Forward received assets to caller (expected to be the vault)
         if (received > 0) {
-            IERC20(asset).safeTransfer(msg.sender, received);
+            IERC20(asset).safeTransfer(vault, received);
         }
     }
 
-    function rebalance(uint16[] calldata targetBps) external override onlyOwnerOrProtocolOwner {
+    function rebalance(uint16[] calldata targetBps) external override onlyOwnerOrProtocolOwner whenNotPaused {
         uint256 n = _ids.length();
         require(targetBps.length == n, "LenMismatch");
         uint256 sum = 0;
@@ -135,7 +155,7 @@ contract StrategyRouter is IStrategyRouter, Ownable {
         // Note: MVP does not actively move funds; only target weights are updated.
     }
 
-    function harvest() external override returns (uint256 baseReturned) {
+    function harvest() external override onlyVault nonReentrant whenNotPaused returns (uint256 baseReturned) {
         uint256 n = _ids.length();
         for (uint256 i = 0; i < n; i++) {
             bytes32 id = _ids.at(i);
@@ -148,9 +168,9 @@ contract StrategyRouter is IStrategyRouter, Ownable {
             if (delta > 0) baseReturned += delta;
         }
 
-        // Forward realized base assets to caller (vault)
+        // Forward realized base assets to vault
         if (baseReturned > 0) {
-            IERC20(asset).safeTransfer(msg.sender, baseReturned);
+            IERC20(asset).safeTransfer(vault, baseReturned);
         }
     }
 
@@ -166,4 +186,8 @@ contract StrategyRouter is IStrategyRouter, Ownable {
         }
         return sum;
     }
+
+    // Admin pause controls
+    function pause() external onlyOwner { _pause(); }
+    function unpause() external onlyOwner { _unpause(); }
 }

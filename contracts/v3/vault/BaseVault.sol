@@ -60,21 +60,25 @@ contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
     // --- Admin wiring ---
 
     function setStrategyRouter(address router_) external override onlyOwner {
+        require(router_ != address(0), "ZeroRouter");
         router = IStrategyRouter(router_);
         emit RouterSet(router_);
     }
 
     function setPayoutPolicy(address policy_) external override onlyOwner {
+        require(policy_ != address(0), "ZeroPayout");
         payoutPolicy = IPayoutPolicy(policy_);
         emit PayoutPolicySet(policy_);
     }
 
     function setLockupPolicy(address policy_) external override onlyOwner {
+        require(policy_ != address(0), "ZeroLockup");
         lockupPolicy = ILockupPolicy(policy_);
         emit LockupPolicySet(policy_);
     }
 
     function setStakeholderRegistry(address registry_) external override onlyOwner {
+        require(registry_ != address(0), "ZeroRegistry");
         stakeholderRegistry = IStakeholderRegistry(registry_);
         emit StakeholderRegistrySet(registry_);
     }
@@ -162,8 +166,16 @@ contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
             penalty = lockupPolicy.enforceWithdrawal(owner_, assetsNeeded);
         }
 
-        // Ensure liquidity: if idle < assetsNeeded, deallocation logic will be added later
+        // Ensure liquidity: if idle < assetsNeeded, pull back from strategies via router
         uint256 idle = IERC20(asset).balanceOf(address(this));
+        if (idle < assetsNeeded) {
+            require(address(router) != address(0), "RouterMissing");
+            uint256 shortfall = assetsNeeded - idle;
+            // Deallocate required amount back to this vault
+            router.deallocate(shortfall);
+            // refresh idle
+            idle = IERC20(asset).balanceOf(address(this));
+        }
         require(idle >= assetsNeeded, "InsufficientLiquidity");
 
         uint256 payout = assetsNeeded;

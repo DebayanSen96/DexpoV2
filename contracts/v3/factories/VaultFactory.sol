@@ -78,6 +78,8 @@ contract VaultFactory is IVaultFactory, Ownable {
         payout.setVault(address(vault));
         vault.setLockupPolicy(address(lockup));
         vault.setStakeholderRegistry(address(registry));
+        // Authorize vault on router for ops
+        router.setVault(address(vault));
 
         // 3) Configure registry splits and recipient
         registry.setSplits(lpBps, ownerBps, verifierBps);

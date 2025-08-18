@@ -13,13 +13,10 @@ async function readLatestDeployment(network: string) {
 async function main() {
   // Config
   const network = 'localhost';
-  const serverUrl = process.env.API_URL || 'http://127.0.0.1:3001';
+  const serverUrl = 'http://127.0.0.1:3001';
 
   // Creator address to assign vault ownership to (no private key needed)
-  const creator = process.env.CREATOR_ADDRESS || process.env.CREATOR;
-  if (!creator || !/^0x[a-fA-F0-9]{40}$/.test(creator)) {
-    throw new Error('Set CREATOR_ADDRESS env var to a valid address');
-  }
+  const creator = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'; // Hardhat default account[0]
 
   // Read deployment for asset address
   const dep = await readLatestDeployment(network);
@@ -78,13 +75,71 @@ async function main() {
 
   const text = await res.text();
   console.log('Status:', res.status);
+  let json: any | undefined;
   try {
-    const json = JSON.parse(text);
+    json = JSON.parse(text);
     console.log('Response JSON:');
     console.log(JSON.stringify(json, null, 2));
   } catch {
     console.log('Response Text:');
     console.log(text);
+  }
+
+  // Step 2: Deploy and wire strategy using returned router
+  const router: string | undefined = json?.modules?.router;
+  if (!router) {
+    console.log('No router in response; skipping strategy deployment test.');
+    return;
+  }
+
+  // For test purposes, hardcode adapter params from the latest deployment
+  // These contracts are placeholders for local testing; no swaps will be executed in this script.
+  const wstETH: string | undefined = dep.params?.ASSET_TOKEN || dep.contracts?.DXPToken;
+  const swapRouter: string | undefined = dep.contracts?.MockLiquidityManager || dep.contracts?.FarmFactory;
+  const quoter: string | undefined = dep.contracts?.VaultFactory || dep.contracts?.ProtocolCore;
+  if (!wstETH || !swapRouter || !quoter) {
+    console.log('Missing mock addresses in deployments for adapter params; skipping strategy deployment test.');
+    return;
+  }
+
+  const poolFee = 500;
+  const slippageBps = 30;
+  const minDeposit = '0';
+  const minWithdraw = '0';
+  const bps = 10000;
+
+  const stratReq: any = {
+    network: payload.network,
+    router,
+    bps,
+    deployOnly: false,
+    wstETH,
+    swapRouter,
+    quoter,
+    poolFee,
+    slippageBps,
+  };
+  if (minDeposit !== undefined) stratReq.minDeposit = minDeposit;
+  if (minWithdraw !== undefined) stratReq.minWithdraw = minWithdraw;
+
+  console.log('Strategy Request Payload:');
+  console.log(JSON.stringify(stratReq, null, 2));
+  console.log('POST', `${serverUrl}/api/v3/strategies/deploy-and-wire`);
+
+  const sres = await fetch(`${serverUrl}/api/v3/strategies/deploy-and-wire`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(stratReq),
+  });
+  const stext = await sres.text();
+  console.log('Strategy Status:', sres.status);
+  try {
+    const sjson = JSON.parse(stext);
+    console.log('Strategy Response JSON:');
+    console.log(JSON.stringify(sjson, null, 2));
+  } catch {
+    console.log('Strategy Response Text:');
+    console.log(stext);
   }
 }
 
