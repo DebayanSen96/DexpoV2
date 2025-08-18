@@ -16,6 +16,11 @@ import "../interfaces/IShareToken.sol";
 import "../interfaces/IPriceOracle.sol";
 import "../tokens/ShareToken.sol";
 
+// Minimal interface to read the ProtocolCore owner
+interface IHasOwner {
+    function owner() external view returns (address);
+}
+
 /**
  * @title BaseVault (Dexponent v3)
  * @notice ERC-4626-like vault with modular policies and a strategy router.
@@ -32,6 +37,9 @@ contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
     // Immutable base asset for this vault
     address public immutable override asset;
 
+    // ProtocolCore reference to gate sensitive updates (strategy router & policies)
+    address public immutable protocolCore;
+
     // Share token minted/burned by this vault
     IShareToken public shareToken;
 
@@ -46,9 +54,11 @@ contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
     event LockupPolicySet(address indexed policy);
     event StakeholderRegistrySet(address indexed registry);
 
-    constructor(address asset_, string memory name_, string memory symbol_) Ownable(msg.sender) {
+    constructor(address asset_, string memory name_, string memory symbol_, address protocolCore_) Ownable(msg.sender) {
         require(asset_ != address(0), "InvalidAsset");
+        require(protocolCore_ != address(0), "InvalidCore");
         asset = asset_;
+        protocolCore = protocolCore_;
 
         // Deploy a dedicated share token, set this vault as minter, then hand ownership to farm owner
         ShareToken token = new ShareToken(name_, symbol_);
@@ -59,26 +69,52 @@ contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
 
     // --- Admin wiring ---
 
-    function setStrategyRouter(address router_) external override onlyOwner {
+    // Internal helper: returns true if msg.sender is the ProtocolCore owner
+    function _isProtocolOwner() internal view returns (bool) {
+        return IHasOwner(protocolCore).owner() == msg.sender;
+    }
+
+    function setStrategyRouter(address router_) external override {
         require(router_ != address(0), "ZeroRouter");
+        // Allow factory (initial owner) to set once; thereafter only protocol owner may change
+        if (address(router) == address(0)) {
+            require(msg.sender == owner() || _isProtocolOwner(), "NotFactoryOrProtocol");
+        } else {
+            require(_isProtocolOwner(), "OnlyProtocol");
+        }
         router = IStrategyRouter(router_);
         emit RouterSet(router_);
     }
 
-    function setPayoutPolicy(address policy_) external override onlyOwner {
+    function setPayoutPolicy(address policy_) external override {
         require(policy_ != address(0), "ZeroPayout");
+        if (address(payoutPolicy) == address(0)) {
+            require(msg.sender == owner() || _isProtocolOwner(), "NotFactoryOrProtocol");
+        } else {
+            require(_isProtocolOwner(), "OnlyProtocol");
+        }
         payoutPolicy = IPayoutPolicy(policy_);
         emit PayoutPolicySet(policy_);
     }
 
-    function setLockupPolicy(address policy_) external override onlyOwner {
+    function setLockupPolicy(address policy_) external override {
         require(policy_ != address(0), "ZeroLockup");
+        if (address(lockupPolicy) == address(0)) {
+            require(msg.sender == owner() || _isProtocolOwner(), "NotFactoryOrProtocol");
+        } else {
+            require(_isProtocolOwner(), "OnlyProtocol");
+        }
         lockupPolicy = ILockupPolicy(policy_);
         emit LockupPolicySet(policy_);
     }
 
-    function setStakeholderRegistry(address registry_) external override onlyOwner {
+    function setStakeholderRegistry(address registry_) external override {
         require(registry_ != address(0), "ZeroRegistry");
+        if (address(stakeholderRegistry) == address(0)) {
+            require(msg.sender == owner() || _isProtocolOwner(), "NotFactoryOrProtocol");
+        } else {
+            require(_isProtocolOwner(), "OnlyProtocol");
+        }
         stakeholderRegistry = IStakeholderRegistry(registry_);
         emit StakeholderRegistrySet(registry_);
     }

@@ -795,14 +795,10 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
      *      This function can only be called by an approved farm.
      * @param farmId The unique farm identifier.
      * @param lp The liquidity provider’s address.
-     * @param amountWithdrawn The withdrawn principal amount.
-     * @param isEarly True if the withdrawal is before the weighted maturity.
      */
     function reverseDepositBonus(
         uint256 farmId,
-        address lp,
-        uint256 amountWithdrawn,
-        bool isEarly
+        address lp
     ) external nonReentrant onlyRootFarmOrVault {
         BonusRecord storage rec = bonusRecords[farmId][lp];
         require(rec.pinned, "No pinned bonus or already unpinned");

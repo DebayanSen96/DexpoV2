@@ -70,7 +70,7 @@ contract VaultFactory is IVaultFactory, Ownable {
             })
         );
         StakeholderRegistry registry = new StakeholderRegistry(core, farmId);
-        BaseVault vault = new BaseVault(asset, vaultName, vaultSymbol);
+        BaseVault vault = new BaseVault(asset, vaultName, vaultSymbol, core);
 
         // 2) Wire modules
         vault.setStrategyRouter(address(router));
