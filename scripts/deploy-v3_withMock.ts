@@ -371,7 +371,7 @@ async function main() {
   } as const;
 
   const outDir = join("deployments", network);
-  const outFile = join(outDir, `v3-${Date.now()}.json`);
+  const outFile = join(outDir, `v3.json`);
   await mkdir(outDir, { recursive: true });
   await writeFile(outFile, JSON.stringify(addresses, null, 2));
 

@@ -1,13 +1,15 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-async function readLatestDeployment(network: string) {
+async function readDeployment(network: string) {
   const dir = path.join(process.cwd(), 'deployments', network);
-  const files = (await fs.readdir(dir)).filter(f => f.endsWith('.json')).sort();
-  if (files.length === 0) throw new Error(`No deployment files in ${dir}`);
-  const latest = files[files.length - 1];
-  const raw = await fs.readFile(path.join(dir, latest), 'utf8');
-  return JSON.parse(raw);
+  const filePath = path.join(dir, 'v3.json');
+  try {
+    const raw = await fs.readFile(filePath, 'utf8');
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Could not read deployment file ${filePath}: ${error}`);
+  }
 }
 
 async function main() {
@@ -19,7 +21,7 @@ async function main() {
   const creator = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'; // Hardhat default account[0]
 
   // Read deployment for asset address
-  const dep = await readLatestDeployment(network);
+  const dep = await readDeployment(network);
   const asset: string = dep.params?.ASSET_TOKEN || dep.contracts?.DXPToken;
   if (!asset) throw new Error('Could not resolve asset token from deployments');
 
