@@ -2,19 +2,23 @@ import hre from "hardhat";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
-function latestDeploymentFile(network: string): string {
+function getDeploymentFile(network: string): string {
   const dir = join("deployments", network);
-  const files = readdirSync(dir).filter(f => f.startsWith("v3-") && f.endsWith(".json"));
-  if (files.length === 0) throw new Error(`No deployment files in ${dir}`);
-  files.sort();
-  return join(dir, files[files.length - 1]);
+  const filePath = join(dir, `${network}.json`);
+  try {
+    // Check if the network-specific file exists
+    require("fs").accessSync(filePath);
+    return filePath;
+  } catch (error) {
+    throw new Error(`No deployment file found at ${filePath}`);
+  }
 }
 
 async function main() {
   const { ethers, network } = hre as any;
   const [owner, nonOwner, user2] = await ethers.getSigners();
 
-  const file = process.env.DEPLOY_JSON || latestDeploymentFile(network.name || "localhost");
+  const file = process.env.DEPLOY_JSON || getDeploymentFile(network.name || "localhost");
   const data = JSON.parse(readFileSync(file, "utf8"));
   console.log("Using deployment:", file);
 

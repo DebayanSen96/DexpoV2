@@ -1,0 +1,75 @@
+{
+  "network": "localhost",
+  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "contracts": {
+    "DXPToken": "0x4631BCAbD6dF18D94796344963cB60d44a4136b6",
+    "ProtocolCore": "0x86A2EE8FAf9A840F7a2c64CA3d51209F9A02081D",
+    "VaultFactory": "0x720472c8ce72c2A2D711333e064ABD3E6BbEAdd3",
+    "MockLiquidityManager": "0xf953b3A269d80e3eB0F2947630Da976B896A8C5b",
+    "adapters": {
+      "staking": {
+        "MockStrategyAdapter": "0x5067457698Fd6Fa1C6964e416b3f42713513B3dD"
+      },
+      "lending": {
+        "MockStrategyAdapter": "0x4b6aB5F819A515382B0dEB6935D793817bB4af28"
+      }
+    },
+    "vaults": {
+      "staking": {
+        "BaseVault": "0x0A5540d9245B3Aeb1354A62832FD36EA38a211eB",
+        "StrategyRouter": "0xD8cC8A2C3b234A5CdA3876C39Ec13DF06496Ed55",
+        "PayoutPolicy": "0xa7F68D9531c2F139A38A759FEe325D9a3423Bf46",
+        "LockupPolicy": "0x3d8491584143A00A0C2695c0829E21163F71eBAb",
+        "StakeholderRegistry": "0x90fb07928b6CB65926282dFBeA51a49f533A9943",
+        "MockStrategyAdapter": "0x5067457698Fd6Fa1C6964e416b3f42713513B3dD"
+      },
+      "lending": {
+        "BaseVault": "0x9296a20EF05729090026677d3b00c584E436A77F",
+        "StrategyRouter": "0xaBcc28602924dDdD5E9740Ab2DC13F37D8522CBF",
+        "PayoutPolicy": "0xe5Eb8cc9F3a864d9fAfB5C746e5ed449680AfE55",
+        "LockupPolicy": "0x7970e68ecD0947250a0DAcde5022642C2333851E",
+        "StakeholderRegistry": "0xAECCc4Dc0950cA3B693e65B818E82F2935Ad93B3",
+        "MockStrategyAdapter": "0x4b6aB5F819A515382B0dEB6935D793817bB4af28"
+      }
+    }
+  },
+  "params": {
+    "ASSET_TOKEN": "0x4631BCAbD6dF18D94796344963cB60d44a4136b6",
+    "USDC_TOKEN": "0x4631BCAbD6dF18D94796344963cB60d44a4136b6",
+    "FALLBACK_BONUS_RATIO": "70",
+    "PROTOCOL_FEE_RATE": "10",
+    "RESERVE_RATIO": "50",
+    "STAKE": {
+      "VAULT_NAME": "Dexponent Staking Vault",
+      "VAULT_SYMBOL": "dSTAKE",
+      "FARM_ID": "1",
+      "LOCK_ENABLED": false,
+      "LOCK_ALLOW_EARLY": true,
+      "LOCK_EARLY_BPS": 200,
+      "LOCK_SECONDS": 0,
+      "LOCK_POST_MODE": 0,
+      "PAYOUT_MODE": 0,
+      "PAYOUT_STREAM_BPS": 3000,
+      "PAYOUT_COMPOUND_BPS": 7000,
+      "PAYOUT_EPOCH": "86400",
+      "PAYOUT_MIN_HARVEST": "300",
+      "PAYOUT_COMPOUND_ON_LOCK": true
+    },
+    "LEND": {
+      "VAULT_NAME": "Dexponent Lending Vault",
+      "VAULT_SYMBOL": "dLEND",
+      "FARM_ID": "2",
+      "LOCK_ENABLED": true,
+      "LOCK_ALLOW_EARLY": true,
+      "LOCK_EARLY_BPS": 500,
+      "LOCK_SECONDS": 1209600,
+      "LOCK_POST_MODE": 1,
+      "PAYOUT_MODE": 1,
+      "PAYOUT_STREAM_BPS": 0,
+      "PAYOUT_COMPOUND_BPS": 10000,
+      "PAYOUT_EPOCH": "86400",
+      "PAYOUT_MIN_HARVEST": "300",
+      "PAYOUT_COMPOUND_ON_LOCK": true
+    }
+  }
+}

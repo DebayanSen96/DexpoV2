@@ -3,7 +3,7 @@ import path from 'path';
 
 async function readDeployment(network: string) {
   const dir = path.join(process.cwd(), 'deployments', network);
-  const filePath = path.join(dir, 'v3.json');
+  const filePath = path.join(dir, `${network}.json`);
   try {
     const raw = await fs.readFile(filePath, 'utf8');
     return JSON.parse(raw);
