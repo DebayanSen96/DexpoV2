@@ -20,6 +20,15 @@ interface IVaultFactory {
         bool compoundLpOnLock;
     }
 
+    /// ShareToken configuration to be applied atomically during vault creation
+    struct ShareTokenConfig {
+        bool transferable;
+        uint16 transferFeeBps; // 0-1500 typical cap
+        address feeReceiver;
+        address protocolFeeReceiver;
+        uint16 protocolRakeBps; // 0-2000 typical cap
+    }
+
     struct VaultAddresses {
         address baseVault;
         address router;
@@ -59,6 +68,7 @@ interface IVaultFactory {
         uint16 verifierBps,
         LockConfig calldata lockCfg,
         PayoutConfig calldata payoutCfg,
+        ShareTokenConfig calldata stCfg,
         bytes32[] calldata adapterKeys,
         address[] calldata adapterAddrs,
         uint16[] calldata adapterBps

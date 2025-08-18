@@ -431,6 +431,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         uint16 verifierBps,
         IVaultFactory.LockConfig calldata lockCfg,
         IVaultFactory.PayoutConfig calldata payoutCfg,
+        IVaultFactory.ShareTokenConfig calldata stCfg,
         bytes32[] calldata adapterKeys,
         address[] calldata adapterAddrs,
         uint16[] calldata adapterBps
@@ -456,6 +457,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
             verifierBps,
             lockCfg,
             payoutCfg,
+            stCfg,
             adapterKeys,
             adapterAddrs,
             adapterBps

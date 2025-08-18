@@ -73,7 +73,7 @@ const CreateVaultRequestSchema = z.object({
 // ---- Minimal ABIs ----
 const ProtocolCoreAbi = [
   'function approvedFarmOwners(address) view returns (bool)',
-  'function createApprovedVault(address asset,string vaultName,string vaultSymbol,address ownerRecipient,uint16 lpBps,uint16 ownerBps,uint16 verifierBps,tuple(bool enabled,bool allowEarlyExit,uint16 earlyExitBps,uint256 lockupSeconds,uint8 postLockMode) lockCfg,tuple(uint8 mode,uint16 streamBps,uint16 compoundBps,uint256 epoch,uint256 minHarvestInterval,bool compoundLpOnLock) payoutCfg,bytes32[] adapterKeys,address[] adapterAddrs,uint16[] adapterBps) returns (uint256 farmIdOut,address baseVault)',
+  'function createApprovedVault(address asset,string vaultName,string vaultSymbol,address ownerRecipient,uint16 lpBps,uint16 ownerBps,uint16 verifierBps,tuple(bool enabled,bool allowEarlyExit,uint16 earlyExitBps,uint256 lockupSeconds,uint8 postLockMode) lockCfg,tuple(uint8 mode,uint16 streamBps,uint16 compoundBps,uint256 epoch,uint256 minHarvestInterval,bool compoundLpOnLock) payoutCfg,tuple(bool transferable,uint16 transferFeeBps,address feeReceiver,address protocolFeeReceiver,uint16 protocolRakeBps) stCfg,bytes32[] adapterKeys,address[] adapterAddrs,uint16[] adapterBps) returns (uint256 farmIdOut,address baseVault)',
   'function vaultsById(uint256) view returns (address baseVault,address owner,address asset,uint256 farmId,address router,address payoutPolicy,address lockupPolicy,address stakeholderRegistry)'
 ];
 
@@ -265,6 +265,15 @@ async function main() {
       dbg('lockCfg', lockCfg);
       dbg('payoutCfg', payoutCfg);
 
+      // Build ShareToken config (defaults preserve on-chain defaults if not provided)
+      const stCfg = {
+        transferable: payload.shareToken ? payload.shareToken.transferable : true,
+        transferFeeBps: payload.shareToken ? payload.shareToken.transferFeeBps : 0,
+        feeReceiver: payload.shareToken?.feeReceiver ?? ethers.ZeroAddress,
+        protocolFeeReceiver: payload.shareToken?.protocolFeeReceiver ?? ethers.ZeroAddress,
+        protocolRakeBps: payload.shareToken?.protocolRakeBps ?? 0,
+      };
+
       type Strategy = { key: string; adapter?: string; bps: number };
       const strategies: Strategy[] = (payload.strategies as unknown as Strategy[]) || [];
       const adapterKeys = strategies.map((s: Strategy) => s.key);
@@ -286,6 +295,7 @@ async function main() {
         payload.splits.verifierBps,
         lockCfg,
         payoutCfg,
+        stCfg,
         adapterKeys,
         adapterAddrs,
         adapterBps
@@ -340,55 +350,15 @@ async function main() {
         console.log('Modules', modules);
       }
 
-      // Apply ShareToken configuration (if provided) as the owner after deployment
-      if (payload.shareToken) {
-        try {
-          const baseVaultAddr: string | undefined = modules.baseVault as string | undefined;
-          if (baseVaultAddr && baseVaultAddr !== ethers.ZeroAddress) {
-            console.log('Applying ShareToken config to baseVault', baseVaultAddr);
-            const vault = new ethers.Contract(baseVaultAddr, BaseVaultAbi, signer);
-            const stAddr: string = await vault.shareToken();
-            console.log('ShareToken address', stAddr);
-            const st = new ethers.Contract(stAddr, ShareTokenAbi, signer);
-            const cfg = payload.shareToken;
-
-            // Transferability
-            const t1 = await st.setTransferable(cfg.transferable);
-            console.log('setTransferable tx', t1.hash);
-            await t1.wait();
-
-            // Transfer fee bps
-            const t2 = await st.setTransferFeeBps(cfg.transferFeeBps);
-            console.log('setTransferFeeBps tx', t2.hash);
-            await t2.wait();
-
-            // Fee receiver (owner/farm recipient)
-            if (cfg.feeReceiver) {
-              const t3 = await st.setFeeReceiver(cfg.feeReceiver);
-              console.log('setFeeReceiver tx', t3.hash);
-              await t3.wait();
-            }
-
-            // Protocol fee receiver and rake (if either provided)
-            if (cfg.protocolFeeReceiver !== undefined || cfg.protocolRakeBps !== undefined) {
-              const currentReceiver: string = await st.protocolFeeReceiver();
-              const currentRake: number = await st.protocolRakeBps();
-              const recv = cfg.protocolFeeReceiver ?? currentReceiver;
-              const rake = cfg.protocolRakeBps ?? currentRake;
-              const t4 = await st.setProtocolFee(recv, rake);
-              console.log('setProtocolFee tx', t4.hash);
-              await t4.wait();
-            }
-
-            // Include ShareToken address in response modules
-            (modules as any).shareToken = stAddr;
-          } else {
-            console.warn('No baseVault resolved; skipping ShareToken config');
-          }
-        } catch (e) {
-          console.error('Failed to apply ShareToken config', e);
+      // Fetch ShareToken address for response if baseVault resolved
+      try {
+        const baseVaultAddr: string | undefined = modules.baseVault as string | undefined;
+        if (baseVaultAddr && baseVaultAddr !== ethers.ZeroAddress) {
+          const vault = new ethers.Contract(baseVaultAddr, BaseVaultAbi, signer);
+          const stAddr: string = await vault.shareToken();
+          (modules as any).shareToken = stAddr;
         }
-      }
+      } catch {}
 
       return res.json({
         network,

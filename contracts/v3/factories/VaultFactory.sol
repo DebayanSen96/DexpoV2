@@ -42,6 +42,7 @@ contract VaultFactory is IVaultFactory, Ownable {
         uint16 verifierBps,
         LockConfig calldata lockCfg,
         PayoutConfig calldata payoutCfg,
+        ShareTokenConfig calldata stCfg,
         bytes32[] calldata adapterKeys,
         address[] calldata adapterAddrs,
         uint16[] calldata adapterBps
@@ -93,9 +94,18 @@ contract VaultFactory is IVaultFactory, Ownable {
             router.setAllocations(adapterKeys, adapterAddrs, adapterBps);
         }
 
-        // 5) Transfer ShareToken ownership to the designated owner
+        // 5) Configure ShareToken atomically while factory is owner, then transfer ownership
         IShareToken st = vault.shareToken();
-        // Factory currently owns ShareToken because BaseVault ctor set owner=msg.sender
+        // Apply config (owner-only)
+        st.setTransferable(stCfg.transferable);
+        st.setTransferFeeBps(stCfg.transferFeeBps);
+        if (stCfg.feeReceiver != address(0)) {
+            st.setFeeReceiver(stCfg.feeReceiver);
+        }
+        if (stCfg.protocolFeeReceiver != address(0) || stCfg.protocolRakeBps != 0) {
+            st.setProtocolFee(stCfg.protocolFeeReceiver, stCfg.protocolRakeBps);
+        }
+        // Transfer ownership of ShareToken to the farm owner
         // Cast to Ownable to access transferOwnership (not exposed on IShareToken)
         Ownable(address(st)).transferOwnership(owner);
 
