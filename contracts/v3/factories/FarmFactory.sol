@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "../interfaces/IFarmFactory.sol";
+import "../interfaces/IProtocolCore.sol";
 import "../strategies/StrategyRouter.sol";
 import "../modules/LockupPolicy.sol";
 import "../modules/PayoutPolicy.sol";
@@ -47,6 +48,26 @@ contract FarmFactory is IFarmFactory, Ownable {
         address[] calldata adapterAddrs,
         uint16[] calldata adapterBps
     ) external onlyCore returns (FarmAddresses memory addrs) {
+        // Enforce ProtocolCore farm rules prior to any deployment work
+        IProtocolCoreV3(core).assertFarmConfigValid(
+            lpBps,
+            ownerBps,
+            verifierBps,
+            lockCfg.enabled,
+            lockCfg.allowEarlyExit,
+            lockCfg.earlyExitBps,
+            uint64(lockCfg.lockupSeconds),
+            lockCfg.postLockMode,
+            payoutCfg.mode,
+            payoutCfg.streamBps,
+            payoutCfg.compoundBps,
+            uint64(payoutCfg.epoch),
+            uint64(payoutCfg.minHarvestInterval),
+            payoutCfg.compoundLpOnLock,
+            stCfg.transferable,
+            stCfg.transferFeeBps,
+            stCfg.protocolRakeBps
+        );
         // 1) Deploy components (factory temporarily owns them)
         StrategyRouter router = new StrategyRouter(asset, core);
         LockupPolicy lockup = new LockupPolicy(

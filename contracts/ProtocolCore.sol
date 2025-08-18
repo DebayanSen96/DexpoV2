@@ -177,6 +177,37 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     uint256 public timeScaleDenominator = 1;
 
     // ───────────────────────────────────────────────────────────
+    //                        FARM RULES
+    // ───────────────────────────────────────────────────────────
+    struct FarmRules {
+        uint16 minLpBps;              // minimum LP share
+        uint16 maxOwnerBps;           // max farm owner share
+        uint16 maxVerifierBps;        // max verifier share
+        uint16 maxTransferFeeBps;     // cap on ShareToken transfer fee
+        uint16 maxProtocolRakeBps;    // cap on protocol rake bps
+        uint16 maxEarlyExitBps;       // cap on early exit penalty
+        uint64 maxLockupSeconds;      // upper bound when early exit enabled
+        uint64 maxNoExitLockupSeconds;// stricter bound when early exit disabled
+        uint64 minEpochSeconds;       // min payout epoch
+        uint64 maxEpochSeconds;       // max payout epoch
+    }
+
+    FarmRules private _farmRules = FarmRules({
+        minLpBps: 6000,
+        maxOwnerBps: 3000,
+        maxVerifierBps: 1000,
+        maxTransferFeeBps: 2000,      // 20%
+        maxProtocolRakeBps: 2000,     // 20%
+        maxEarlyExitBps: 1000,        // 10%
+        maxLockupSeconds: 90 days,
+        maxNoExitLockupSeconds: 30 days,
+        minEpochSeconds: 1 days,
+        maxEpochSeconds: 30 days
+    });
+
+    event FarmRulesUpdated(FarmRules rules);
+
+    // ───────────────────────────────────────────────────────────
     //                           EVENTS
     // ───────────────────────────────────────────────────────────
     event FarmOwnerApproved(address indexed farmOwner, bool approved);
@@ -300,6 +331,81 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     function setFarmFactory(address f) external onlyOwner {
         require(f != address(0), "zero address");
         farmFactory = IFarmFactory(f);
+    }
+
+    // ───────────────────────────────────────────────────────────
+    //                        FARM RULES API
+    // ───────────────────────────────────────────────────────────
+    function getFarmRules() external view returns (FarmRules memory) {
+        return _farmRules;
+    }
+
+    function setFarmRules(FarmRules calldata rules) external onlyOwner {
+        require(rules.minLpBps <= 10_000, "minLp>100%");
+        require(rules.maxOwnerBps <= 10_000, "owner>100%");
+        require(rules.maxVerifierBps <= 10_000, "verifier>100%");
+        require(rules.maxTransferFeeBps <= 10_000, "xferFee>100%");
+        require(rules.maxProtocolRakeBps <= 10_000, "rake>100%");
+        require(rules.maxEarlyExitBps <= 10_000, "penalty>100%");
+        require(rules.minEpochSeconds > 0, "minEpoch=0");
+        require(rules.minEpochSeconds <= rules.maxEpochSeconds, "epoch bounds");
+        _farmRules = rules;
+        emit FarmRulesUpdated(rules);
+    }
+
+    /**
+     * @notice Validate a requested farm configuration against protocol rules.
+     *         Reverts on any violation. Called by FarmFactory prior to deployments.
+     */
+    function assertFarmConfigValid(
+        uint16 lpBps,
+        uint16 ownerBps,
+        uint16 verifierBps,
+        bool lockEnabled,
+        bool allowEarlyExit,
+        uint16 earlyExitBps,
+        uint64 lockupSeconds,
+        uint8 /*postLockMode*/,
+        uint8 payoutMode,
+        uint16 streamBps,
+        uint16 compoundBps,
+        uint64 epoch,
+        uint64 minHarvestInterval,
+        bool /*compoundLpOnLock*/,
+        bool /*shareTransferable*/,
+        uint16 shareTransferFeeBps,
+        uint16 protocolRakeBps
+    ) external view {
+        // Splits safety
+        require(lpBps + ownerBps + verifierBps == 10_000, "Split!=100%");
+        require(lpBps >= _farmRules.minLpBps, "LP share too low");
+        require(ownerBps <= _farmRules.maxOwnerBps, "Owner share too high");
+        require(verifierBps <= _farmRules.maxVerifierBps, "Verifier share too high");
+
+        // Share token fee caps
+        require(shareTransferFeeBps <= _farmRules.maxTransferFeeBps, "Transfer fee too high");
+        require(protocolRakeBps <= _farmRules.maxProtocolRakeBps, "Protocol rake too high");
+
+        // Lockup constraints
+        if (lockEnabled) {
+            if (allowEarlyExit) {
+                require(earlyExitBps <= _farmRules.maxEarlyExitBps, "Early-exit penalty too high");
+                require(lockupSeconds <= _farmRules.maxLockupSeconds, "Lockup too long");
+            } else {
+                // No early exit allowed: enforce stricter max lockup
+                require(lockupSeconds <= _farmRules.maxNoExitLockupSeconds, "Lockup(no-exit) too long");
+            }
+        }
+
+        // Payout constraints
+        require(epoch >= _farmRules.minEpochSeconds && epoch <= _farmRules.maxEpochSeconds, "Epoch out of bounds");
+        // Avoid nonsensical minHarvestInterval larger than epoch
+        require(minHarvestInterval <= epoch, "minHarvestInterval>epoch");
+
+        // Streaming mode: enforce bps complementarity
+        if (payoutMode == 0) {
+            require(uint256(streamBps) + uint256(compoundBps) == 10_000, "Stream split!=100%");
+        }
     }
 
     // ───────────────────────────────────────────────────────────
