@@ -17,7 +17,7 @@ async function main() {
   const network = 'localhost';
   const serverUrl = 'http://127.0.0.1:3001';
 
-  // Creator address to assign vault ownership to (no private key needed)
+  // Creator address to assign farm ownership to (no private key needed)
   const creator = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'; // Hardhat default account[0]
 
   // Read deployment for asset address
@@ -33,8 +33,8 @@ async function main() {
     payload: {
       creator,
       asset,
-      vaultName: 'Local Test Vault',
-      vaultSymbol: 'LTV',
+      farmName: 'Local Test Farm',
+      farmSymbol: 'LTF',
       recipients: { ownerRecipient: creator },
       splits: { lpBps: 9000, ownerBps: 500, verifierBps: 500 },
       lockConfig: {
@@ -66,10 +66,10 @@ async function main() {
   // Print request payload
   console.log('Request Payload:');
   console.log(JSON.stringify(payload, null, 2));
-  console.log('POST', `${serverUrl}/api/v3/create-vault`);
+  console.log('POST', `${serverUrl}/api/v3/create-farm`);
 
   // POST to server
-  const res = await fetch(`${serverUrl}/api/v3/create-vault`, {
+  const res = await fetch(`${serverUrl}/api/v3/create-farm`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
@@ -98,7 +98,7 @@ async function main() {
   // These contracts are placeholders for local testing; no swaps will be executed in this script.
   const wstETH: string | undefined = dep.params?.ASSET_TOKEN || dep.contracts?.DXPToken;
   const swapRouter: string | undefined = dep.contracts?.MockLiquidityManager || dep.contracts?.FarmFactory;
-  const quoter: string | undefined = dep.contracts?.VaultFactory || dep.contracts?.ProtocolCore;
+  const quoter: string | undefined = dep.contracts?.FarmFactory || dep.contracts?.ProtocolCore;
   if (!wstETH || !swapRouter || !quoter) {
     console.log('Missing mock addresses in deployments for adapter params; skipping strategy deployment test.');
     return;

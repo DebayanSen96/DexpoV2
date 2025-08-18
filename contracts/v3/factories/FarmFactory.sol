@@ -2,19 +2,19 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "../interfaces/IVaultFactory.sol";
+import "../interfaces/IFarmFactory.sol";
 import "../strategies/StrategyRouter.sol";
 import "../modules/LockupPolicy.sol";
 import "../modules/PayoutPolicy.sol";
 import "../modules/StakeholderRegistry.sol";
-import "../vault/BaseVault.sol";
+import "../farm/BaseFarm.sol";
 import "../interfaces/IShareToken.sol";
 
 /**
- * @title VaultFactory (v3)
- * @notice Deploys and wires a complete Dexponent v3 vault stack. Restricted to ProtocolCore.
+ * @title FarmFactory (v3)
+ * @notice Deploys and wires a complete Dexponent v3 farm stack. Restricted to ProtocolCore.
  */
-contract VaultFactory is IVaultFactory, Ownable {
+contract FarmFactory is IFarmFactory, Ownable {
     address public immutable protocolCore;
 
     error NotCore();
@@ -29,10 +29,10 @@ contract VaultFactory is IVaultFactory, Ownable {
         protocolCore = core;
     }
 
-    function createVaultStack(
+    function createFarmStack(
         address asset,
-        string calldata vaultName,
-        string calldata vaultSymbol,
+        string calldata farmName,
+        string calldata farmSymbol,
         address core,
         uint256 farmId,
         address owner,
@@ -46,7 +46,7 @@ contract VaultFactory is IVaultFactory, Ownable {
         bytes32[] calldata adapterKeys,
         address[] calldata adapterAddrs,
         uint16[] calldata adapterBps
-    ) external onlyCore returns (VaultAddresses memory addrs) {
+    ) external onlyCore returns (FarmAddresses memory addrs) {
         // 1) Deploy components (factory temporarily owns them)
         StrategyRouter router = new StrategyRouter(asset, core);
         LockupPolicy lockup = new LockupPolicy(
@@ -70,16 +70,17 @@ contract VaultFactory is IVaultFactory, Ownable {
             })
         );
         StakeholderRegistry registry = new StakeholderRegistry(core, farmId);
-        BaseVault vault = new BaseVault(asset, vaultName, vaultSymbol, core);
+        BaseFarm farm = new BaseFarm(asset, farmName, farmSymbol, core);
 
         // 2) Wire modules
-        vault.setStrategyRouter(address(router));
-        vault.setPayoutPolicy(address(payout));
-        payout.setVault(address(vault));
-        vault.setLockupPolicy(address(lockup));
-        vault.setStakeholderRegistry(address(registry));
-        // Authorize vault on router for ops
-        router.setVault(address(vault));
+        farm.setStrategyRouter(address(router));
+        farm.setPayoutPolicy(address(payout));
+        // @ts-ignore
+        payout.setFarm(address(farm));
+        farm.setLockupPolicy(address(lockup));
+        farm.setStakeholderRegistry(address(registry));
+        // Authorize farm on router for ops
+        router.setFarm(address(farm));
 
         // 3) Configure registry splits and recipient
         registry.setSplits(lpBps, ownerBps, verifierBps);
@@ -97,7 +98,7 @@ contract VaultFactory is IVaultFactory, Ownable {
         }
 
         // 5) Configure ShareToken atomically while factory is owner, then transfer ownership
-        IShareToken st = vault.shareToken();
+        IShareToken st = farm.shareToken();
         // Apply config (owner-only)
         st.setTransferable(stCfg.transferable);
         st.setTransferFeeBps(stCfg.transferFeeBps);
@@ -116,10 +117,10 @@ contract VaultFactory is IVaultFactory, Ownable {
         lockup.transferOwnership(owner);
         payout.transferOwnership(owner);
         registry.transferOwnership(owner);
-        vault.transferOwnership(owner);
+        farm.transferOwnership(owner);
 
-        addrs = VaultAddresses({
-            baseVault: address(vault),
+        addrs = FarmAddresses({
+            baseFarm: address(farm),
             router: address(router),
             payoutPolicy: address(payout),
             lockupPolicy: address(lockup),

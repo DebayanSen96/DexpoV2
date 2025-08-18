@@ -17,7 +17,7 @@ interface IOwnable {
 /**
  * @title StrategyRouter (v3)
  * @notice Holds target allocations and orchestrates deposits/withdrawals across adapters.
- *         Access: wiring by owner/protocol owner; ops only by the configured vault.
+ *         Access: wiring by owner/protocol owner; ops only by the configured farm.
  */
 contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
     using EnumerableSet for EnumerableSet.Bytes32Set;
@@ -26,8 +26,8 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
     address public immutable override asset;
     address public immutable protocolCore;
 
-    // Vault authorized to operate allocate/deallocate/harvest
-    address public vault;
+    // Farm authorized to operate allocate/deallocate/harvest
+    address public farm;
 
     struct Allocation { address adapter; uint16 bps; }
 
@@ -44,7 +44,7 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         _;
     }
 
-    event VaultSet(address indexed vault);
+    event FarmSet(address indexed farm);
 
     function allocations() external view override returns (
         bytes32[] memory ids,
@@ -86,25 +86,25 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         require(sum == 10_000, "SumBps");
     }
 
-    // One-time vault setter used during initial wiring by the factory/owner
-    function setVault(address vault_) external onlyOwner {
-        require(vault_ != address(0), "VaultZero");
-        require(vault == address(0), "VaultSet");
-        vault = vault_;
-        emit VaultSet(vault_);
+    // One-time farm setter used during initial wiring by the factory/owner
+    function setFarm(address farm_) external onlyOwner {
+        require(farm_ != address(0), "FarmZero");
+        require(farm == address(0), "FarmSet");
+        farm = farm_;
+        emit FarmSet(farm_);
     }
 
-    modifier onlyVault() {
-        require(msg.sender == vault, "NotVault");
+    modifier onlyFarm() {
+        require(msg.sender == farm, "NotFarm");
         _;
     }
 
-    function allocate(uint256 amount) external override onlyVault nonReentrant whenNotPaused returns (uint256 deployed) {
+    function allocate(uint256 amount) external override onlyFarm nonReentrant whenNotPaused returns (uint256 deployed) {
         require(amount > 0, "ZeroAmount");
         uint256 n = _ids.length();
         require(n > 0, "NoAlloc");
 
-        // Pull assets from caller (expected to be the vault/owner) into the router once
+        // Pull assets from caller (expected to be the farm/owner) into the router once
         IERC20 token = IERC20(asset);
         token.safeTransferFrom(msg.sender, address(this), amount);
 
@@ -122,7 +122,7 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         }
     }
 
-    function deallocate(uint256 amount) external override onlyVault nonReentrant whenNotPaused returns (uint256 received) {
+    function deallocate(uint256 amount) external override onlyFarm nonReentrant whenNotPaused returns (uint256 received) {
         require(amount > 0, "ZeroAmount");
         uint256 n = _ids.length();
         require(n > 0, "NoAlloc");
@@ -136,9 +136,9 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
             received += IStrategyAdapter(a.adapter).withdraw(part, bytes(""));
         }
 
-        // Forward received assets to caller (expected to be the vault)
+        // Forward received assets to caller (expected to be the farm)
         if (received > 0) {
-            IERC20(asset).safeTransfer(vault, received);
+            IERC20(asset).safeTransfer(farm, received);
         }
     }
 
@@ -155,7 +155,7 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         // Note: MVP does not actively move funds; only target weights are updated.
     }
 
-    function harvest() external override onlyVault nonReentrant whenNotPaused returns (uint256 baseReturned) {
+    function harvest() external override onlyFarm nonReentrant whenNotPaused returns (uint256 baseReturned) {
         uint256 n = _ids.length();
         for (uint256 i = 0; i < n; i++) {
             bytes32 id = _ids.at(i);
@@ -168,9 +168,9 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
             if (delta > 0) baseReturned += delta;
         }
 
-        // Forward realized base assets to vault
+        // Forward realized base assets to farm
         if (baseReturned > 0) {
-            IERC20(asset).safeTransfer(vault, baseReturned);
+            IERC20(asset).safeTransfer(farm, baseReturned);
         }
     }
 

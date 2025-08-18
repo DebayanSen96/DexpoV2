@@ -27,20 +27,20 @@ contract PayoutPolicy is IPayoutPolicy, Ownable {
     Config private _cfg;
     uint256 public override lastHarvestAt;
 
-    // Custodied base asset and authorized vault that can accrue streams
+    // Custodied base asset and authorized farm that can accrue streams
     address public immutable asset;
-    address public vault;
+    address public farm;
 
     mapping(address => Stream) private _stream;
     mapping(address => uint256) private _unlocked; // instantly claimable bucket
 
     event ConfigSet(Config cfg);
-    event VaultSet(address indexed vault);
+    event FarmSet(address indexed farm);
     event Accrued(address indexed beneficiary, uint256 amount, uint64 start, uint64 end);
     event Claimed(address indexed beneficiary, address indexed to, uint256 amount);
 
-    modifier onlyVault() {
-        require(msg.sender == vault, "NotVault");
+    modifier onlyFarm() {
+        require(msg.sender == farm, "NotFarm");
         _;
     }
 
@@ -50,10 +50,10 @@ contract PayoutPolicy is IPayoutPolicy, Ownable {
         _cfg = cfg_;
     }
 
-    function setVault(address vault_) external onlyOwner {
-        require(vault_ != address(0), "VaultZero");
-        vault = vault_;
-        emit VaultSet(vault_);
+    function setFarm(address farm_) external onlyOwner {
+        require(farm_ != address(0), "FarmZero");
+        farm = farm_;
+        emit FarmSet(farm_);
     }
 
     function setConfig(Config calldata cfg) external override onlyOwner {
@@ -85,7 +85,7 @@ contract PayoutPolicy is IPayoutPolicy, Ownable {
 
     // Accrue a new streamed amount for a beneficiary over the configured epoch.
     // Assumes the asset tokens have already been transferred to this contract.
-    function accrueFor(address beneficiary, uint256 amount) external onlyVault {
+    function accrueFor(address beneficiary, uint256 amount) external onlyFarm {
         if (amount == 0) return;
         Stream storage s = _stream[beneficiary];
         uint64 nowTs = uint64(block.timestamp);

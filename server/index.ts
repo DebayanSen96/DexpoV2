@@ -24,11 +24,11 @@ const StrategySchema = z.object({
   bps: z.number().int().min(0).max(10000),
 });
 
-const VaultCreationPayloadSchema = z.object({
+const FarmCreationPayloadSchema = z.object({
   creator: addr,
   asset: addr,
-  vaultName: z.string().min(1),
-  vaultSymbol: z.string().min(1),
+  farmName: z.string().min(1),
+  farmSymbol: z.string().min(1),
   recipients: z.object({ ownerRecipient: addr }),
   splits: z.object({
     lpBps: z.number().int().min(0).max(10000),
@@ -61,12 +61,12 @@ const VaultCreationPayloadSchema = z.object({
   meta: z.object({ chainId: z.number().int().optional() }).optional(),
 });
 
-const CreateVaultRequestSchema = z.object({
+const CreateFarmRequestSchema = z.object({
   network: z.enum(['localhost', 'hardhat', 'basesepolia', 'base']),
-  payload: VaultCreationPayloadSchema,
+  payload: FarmCreationPayloadSchema,
   addresses: z.object({
     protocolCore: addr.optional(),
-    vaultFactory: addr.optional(),
+    farmFactory: addr.optional(),
   }).optional(),
   ownerPrivateKey: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
 });
@@ -99,17 +99,17 @@ const DeployStrategyRequestSchema = z.object({
 const ProtocolCoreAbi = [
   'function owner() view returns (address)',
   'function approvedFarmOwners(address) view returns (bool)',
-  'function createApprovedVault(address asset,string vaultName,string vaultSymbol,address ownerRecipient,uint16 lpBps,uint16 ownerBps,uint16 verifierBps,tuple(bool enabled,bool allowEarlyExit,uint16 earlyExitBps,uint256 lockupSeconds,uint8 postLockMode) lockCfg,tuple(uint8 mode,uint16 streamBps,uint16 compoundBps,uint256 epoch,uint256 minHarvestInterval,bool compoundLpOnLock) payoutCfg,tuple(bool transferable,uint16 transferFeeBps,address feeReceiver,address protocolFeeReceiver,uint16 protocolRakeBps) stCfg,bytes32[] adapterKeys,address[] adapterAddrs,uint16[] adapterBps) returns (uint256 farmIdOut,address baseVault)',
-  'function createApprovedVaultFor(address creator,address asset,string vaultName,string vaultSymbol,address ownerRecipient,uint16 lpBps,uint16 ownerBps,uint16 verifierBps,tuple(bool enabled,bool allowEarlyExit,uint16 earlyExitBps,uint256 lockupSeconds,uint8 postLockMode) lockCfg,tuple(uint8 mode,uint16 streamBps,uint16 compoundBps,uint256 epoch,uint256 minHarvestInterval,bool compoundLpOnLock) payoutCfg,tuple(bool transferable,uint16 transferFeeBps,address feeReceiver,address protocolFeeReceiver,uint16 protocolRakeBps) stCfg,bytes32[] adapterKeys,address[] adapterAddrs,uint16[] adapterBps) returns (uint256 farmIdOut,address baseVault)',
-  'function vaultsById(uint256) view returns (address baseVault,address owner,address asset,uint256 farmId,address router,address payoutPolicy,address lockupPolicy,address stakeholderRegistry)'
+  'function createApprovedFarm(address asset,string farmName,string farmSymbol,address ownerRecipient,uint16 lpBps,uint16 ownerBps,uint16 verifierBps,tuple(bool enabled,bool allowEarlyExit,uint16 earlyExitBps,uint256 lockupSeconds,uint8 postLockMode) lockCfg,tuple(uint8 mode,uint16 streamBps,uint16 compoundBps,uint256 epoch,uint256 minHarvestInterval,bool compoundLpOnLock) payoutCfg,tuple(bool transferable,uint16 transferFeeBps,address feeReceiver,address protocolFeeReceiver,uint16 protocolRakeBps) stCfg,bytes32[] adapterKeys,address[] adapterAddrs,uint16[] adapterBps) returns (uint256 farmIdOut,address baseFarm)',
+  'function createApprovedFarmFor(address creator,address asset,string farmName,string farmSymbol,address ownerRecipient,uint16 lpBps,uint16 ownerBps,uint16 verifierBps,tuple(bool enabled,bool allowEarlyExit,uint16 earlyExitBps,uint256 lockupSeconds,uint8 postLockMode) lockCfg,tuple(uint8 mode,uint16 streamBps,uint16 compoundBps,uint256 epoch,uint256 minHarvestInterval,bool compoundLpOnLock) payoutCfg,tuple(bool transferable,uint16 transferFeeBps,address feeReceiver,address protocolFeeReceiver,uint16 protocolRakeBps) stCfg,bytes32[] adapterKeys,address[] adapterAddrs,uint16[] adapterBps) returns (uint256 farmIdOut,address baseFarm)',
+  'function farmsById(uint256) view returns (address baseFarm,address owner,address asset,uint256 farmId,address router,address payoutPolicy,address lockupPolicy,address stakeholderRegistry)'
 ];
 
-const VaultCreatedEvent = [
-  'event VaultCreated(uint256 indexed farmId,address indexed baseVault,address indexed owner,address router,address payoutPolicy,address lockupPolicy,address stakeholderRegistry)'
+const FarmCreatedEvent = [
+  'event FarmCreated(uint256 indexed farmId,address indexed baseFarm,address indexed owner,address router,address payoutPolicy,address lockupPolicy,address stakeholderRegistry)'
 ];
 
-// Minimal ABIs for BaseVault and ShareToken configuration
-const BaseVaultAbi = [
+// Minimal ABIs for BaseFarm and ShareToken configuration
+const BaseFarmAbi = [
   'function shareToken() view returns (address)'
 ];
 const ShareTokenAbi = [
@@ -270,10 +270,10 @@ async function main() {
     res.json({ ok: true });
   });
 
-  app.post('/api/v3/create-vault', async (req: Request, res: Response) => {
+  app.post('/api/v3/create-farm', async (req: Request, res: Response) => {
     try {
-      console.log('POST /api/v3/create-vault');
-      const parsed = CreateVaultRequestSchema.parse(req.body);
+      console.log('POST /api/v3/create-farm');
+      const parsed = CreateFarmRequestSchema.parse(req.body);
       const { network, payload } = parsed;
       dbg('payload.creator', payload.creator);
       dbg('payload.asset', payload.asset);
@@ -307,28 +307,28 @@ async function main() {
       // Note: We no longer require signer == payload.creator.
       // Server uses env key (protocol owner) to deploy. ProtocolCore must authorize this signer.
 
-      // Resolve addresses from request or deployments (ProtocolCore required; VaultFactory optional)
+      // Resolve addresses from request or deployments (ProtocolCore required; FarmFactory optional)
       let protocolCore = parsed.addresses?.protocolCore;
-      let vaultFactory = parsed.addresses?.vaultFactory;
-      if (!protocolCore || !vaultFactory) {
+      let farmFactory = parsed.addresses?.farmFactory;
+      if (!protocolCore || !farmFactory) {
         const dep = await readLatestDeploymentFor(network);
         if (!dep && !protocolCore) {
           return res.status(400).json({ error: `No deployments found for network ${network} and no addresses provided` });
         }
         protocolCore = protocolCore || dep?.contracts?.ProtocolCore;
-        vaultFactory = vaultFactory || dep?.contracts?.VaultFactory;
+        farmFactory = farmFactory || dep?.contracts?.FarmFactory;
       }
       if (!protocolCore) {
         return res.status(400).json({ error: 'Missing ProtocolCore address' });
       }
       console.log('Using ProtocolCore', protocolCore);
-      if (vaultFactory) {
-        console.log('Using VaultFactory', vaultFactory);
+      if (farmFactory) {
+        console.log('Using FarmFactory', farmFactory);
       } else {
-        console.warn('VaultFactory not found in request or deployments; continuing without it');
+        console.warn('FarmFactory not found in request or deployments; continuing without it');
       }
 
-      const iface = new ethers.Interface([...ProtocolCoreAbi, ...VaultCreatedEvent]);
+      const iface = new ethers.Interface([...ProtocolCoreAbi, ...FarmCreatedEvent]);
       const core = new ethers.Contract(protocolCore, ProtocolCoreAbi, signer);
       const coreOwner: string = await core.owner();
       const isProtocolOwner = coreOwner.toLowerCase() === signerAddr.toLowerCase();
@@ -345,7 +345,7 @@ async function main() {
           return res.status(403).json({ error: 'Signer is not an approved farm owner in ProtocolCore' });
         }
         if (payload.creator.toLowerCase() !== signerAddr.toLowerCase()) {
-          return res.status(403).json({ error: 'Only protocol owner may create vaults for another creator' });
+          return res.status(403).json({ error: 'Only protocol owner may create farms for another creator' });
         }
       }
 
@@ -386,13 +386,13 @@ async function main() {
       dbg('adapterAddrs', adapterAddrs);
       dbg('adapterBps', adapterBps);
 
-      // Call createApprovedVault
-      console.log('Submitting createApprovedVaultFor');
-      const tx = await core.createApprovedVaultFor(
+      // Call createApprovedFarm
+      console.log('Submitting createApprovedFarmFor');
+      const tx = await core.createApprovedFarmFor(
         payload.creator,
         payload.asset,
-        payload.vaultName,
-        payload.vaultSymbol,
+        payload.farmName,
+        payload.farmSymbol,
         payload.recipients.ownerRecipient,
         payload.splits.lpBps,
         payload.splits.ownerBps,
@@ -415,10 +415,10 @@ async function main() {
         for (const log of receipt.logs) {
           try {
             const parsedLog = iface.parseLog(log);
-            if (parsedLog?.name === 'VaultCreated') {
+            if (parsedLog?.name === 'FarmCreated') {
               farmId = (parsedLog.args[0] as bigint).toString();
               modules = {
-                baseVault: parsedLog.args[1] as string,
+                baseFarm: parsedLog.args[1] as string,
                 owner: parsedLog.args[2] as string,
                 router: parsedLog.args[3] as string,
                 payoutPolicy: parsedLog.args[4] as string,
@@ -440,9 +440,9 @@ async function main() {
 
       // If still missing some fields, query vaultsById
       if (farmId) {
-        const all = await core.vaultsById(farmId);
+        const all = await core.farmsById(farmId);
         modules = {
-          baseVault: all[0],
+          baseFarm: all[0],
           owner: all[1],
           asset: all[2],
           farmId: (all[3] as bigint).toString(),
@@ -454,12 +454,12 @@ async function main() {
         console.log('Modules', modules);
       }
 
-      // Fetch ShareToken address for response if baseVault resolved
+      // Fetch ShareToken address for response if baseFarm resolved
       try {
-        const baseVaultAddr: string | undefined = modules.baseVault as string | undefined;
-        if (baseVaultAddr && baseVaultAddr !== ethers.ZeroAddress) {
-          const vault = new ethers.Contract(baseVaultAddr, BaseVaultAbi, signer);
-          const stAddr: string = await vault.shareToken();
+        const baseFarmAddr: string | undefined = modules.baseFarm as string | undefined;
+        if (baseFarmAddr && baseFarmAddr !== ethers.ZeroAddress) {
+          const farm = new ethers.Contract(baseFarmAddr, BaseFarmAbi, signer);
+          const stAddr: string = await farm.shareToken();
           (modules as any).shareToken = stAddr;
         }
       } catch {}
@@ -467,13 +467,13 @@ async function main() {
       return res.json({
         network,
         protocolCore,
-        vaultFactory,
+        farmFactory,
         txHash: receipt.hash,
         farmId,
         modules,
       });
     } catch (err: any) {
-      console.error('Error in /api/v3/create-vault', err);
+      console.error('Error in /api/v3/create-farm', err);
       const msg = err?.message || 'Unknown error';
       return res.status(500).json({ error: msg });
     }

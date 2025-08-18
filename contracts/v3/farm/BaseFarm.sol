@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import "../interfaces/IBaseVault.sol";
+import "../interfaces/IBaseFarm.sol";
 import "../interfaces/IStrategyRouter.sol";
 import "../interfaces/IPayoutPolicy.sol";
 import "../interfaces/ILockupPolicy.sol";
@@ -22,8 +22,8 @@ interface IHasOwner {
 }
 
 /**
- * @title BaseVault (Dexponent v3)
- * @notice ERC-4626-like vault with modular policies and a strategy router.
+ * @title BaseFarm (Dexponent v3)
+ * @notice ERC-4626-like farm with modular policies and a strategy router.
  *         - NAV/share accounting with external strategy holdings via router
  *         - Pluggable payout and lockup policies
  *         - Share token with optional transfer fee
@@ -31,16 +31,16 @@ interface IHasOwner {
  *         This contract intentionally focuses on correct accounting and
  *         safe flows. Strategy logic lives in the router and adapters.
  */
-contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
+contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
-    // Immutable base asset for this vault
+    // Immutable base asset for this farm
     address public immutable override asset;
 
     // ProtocolCore reference to gate sensitive updates (strategy router & policies)
     address public immutable protocolCore;
 
-    // Share token minted/burned by this vault
+    // Share token minted/burned by this farm
     IShareToken public shareToken;
 
     // Modules
@@ -60,7 +60,7 @@ contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
         asset = asset_;
         protocolCore = protocolCore_;
 
-        // Deploy a dedicated share token, set this vault as minter, then hand ownership to farm owner
+        // Deploy a dedicated share token, set this farm as minter, then hand ownership to farm owner
         ShareToken token = new ShareToken(name_, symbol_);
         token.setMinter(address(this));
         token.transferOwnership(msg.sender);
@@ -207,7 +207,7 @@ contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
         if (idle < assetsNeeded) {
             require(address(router) != address(0), "RouterMissing");
             uint256 shortfall = assetsNeeded - idle;
-            // Deallocate required amount back to this vault
+            // Deallocate required amount back to this farm
             router.deallocate(shortfall);
             // refresh idle
             idle = IERC20(asset).balanceOf(address(this));
@@ -218,7 +218,7 @@ contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
         if (penalty > 0) {
             require(penalty < assetsNeeded, "BadPenalty");
             payout = assetsNeeded - penalty;
-            // Penalty remains in vault, effectively benefiting remaining LPs via PPS
+            // Penalty remains in farm, effectively benefiting remaining LPs via PPS
         }
 
         IERC20(asset).safeTransfer(receiver, payout);
@@ -229,7 +229,7 @@ contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
     function harvest() external override nonReentrant whenNotPaused returns (uint256 netAssets) {
         require(address(router) != address(0), "RouterMissing");
         require(address(payoutPolicy) != address(0), "PayoutMissing");
-        // Realize rewards (base asset returned to this vault)
+        // Realize rewards (base asset returned to this farm)
         netAssets = router.harvest();
         if (netAssets == 0) return 0;
 
@@ -244,7 +244,7 @@ contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
         IStakeholderRegistry.Splits memory s = stakeholderRegistry.getSplits();
         uint256 ownerAmt = (streamed * s.ownerBps) / 10_000;
         uint256 verifierAmt = (streamed * s.verifierBps) / 10_000;
-        // LP streamed portion is retained in vault as idle (benefits LPs via PPS)
+        // LP streamed portion is retained in farm as idle (benefits LPs via PPS)
 
         // Apply protocol rake on the owner portion using ShareToken settings
         address protocolReceiver = shareToken.protocolFeeReceiver();
@@ -301,7 +301,7 @@ contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
         router.rebalance(targetBps);
     }
 
-    // Allocate idle assets from this vault to strategies via router according to target bps
+    // Allocate idle assets from this farm to strategies via router according to target bps
     function allocateToStrategies(uint256 amount) external onlyOwner whenNotPaused returns (uint256 deployed) {
         require(address(router) != address(0), "RouterMissing");
         require(amount > 0, "ZeroAmount");
@@ -310,7 +310,7 @@ contract BaseVault is IBaseVault, Ownable, ReentrancyGuard, Pausable {
         deployed = router.allocate(amount);
     }
 
-    // Pull assets back from strategies to this vault according to target bps
+    // Pull assets back from strategies to this farm according to target bps
     function deallocateFromStrategies(uint256 amount) external onlyOwner whenNotPaused returns (uint256 received) {
         require(address(router) != address(0), "RouterMissing");
         require(amount > 0, "ZeroAmount");

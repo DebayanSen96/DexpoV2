@@ -117,15 +117,15 @@ async function main() {
   console.log("Wiring LiquidityManager in ProtocolCore...");
   await (await core.setLiquidityManager(mockLmAddr)).wait();
 
-  // 5) Deploy VaultFactory (v3) and wire into ProtocolCore
-  console.log("Deploying v3 VaultFactory...");
-  const VaultFactory = await ethers.getContractFactory("VaultFactory");
-  const vaultFactory = await VaultFactory.deploy(coreAddr);
-  await vaultFactory.waitForDeployment();
-  const vaultFactoryAddr = await vaultFactory.getAddress();
-  console.log("VaultFactory:", vaultFactoryAddr);
-  console.log("Wiring VaultFactory in ProtocolCore...");
-  await (await core.setVaultFactory(vaultFactoryAddr)).wait();
+  // 5) Deploy FarmFactory (v3) and wire into ProtocolCore
+  console.log("Deploying v3 FarmFactory...");
+  const FarmFactory = await ethers.getContractFactory("contracts/v3/factories/FarmFactory.sol:FarmFactory");
+  const farmFactory = await FarmFactory.deploy(coreAddr);
+  await farmFactory.waitForDeployment();
+  const farmFactoryAddr = await farmFactory.getAddress();
+  console.log("FarmFactory:", farmFactoryAddr);
+  console.log("Wiring FarmFactory in ProtocolCore...");
+  await (await core.setFarmFactory(farmFactoryAddr)).wait();
 
   // Optionally approve deployer as farm owner in core (useful for tests)
   console.log("Approving deployer as farm owner in ProtocolCore...");
@@ -136,11 +136,11 @@ async function main() {
   const LockupPolicy = await ethers.getContractFactory("LockupPolicy");
   const PayoutPolicy = await ethers.getContractFactory("PayoutPolicy");
   const StakeholderRegistry = await ethers.getContractFactory("StakeholderRegistry");
-  const BaseVault = await ethers.getContractFactory("BaseVault");
+  const BaseFarm = await ethers.getContractFactory("contracts/v3/farm/BaseFarm.sol:BaseFarm");
 
   // --- Staking Vault (streaming payouts) ---
   console.log("Deploying Staking StrategyRouter...");
-  const stakeRouter = await StrategyRouter.deploy(ASSET_TOKEN);
+  const stakeRouter = await StrategyRouter.deploy(ASSET_TOKEN, coreAddr);
   await stakeRouter.waitForDeployment();
   const stakeRouterAddr = await stakeRouter.getAddress();
   console.log("Staking Router:", stakeRouterAddr);
@@ -178,20 +178,20 @@ async function main() {
     await (await stakeRegistry.setOwnerRecipient(deployerAddress)).wait();
   }
 
-  console.log("Deploying Staking BaseVault...");
-  const stakeVault = await BaseVault.deploy(ASSET_TOKEN, STAKE_VAULT_NAME, STAKE_VAULT_SYMBOL);
-  await stakeVault.waitForDeployment();
-  const stakeVaultAddr = await stakeVault.getAddress();
-  console.log("Staking Vault:", stakeVaultAddr);
-  console.log("Wiring Staking Vault modules...");
-  await (await stakeVault.setStrategyRouter(stakeRouterAddr)).wait();
-  await (await stakeVault.setPayoutPolicy(stakePayoutAddr)).wait();
-  await (await stakeVault.setLockupPolicy(stakeLockAddr)).wait();
-  await (await stakeVault.setStakeholderRegistry(stakeRegistryAddr)).wait();
+  console.log("Deploying Staking BaseFarm...");
+  const stakeFarm = await BaseFarm.deploy(ASSET_TOKEN, STAKE_VAULT_NAME, STAKE_VAULT_SYMBOL, coreAddr);
+  await stakeFarm.waitForDeployment();
+  const stakeFarmAddr = await stakeFarm.getAddress();
+  console.log("Staking Farm:", stakeFarmAddr);
+  console.log("Wiring Staking Farm modules...");
+  await (await stakeFarm.setStrategyRouter(stakeRouterAddr)).wait();
+  await (await stakeFarm.setPayoutPolicy(stakePayoutAddr)).wait();
+  await (await stakeFarm.setLockupPolicy(stakeLockAddr)).wait();
+  await (await stakeFarm.setStakeholderRegistry(stakeRegistryAddr)).wait();
 
   // --- Lending Vault (lockup payouts) ---
   console.log("Deploying Lending StrategyRouter...");
-  const lendRouter = await StrategyRouter.deploy(ASSET_TOKEN);
+  const lendRouter = await StrategyRouter.deploy(ASSET_TOKEN, coreAddr);
   await lendRouter.waitForDeployment();
   const lendRouterAddr = await lendRouter.getAddress();
   console.log("Lending Router:", lendRouterAddr);
@@ -229,16 +229,16 @@ async function main() {
     await (await lendRegistry.setOwnerRecipient(deployerAddress)).wait();
   }
 
-  console.log("Deploying Lending BaseVault...");
-  const lendVault = await BaseVault.deploy(ASSET_TOKEN, LEND_VAULT_NAME, LEND_VAULT_SYMBOL);
-  await lendVault.waitForDeployment();
-  const lendVaultAddr = await lendVault.getAddress();
-  console.log("Lending Vault:", lendVaultAddr);
-  console.log("Wiring Lending Vault modules...");
-  await (await lendVault.setStrategyRouter(lendRouterAddr)).wait();
-  await (await lendVault.setPayoutPolicy(lendPayoutAddr)).wait();
-  await (await lendVault.setLockupPolicy(lendLockAddr)).wait();
-  await (await lendVault.setStakeholderRegistry(lendRegistryAddr)).wait();
+  console.log("Deploying Lending BaseFarm...");
+  const lendFarm = await BaseFarm.deploy(ASSET_TOKEN, LEND_VAULT_NAME, LEND_VAULT_SYMBOL, coreAddr);
+  await lendFarm.waitForDeployment();
+  const lendFarmAddr = await lendFarm.getAddress();
+  console.log("Lending Farm:", lendFarmAddr);
+  console.log("Wiring Lending Farm modules...");
+  await (await lendFarm.setStrategyRouter(lendRouterAddr)).wait();
+  await (await lendFarm.setPayoutPolicy(lendPayoutAddr)).wait();
+  await (await lendFarm.setLockupPolicy(lendLockAddr)).wait();
+  await (await lendFarm.setStakeholderRegistry(lendRegistryAddr)).wait();
 
   // Save addresses
   const addresses = {
@@ -247,7 +247,7 @@ async function main() {
     contracts: {
       DXPToken: dxpAddr,
       ProtocolCore: coreAddr,
-      VaultFactory: vaultFactoryAddr,
+      FarmFactory: farmFactoryAddr,
       MockLiquidityManager: mockLmAddr,
       vaults: {
         staking: {
@@ -255,14 +255,14 @@ async function main() {
           LockupPolicy: stakeLockAddr,
           PayoutPolicy: stakePayoutAddr,
           StakeholderRegistry: stakeRegistryAddr,
-          BaseVault: stakeVaultAddr,
+          BaseFarm: stakeFarmAddr,
         },
         lending: {
           StrategyRouter: lendRouterAddr,
           LockupPolicy: lendLockAddr,
           PayoutPolicy: lendPayoutAddr,
           StakeholderRegistry: lendRegistryAddr,
-          BaseVault: lendVaultAddr,
+          BaseFarm: lendFarmAddr,
         },
       },
     },

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-interface IBaseVault {
+interface IBaseFarm {
     // ERC-4626-like surface
     function asset() external view returns (address);
     function totalAssets() external view returns (uint256);

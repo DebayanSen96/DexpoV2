@@ -25,7 +25,7 @@ pragma solidity ^0.8.24;
  * SECURITY MODEL
  * ──────────────
  *  • Only farms created via this contract (or the special Root Farm) may call
- *    sensitive reward / bonus functions (enforced by `onlyRootFarmOrVault`).
+ *    sensitive reward / bonus functions (enforced by `onlyRootFarmOrFarm`).
  *  • Verifier registration requires an on-chain DXP stake ≥ `minVerifierStake`.
  *  • All external setters are `onlyOwner`, delegated to the protocol DAO on
  *    main-net but keyed to the deployer for test-nets.
@@ -43,7 +43,7 @@ import "./interfaces/IDXPToken.sol";
 import "./vDXPToken.sol";
 import "./interfaces/IRootFarm.sol";
 import "./interfaces/IConsensus.sol";
-import "./v3/interfaces/IVaultFactory.sol";
+import "./v3/interfaces/IFarmFactory.sol";
 import "./interfaces/ILiquidityManager.sol";
 import "./interfaces/IBridgeAdapter.sol";
 
@@ -107,14 +107,14 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     // ───────────────────────────────────────────────────────────
     //                 REGISTRY - FARMS & OWNERS
     // ───────────────────────────────────────────────────────────
-    mapping(address => FarmDetails) public farms; // farmAddr ➜ details (legacy + v3 baseVault)
-    mapping(uint256 => address) public farmAddressOf; // farmId   ➜ farmAddr/baseVault
+    mapping(address => FarmDetails) public farms; // farmAddr ➜ details (legacy + v3 baseFarm)
+    mapping(uint256 => address) public farmAddressOf; // farmId   ➜ farmAddr/baseFarm
     mapping(address => bool) public approvedFarmOwners;
     IRootFarm public rootFarm; // id 0
 
-    // V3 Vault registry (modules per farmId)
-    struct VaultDetails {
-        address baseVault;
+    // V3 Farm registry (modules per farmId)
+    struct FarmDetails_V3 {
+        address baseFarm;
         address owner;
         address asset;
         uint256 farmId;
@@ -123,8 +123,8 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         address lockupPolicy;
         address stakeholderRegistry;
     }
-    mapping(uint256 => VaultDetails) public vaultsById; // farmId ➜ v3 vault modules
-    mapping(address => uint256) public vaultIdOf; // baseVault ➜ farmId
+    mapping(uint256 => FarmDetails_V3) public farmsById; // farmId ➜ v3 farm modules
+    mapping(address => uint256) public farmIdOf; // baseFarm ➜ farmId
 
     // ───────────────────────────────────────────────────────────
     //                     YIELDS & CONSENSUS
@@ -162,7 +162,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     //                 EXTERNAL MODULE REFERENCES
     // ───────────────────────────────────────────────────────────
     ILiquidityManager public liquidityManager;
-    IVaultFactory public vaultFactory; // v3 vault stack factory
+    IFarmFactory public farmFactory; // v3 farm stack factory
     IBridgeAdapter public bridgeAdapter;
     IConsensus public consensus; // pulls verifier rounds
 
@@ -180,9 +180,9 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     //                           EVENTS
     // ───────────────────────────────────────────────────────────
     event FarmOwnerApproved(address indexed farmOwner, bool approved);
-    event VaultCreated(
+    event FarmCreated(
         uint256 indexed farmId,
-        address indexed baseVault,
+        address indexed baseFarm,
         address indexed owner,
         address router,
         address payoutPolicy,
@@ -257,12 +257,12 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Restricts caller to RootFarm or a registered v3 BaseVault
+     * @dev Restricts caller to RootFarm or a registered v3 BaseFarm
      */
-    modifier onlyRootFarmOrVault() {
+    modifier onlyRootFarmOrFarm() {
         bool isRoot = msg.sender == address(rootFarm);
-        bool isV3 = vaultIdOf[msg.sender] != 0; // farmId 0 is root; vault ids start at 1
-        require(isRoot || isV3, "ProtocolCore: not root farm or vault");
+        bool isV3 = farmIdOf[msg.sender] != 0; // farmId 0 is root; farm ids start at 1
+        require(isRoot || isV3, "ProtocolCore: not root farm or farm");
         _;
     }
 
@@ -295,11 +295,11 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     }
 
     // ───────────────────────────────────────────────────────────
-    //                   V3 VAULT FACTORY WIRING
+    //                   V3 FARM FACTORY WIRING
     // ───────────────────────────────────────────────────────────
-    function setVaultFactory(address f) external onlyOwner {
+    function setFarmFactory(address f) external onlyOwner {
         require(f != address(0), "zero address");
-        vaultFactory = IVaultFactory(f);
+        farmFactory = IFarmFactory(f);
     }
 
     // ───────────────────────────────────────────────────────────
@@ -366,42 +366,42 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         vdxpToken.setAssociatedFarm(_root);
         vdxpToken.transferOwnership(_root);
 
-        emit VaultCreated(farmId, _root, msg.sender, address(0), address(0), address(0), address(0));
+        emit FarmCreated(farmId, _root, msg.sender, address(0), address(0), address(0), address(0));
     }
 
 
     // ───────────────────────────────────────────────────────────
-    //                       V3 VAULT CREATION
+    //                       V3 FARM CREATION
     // ───────────────────────────────────────────────────────────
-    uint256 public nextFarmId; // starts at 0, v3 vault ids begin at 1 (0 reserved for Root)
+    uint256 public nextFarmId; // starts at 0, v3 farm ids begin at 1 (0 reserved for Root)
 
-    function createApprovedVault(
+    function createApprovedFarm(
         address asset,
-        string memory vaultName,
-        string memory vaultSymbol,
+        string memory farmName,
+        string memory farmSymbol,
         address ownerRecipient,
         uint16 lpBps,
         uint16 ownerBps,
         uint16 verifierBps,
-        IVaultFactory.LockConfig calldata lockCfg,
-        IVaultFactory.PayoutConfig calldata payoutCfg,
-        IVaultFactory.ShareTokenConfig calldata stCfg,
+        IFarmFactory.LockConfig calldata lockCfg,
+        IFarmFactory.PayoutConfig calldata payoutCfg,
+        IFarmFactory.ShareTokenConfig calldata stCfg,
         bytes32[] calldata adapterKeys,
         address[] calldata adapterAddrs,
         uint16[] calldata adapterBps
-    ) external nonReentrant returns (uint256 farmIdOut, address baseVault) {
+    ) external nonReentrant returns (uint256 farmIdOut, address baseFarm) {
         require(approvedFarmOwners[msg.sender], "Not an approved farm owner");
-        require(address(vaultFactory) != address(0), "No VaultFactory");
+        require(address(farmFactory) != address(0), "No FarmFactory");
         require(uint256(lpBps) + ownerBps + verifierBps == 10_000, "Split!=100%");
 
         // Assign new farmId (reserve 0 for RootFarm)
         unchecked { nextFarmId += 1; }
         farmIdOut = nextFarmId;
 
-        IVaultFactory.VaultAddresses memory addrs = vaultFactory.createVaultStack(
+        IFarmFactory.FarmAddresses memory addrs = farmFactory.createFarmStack(
             asset,
-            vaultName,
-            vaultSymbol,
+            farmName,
+            farmSymbol,
             address(this),
             farmIdOut,
             msg.sender,
@@ -418,16 +418,16 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         );
 
         // Registry entries for backwards compatibility & v3 tracking
-        farmAddressOf[farmIdOut] = addrs.baseVault;
-        farms[addrs.baseVault] = FarmDetails({
-            farmAddress: addrs.baseVault,
+        farmAddressOf[farmIdOut] = addrs.baseFarm;
+        farms[addrs.baseFarm] = FarmDetails({
+            farmAddress: addrs.baseFarm,
             owner: msg.sender,
             asset: asset,
             farmId: farmIdOut
         });
 
-        vaultsById[farmIdOut] = VaultDetails({
-            baseVault: addrs.baseVault,
+        farmsById[farmIdOut] = FarmDetails_V3({
+            baseFarm: addrs.baseFarm,
             owner: msg.sender,
             asset: asset,
             farmId: farmIdOut,
@@ -436,11 +436,11 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
             lockupPolicy: addrs.lockupPolicy,
             stakeholderRegistry: addrs.stakeholderRegistry
         });
-        vaultIdOf[addrs.baseVault] = farmIdOut;
+        farmIdOf[addrs.baseFarm] = farmIdOut;
 
-        emit VaultCreated(
+        emit FarmCreated(
             farmIdOut,
-            addrs.baseVault,
+            addrs.baseFarm,
             msg.sender,
             addrs.router,
             addrs.payoutPolicy,
@@ -448,31 +448,31 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
             addrs.stakeholderRegistry
         );
 
-        return (farmIdOut, addrs.baseVault);
+        return (farmIdOut, addrs.baseFarm);
     }
 
     /**
-     * @notice Create a new v3 vault for a specified `creator` (farm owner).
+     * @notice Create a new v3 farm for a specified `creator` (farm owner).
      *         Protocol owner may call this for any approved farm owner. A farm owner
      *         may call this only for themselves.
      */
-    function createApprovedVaultFor(
+    function createApprovedFarmFor(
         address creator,
         address asset,
-        string memory vaultName,
-        string memory vaultSymbol,
+        string memory farmName,
+        string memory farmSymbol,
         address ownerRecipient,
         uint16 lpBps,
         uint16 ownerBps,
         uint16 verifierBps,
-        IVaultFactory.LockConfig calldata lockCfg,
-        IVaultFactory.PayoutConfig calldata payoutCfg,
-        IVaultFactory.ShareTokenConfig calldata stCfg,
+        IFarmFactory.LockConfig calldata lockCfg,
+        IFarmFactory.PayoutConfig calldata payoutCfg,
+        IFarmFactory.ShareTokenConfig calldata stCfg,
         bytes32[] calldata adapterKeys,
         address[] calldata adapterAddrs,
         uint16[] calldata adapterBps
-    ) external nonReentrant returns (uint256 farmIdOut, address baseVault) {
-        require(address(vaultFactory) != address(0), "No VaultFactory");
+    ) external nonReentrant returns (uint256 farmIdOut, address baseFarm) {
+        require(address(farmFactory) != address(0), "No FarmFactory");
         require(uint256(lpBps) + ownerBps + verifierBps == 10_000, "Split!=100%");
 
         bool isProtocolOwner = (msg.sender == owner());
@@ -486,10 +486,10 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         unchecked { nextFarmId += 1; }
         farmIdOut = nextFarmId;
 
-        IVaultFactory.VaultAddresses memory addrs = vaultFactory.createVaultStack(
+        IFarmFactory.FarmAddresses memory addrs = farmFactory.createFarmStack(
             asset,
-            vaultName,
-            vaultSymbol,
+            farmName,
+            farmSymbol,
             address(this),
             farmIdOut,
             creator,
@@ -505,16 +505,16 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
             adapterBps
         );
 
-        farmAddressOf[farmIdOut] = addrs.baseVault;
-        farms[addrs.baseVault] = FarmDetails({
-            farmAddress: addrs.baseVault,
+        farmAddressOf[farmIdOut] = addrs.baseFarm;
+        farms[addrs.baseFarm] = FarmDetails({
+            farmAddress: addrs.baseFarm,
             owner: creator,
             asset: asset,
             farmId: farmIdOut
         });
 
-        vaultsById[farmIdOut] = VaultDetails({
-            baseVault: addrs.baseVault,
+        farmsById[farmIdOut] = FarmDetails_V3({
+            baseFarm: addrs.baseFarm,
             owner: creator,
             asset: asset,
             farmId: farmIdOut,
@@ -523,11 +523,11 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
             lockupPolicy: addrs.lockupPolicy,
             stakeholderRegistry: addrs.stakeholderRegistry
         });
-        vaultIdOf[addrs.baseVault] = farmIdOut;
+        farmIdOf[addrs.baseFarm] = farmIdOut;
 
-        emit VaultCreated(
+        emit FarmCreated(
             farmIdOut,
-            addrs.baseVault,
+            addrs.baseFarm,
             creator,
             addrs.router,
             addrs.payoutPolicy,
@@ -535,7 +535,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
             addrs.stakeholderRegistry
         );
 
-        return (farmIdOut, addrs.baseVault);
+        return (farmIdOut, addrs.baseFarm);
     }
 
     // ───────────────────────────────────────────────────────────
@@ -734,7 +734,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         address lp,
         uint256 principal,
         uint256 depositMaturity
-    ) external nonReentrant onlyRootFarmOrVault {
+    ) external nonReentrant onlyRootFarmOrFarm {
         require(lp != address(0), "Invalid lp");
         // Retrieve details of the calling farm.
         FarmDetails memory farmDetails = farms[msg.sender];
@@ -799,7 +799,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     function reverseDepositBonus(
         uint256 farmId,
         address lp
-    ) external nonReentrant onlyRootFarmOrVault {
+    ) external nonReentrant onlyRootFarmOrFarm {
         BonusRecord storage rec = bonusRecords[farmId][lp];
         require(rec.pinned, "No pinned bonus or already unpinned");
 
@@ -825,7 +825,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     function unpinPosition(
         uint256 farmId,
         address lp
-    ) external nonReentrant onlyRootFarmOrVault {
+    ) external nonReentrant onlyRootFarmOrFarm {
         BonusRecord storage rec = bonusRecords[farmId][lp];
         require(rec.pinned, "No pinned bonus or already unpinned");
         rec.pinned = false;

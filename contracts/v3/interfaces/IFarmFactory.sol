@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-interface IVaultFactory {
+interface IFarmFactory {
     // Mirror config structs used by LockupPolicy and PayoutPolicy
     struct LockConfig {
         bool enabled;
@@ -20,7 +20,7 @@ interface IVaultFactory {
         bool compoundLpOnLock;
     }
 
-    /// ShareToken configuration to be applied atomically during vault creation
+    /// ShareToken configuration to be applied atomically during farm creation
     struct ShareTokenConfig {
         bool transferable;
         uint16 transferFeeBps; // 0-1500 typical cap
@@ -29,8 +29,8 @@ interface IVaultFactory {
         uint16 protocolRakeBps; // 0-2000 typical cap
     }
 
-    struct VaultAddresses {
-        address baseVault;
+    struct FarmAddresses {
+        address baseFarm;
         address router;
         address payoutPolicy;
         address lockupPolicy;
@@ -38,10 +38,10 @@ interface IVaultFactory {
     }
 
     /**
-     * @notice Deploys a complete v3 vault stack and wires all modules.
-     * @param asset           The base asset (ERC20) for the vault
-     * @param vaultName       ShareToken name
-     * @param vaultSymbol     ShareToken symbol
+     * @notice Deploys a complete v3 farm stack and wires all modules.
+     * @param asset           The base asset (ERC20) for the farm
+     * @param farmName        ShareToken name
+     * @param farmSymbol      ShareToken symbol
      * @param core            ProtocolCore address (for StakeholderRegistry)
      * @param farmId          Unique id assigned by ProtocolCore
      * @param owner           Farm owner who will receive ownership of all modules
@@ -55,10 +55,10 @@ interface IVaultFactory {
      * @param adapterAddrs    Adapter addresses aligned with keys
      * @param adapterBps      Allocation bps per adapter; must sum to 10000 or be empty
      */
-    function createVaultStack(
+    function createFarmStack(
         address asset,
-        string calldata vaultName,
-        string calldata vaultSymbol,
+        string calldata farmName,
+        string calldata farmSymbol,
         address core,
         uint256 farmId,
         address owner,
@@ -72,5 +72,5 @@ interface IVaultFactory {
         bytes32[] calldata adapterKeys,
         address[] calldata adapterAddrs,
         uint16[] calldata adapterBps
-    ) external returns (VaultAddresses memory addrs);
+    ) external returns (FarmAddresses memory addrs);
 }
