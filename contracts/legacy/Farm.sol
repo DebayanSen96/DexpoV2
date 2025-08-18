@@ -10,10 +10,10 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./interfaces/BaseClaimToken.sol"; // Claim token interface.
-import "./interfaces/ILiquidityManager.sol"; // For swapping principal yield to DXP.
-import "./interfaces/IProtocolCore.sol"; // Protocol master interface.
-import "./interfaces/FarmStrategy.sol"; // Interface for the strategy contract.
+import "../interfaces/BaseClaimToken.sol"; // Claim token interface.
+import "../interfaces/ILiquidityManager.sol"; // For swapping principal yield to DXP.
+import "../interfaces/IProtocolCore.sol"; // Protocol master interface.
+import "../interfaces/legacy/FarmStrategy.sol"; // Interface for the strategy contract.
 
 /// @title IFarmLiquidityPool
 /// @notice Minimal interface for a pool associated with the Farm.

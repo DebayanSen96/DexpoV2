@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./Farm.sol";
 import "./RestakeFarm.sol";
-import "./RootFarm.sol";
-import "./interfaces/IFarmFactory.sol";
+import "../RootFarm.sol";
+import "../interfaces/legacy/IFarmFactory.sol";
 
 /**
  * @title FarmFactory

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "./Farm.sol";
-import "./interfaces/FarmStrategy.sol";
+import "./legacy/Farm.sol";
+import "./interfaces/legacy/FarmStrategy.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**

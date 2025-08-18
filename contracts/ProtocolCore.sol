@@ -25,7 +25,7 @@ pragma solidity ^0.8.24;
  * SECURITY MODEL
  * ──────────────
  *  • Only farms created via this contract (or the special Root Farm) may call
- *    sensitive reward / bonus functions (enforced by `onlyApprovedFarm`).
+ *    sensitive reward / bonus functions (enforced by `onlyRootFarmOrVault`).
  *  • Verifier registration requires an on-chain DXP stake ≥ `minVerifierStake`.
  *  • All external setters are `onlyOwner`, delegated to the protocol DAO on
  *    main-net but keyed to the deployer for test-nets.
@@ -43,7 +43,6 @@ import "./interfaces/IDXPToken.sol";
 import "./vDXPToken.sol";
 import "./interfaces/IRootFarm.sol";
 import "./interfaces/IConsensus.sol";
-import "./interfaces/IFarmFactory.sol";
 import "./v3/interfaces/IVaultFactory.sol";
 import "./interfaces/ILiquidityManager.sol";
 import "./interfaces/IBridgeAdapter.sol";
@@ -163,7 +162,6 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     //                 EXTERNAL MODULE REFERENCES
     // ───────────────────────────────────────────────────────────
     ILiquidityManager public liquidityManager;
-    IFarmFactory public farmFactory; // legacy (deprecated creation)
     IVaultFactory public vaultFactory; // v3 vault stack factory
     IBridgeAdapter public bridgeAdapter;
     IConsensus public consensus; // pulls verifier rounds
@@ -181,11 +179,6 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     // ───────────────────────────────────────────────────────────
     //                           EVENTS
     // ───────────────────────────────────────────────────────────
-    event FarmCreated(
-        uint256 indexed farmId,
-        address indexed farmAddress,
-        address indexed owner
-    );
     event FarmOwnerApproved(address indexed farmOwner, bool approved);
     event VaultCreated(
         uint256 indexed farmId,
@@ -253,25 +246,23 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     //                           MODIFIERS
     // ───────────────────────────────────────────────────────────
     /**
-     * @dev Restricts caller to a whitelisted Farm created by this contract
-     *      or the special RootFarm (id 0).
+     * @dev Restricts caller to the RootFarm only (legacy farms deprecated).
      */
-    modifier onlyApprovedFarm() {
+    modifier onlyRootFarm() {
         require(
-            farms[msg.sender].farmAddress == msg.sender ||
-                msg.sender == address(rootFarm),
-            "ProtocolCore: not farm"
+            msg.sender == address(rootFarm),
+            "ProtocolCore: not root farm"
         );
         _;
     }
 
     /**
-     * @dev Restricts caller to a registered legacy Farm or a registered v3 BaseVault
+     * @dev Restricts caller to RootFarm or a registered v3 BaseVault
      */
-    modifier onlyApprovedFarmOrVault() {
-        bool isLegacy = (farms[msg.sender].farmAddress == msg.sender) || (msg.sender == address(rootFarm));
+    modifier onlyRootFarmOrVault() {
+        bool isRoot = msg.sender == address(rootFarm);
         bool isV3 = vaultIdOf[msg.sender] != 0; // farmId 0 is root; vault ids start at 1
-        require(isLegacy || isV3, "ProtocolCore: not farm/vault");
+        require(isRoot || isV3, "ProtocolCore: not root farm or vault");
         _;
     }
 
@@ -283,18 +274,15 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
      * @param fallbackRatio     Default bonus ratio (e.g. 70 = 70 %)
      * @param _protocolFeeRate  % fee on farm-owner slice of revenue
      * @param _reserveRatio     % of fee kept in reserves (rest sent to RootFarm)
-     * @param _farmFactory      Factory that deploys farms & claim-tokens
      */
     constructor(
         address _dxpToken,
         uint256 fallbackRatio,
         uint256 _protocolFeeRate,
-        uint256 _reserveRatio,
-        address _farmFactory
+        uint256 _reserveRatio
     ) Ownable(msg.sender) {
         require(_dxpToken != address(0), "DXP=0");
         dxpToken = IDXPToken(_dxpToken);
-        farmFactory = IFarmFactory(_farmFactory);
 
         depositBonusRatio = fallbackRatio;
         protocolFeeRate = _protocolFeeRate;
@@ -378,43 +366,9 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         vdxpToken.setAssociatedFarm(_root);
         vdxpToken.transferOwnership(_root);
 
-        emit FarmCreated(farmId, _root, msg.sender);
+        emit VaultCreated(farmId, _root, msg.sender, address(0), address(0), address(0), address(0));
     }
 
-    // ───────────────────────────────────────────────────────────
-    //                       FARM FACTORY
-    // ───────────────────────────────────────────────────────────
-    /**
-     * @notice Create a new Farm (standard or restake) via the FarmFactory.
-     * @param salt                 User-supplied salt for deterministic CREATE2.
-     * @param asset                Principal asset for deposits.
-     * @param maturityPeriod       Deposit maturity period (seconds).
-     * @param verifierIncentiveSplit  % of yield to verifiers (0–100).
-     * @param yieldYodaIncentiveSplit % of yield to yield-yodas (0–100).
-     * @param lpIncentiveSplit        % of yield to LPs (0–100).
-     * @param strategy             Address of the strategy contract.
-     * @param claimName            Name for the farm’s claim token.
-     * @param claimSymbol          Symbol for the farm’s claim token.
-     * @param isRestaked           If true, deploys a RestakeFarm; otherwise a standard Farm.
-     * @param rootFarmAddress      Required if isRestaked=true; links back to your RootFarm.
-     * @return farmId              The auto-incremented farm identifier.
-     * @return farmAddr            The address of the newly created farm contract.
-     */
-    function createApprovedFarm(
-        bytes32 salt,
-        address asset,
-        uint256 maturityPeriod,
-        uint256 verifierIncentiveSplit,
-        uint256 yieldYodaIncentiveSplit,
-        uint256 lpIncentiveSplit,
-        address strategy,
-        string memory claimName,
-        string memory claimSymbol,
-        bool isRestaked,
-        address rootFarmAddress
-    ) external nonReentrant returns (uint256 farmId, address farmAddr) {
-        revert("deprecated");
-    }
 
     // ───────────────────────────────────────────────────────────
     //                       V3 VAULT CREATION
@@ -780,7 +734,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         address lp,
         uint256 principal,
         uint256 depositMaturity
-    ) external nonReentrant onlyApprovedFarmOrVault {
+    ) external nonReentrant onlyRootFarmOrVault {
         require(lp != address(0), "Invalid lp");
         // Retrieve details of the calling farm.
         FarmDetails memory farmDetails = farms[msg.sender];
@@ -849,7 +803,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         address lp,
         uint256 amountWithdrawn,
         bool isEarly
-    ) external nonReentrant onlyApprovedFarmOrVault {
+    ) external nonReentrant onlyRootFarmOrVault {
         BonusRecord storage rec = bonusRecords[farmId][lp];
         require(rec.pinned, "No pinned bonus or already unpinned");
 
@@ -875,7 +829,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     function unpinPosition(
         uint256 farmId,
         address lp
-    ) external nonReentrant onlyApprovedFarmOrVault {
+    ) external nonReentrant onlyRootFarmOrVault {
         BonusRecord storage rec = bonusRecords[farmId][lp];
         require(rec.pinned, "No pinned bonus or already unpinned");
         rec.pinned = false;

@@ -83,23 +83,16 @@ async function main() {
   const ASSET_TOKEN = ASSET_TOKEN_ENV ?? dxpAddr;
   const USDC_TOKEN = env("USDC_TOKEN", ASSET_TOKEN);
 
-  // 2) Deploy FarmFactory (for ProtocolCore constructor)
-  console.log("Deploying FarmFactory...");
-  const FarmFactory = await ethers.getContractFactory("FarmFactory");
-  const farmFactory = await FarmFactory.deploy();
-  await farmFactory.waitForDeployment();
-  const farmFactoryAddr = await farmFactory.getAddress();
-  console.log("FarmFactory:", farmFactoryAddr);
+  // 2) FarmFactory no longer needed (legacy farms deprecated)
 
-  // 3) Deploy ProtocolCore(address dxp, uint256 fallbackRatio, uint256 protocolFeeRate, uint256 reserveRatio, address farmFactory)
+  // 3) Deploy ProtocolCore(address dxp, uint256 fallbackRatio, uint256 protocolFeeRate, uint256 reserveRatio)
   console.log("Deploying ProtocolCore...");
   const ProtocolCore = await ethers.getContractFactory("ProtocolCore");
   const core = await ProtocolCore.deploy(
     dxpAddr,
-    FALLBACK_BONUS_RATIO,
-    PROTOCOL_FEE_RATE,
-    RESERVE_RATIO,
-    farmFactoryAddr,
+    70, // fallbackRatio (70%)
+    10, // protocolFeeRate (10%)
+    50  // reserveRatio (50%)
   );
   await core.waitForDeployment();
   const coreAddr = await core.getAddress();
@@ -253,7 +246,6 @@ async function main() {
     deployer: deployerAddress,
     contracts: {
       DXPToken: dxpAddr,
-      FarmFactory: farmFactoryAddr,
       ProtocolCore: coreAddr,
       VaultFactory: vaultFactoryAddr,
       MockLiquidityManager: mockLmAddr,
