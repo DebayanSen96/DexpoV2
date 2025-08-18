@@ -1,4 +1,5 @@
 import hre from "hardhat";
+import "dotenv/config";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 
@@ -90,9 +91,9 @@ async function main() {
   const ProtocolCore = await ethers.getContractFactory("ProtocolCore");
   const core = await ProtocolCore.deploy(
     dxpAddr,
-    70, // fallbackRatio (70%)
-    10, // protocolFeeRate (10%)
-    50  // reserveRatio (50%)
+    Number(FALLBACK_BONUS_RATIO), // fallbackRatio (%)
+    Number(PROTOCOL_FEE_RATE),    // protocolFeeRate (%)
+    Number(RESERVE_RATIO)         // reserveRatio (%)
   );
   await core.waitForDeployment();
   const coreAddr = await core.getAddress();
@@ -131,21 +132,13 @@ async function main() {
   console.log("Approving deployer as farm owner in ProtocolCore...");
   await (await core.setApprovedFarmOwner(deployerAddress, true)).wait();
 
-  // 5-9) Deploy two vault stacks with their own routers, policies, registry, and wire them
-  const StrategyRouter = await ethers.getContractFactory("StrategyRouter");
-  const LockupPolicy = await ethers.getContractFactory("LockupPolicy");
-  const PayoutPolicy = await ethers.getContractFactory("PayoutPolicy");
-  const StakeholderRegistry = await ethers.getContractFactory("StakeholderRegistry");
-  const BaseFarm = await ethers.getContractFactory("contracts/v3/farm/BaseFarm.sol:BaseFarm");
+  // 5-9) Create two farms via ProtocolCore + FarmFactory (ensures registration & fee reporting wiring)
+  // Common staking splits (LP/Owner/Verifier)
+  const STAKE_SPLITS = { lpBps: 7000, ownerBps: 2500, verifierBps: 500 } as const;
+  const LEND_SPLITS = { lpBps: 7000, ownerBps: 2500, verifierBps: 500 } as const;
 
-  // --- Staking Vault (streaming payouts) ---
-  console.log("Deploying Staking StrategyRouter...");
-  const stakeRouter = await StrategyRouter.deploy(ASSET_TOKEN, coreAddr);
-  await stakeRouter.waitForDeployment();
-  const stakeRouterAddr = await stakeRouter.getAddress();
-  console.log("Staking Router:", stakeRouterAddr);
-
-  console.log("Deploying Staking Policies...");
+  // --- Staking Farm ---
+  console.log("Creating Staking farm via ProtocolCore.createApprovedFarm...");
   const stakeLockCfg = {
     enabled: STAKE_LOCK_ENABLED,
     allowEarlyExit: STAKE_LOCK_ALLOW_EARLY,
@@ -153,10 +146,6 @@ async function main() {
     lockupSeconds: BigInt(STAKE_LOCK_SECONDS),
     postLockMode: STAKE_LOCK_POST_MODE,
   };
-  const stakeLock = await LockupPolicy.deploy(stakeLockCfg);
-  await stakeLock.waitForDeployment();
-  const stakeLockAddr = await stakeLock.getAddress();
-
   const stakePayoutCfg = {
     mode: STAKE_PAYOUT_MODE,
     streamBps: STAKE_PAYOUT_STREAM_BPS,
@@ -165,38 +154,48 @@ async function main() {
     minHarvestInterval: STAKE_PAYOUT_MIN_HARVEST,
     compoundLpOnLock: STAKE_PAYOUT_COMPOUND_ON_LOCK,
   };
-  const stakePayout = await PayoutPolicy.deploy(ASSET_TOKEN, stakePayoutCfg);
-  await stakePayout.waitForDeployment();
-  const stakePayoutAddr = await stakePayout.getAddress();
+  const stakeShareCfg = {
+    transferable: true,
+    transferFeeBps: 0,
+    feeReceiver: ethers.ZeroAddress,
+    protocolFeeReceiver: deployerAddress,
+    protocolRakeBps: 1000, // 10% of owner share as protocol rake
+  };
+  const [stakeFarmId, stakeBaseFarm] = await core.createApprovedFarm.staticCall(
+    ASSET_TOKEN,
+    STAKE_VAULT_NAME,
+    STAKE_VAULT_SYMBOL,
+    deployerAddress, // ownerRecipient
+    STAKE_SPLITS.lpBps,
+    STAKE_SPLITS.ownerBps,
+    STAKE_SPLITS.verifierBps,
+    stakeLockCfg,
+    stakePayoutCfg,
+    stakeShareCfg,
+    [],
+    [],
+    []
+  );
+  await (await core.createApprovedFarm(
+    ASSET_TOKEN,
+    STAKE_VAULT_NAME,
+    STAKE_VAULT_SYMBOL,
+    deployerAddress,
+    STAKE_SPLITS.lpBps,
+    STAKE_SPLITS.ownerBps,
+    STAKE_SPLITS.verifierBps,
+    stakeLockCfg,
+    stakePayoutCfg,
+    stakeShareCfg,
+    [],
+    [],
+    []
+  )).wait();
+  const stakeMods = await core.farmsById(stakeFarmId);
+  console.log("Staking Farm created:", { id: stakeFarmId.toString(), baseFarm: stakeBaseFarm });
 
-  console.log("Deploying Staking StakeholderRegistry (farmId=", STAKE_FARM_ID.toString(), ")...");
-  const stakeRegistry = await StakeholderRegistry.deploy(coreAddr, STAKE_FARM_ID);
-  await stakeRegistry.waitForDeployment();
-  const stakeRegistryAddr = await stakeRegistry.getAddress();
-  if (env("SET_INITIAL_SPLITS", "true") === "true") {
-    await (await stakeRegistry.setSplits(7000, 2500, 500)).wait();
-    await (await stakeRegistry.setOwnerRecipient(deployerAddress)).wait();
-  }
-
-  console.log("Deploying Staking BaseFarm...");
-  const stakeFarm = await BaseFarm.deploy(ASSET_TOKEN, STAKE_VAULT_NAME, STAKE_VAULT_SYMBOL, coreAddr);
-  await stakeFarm.waitForDeployment();
-  const stakeFarmAddr = await stakeFarm.getAddress();
-  console.log("Staking Farm:", stakeFarmAddr);
-  console.log("Wiring Staking Farm modules...");
-  await (await stakeFarm.setStrategyRouter(stakeRouterAddr)).wait();
-  await (await stakeFarm.setPayoutPolicy(stakePayoutAddr)).wait();
-  await (await stakeFarm.setLockupPolicy(stakeLockAddr)).wait();
-  await (await stakeFarm.setStakeholderRegistry(stakeRegistryAddr)).wait();
-
-  // --- Lending Vault (lockup payouts) ---
-  console.log("Deploying Lending StrategyRouter...");
-  const lendRouter = await StrategyRouter.deploy(ASSET_TOKEN, coreAddr);
-  await lendRouter.waitForDeployment();
-  const lendRouterAddr = await lendRouter.getAddress();
-  console.log("Lending Router:", lendRouterAddr);
-
-  console.log("Deploying Lending Policies...");
+  // --- Lending Farm ---
+  console.log("Creating Lending farm via ProtocolCore.createApprovedFarm...");
   const lendLockCfg = {
     enabled: LEND_LOCK_ENABLED,
     allowEarlyExit: LEND_LOCK_ALLOW_EARLY,
@@ -204,10 +203,6 @@ async function main() {
     lockupSeconds: BigInt(LEND_LOCK_SECONDS),
     postLockMode: LEND_LOCK_POST_MODE,
   };
-  const lendLock = await LockupPolicy.deploy(lendLockCfg);
-  await lendLock.waitForDeployment();
-  const lendLockAddr = await lendLock.getAddress();
-
   const lendPayoutCfg = {
     mode: LEND_PAYOUT_MODE,
     streamBps: LEND_PAYOUT_STREAM_BPS,
@@ -216,29 +211,45 @@ async function main() {
     minHarvestInterval: LEND_PAYOUT_MIN_HARVEST,
     compoundLpOnLock: LEND_PAYOUT_COMPOUND_ON_LOCK,
   };
-  const lendPayout = await PayoutPolicy.deploy(ASSET_TOKEN, lendPayoutCfg);
-  await lendPayout.waitForDeployment();
-  const lendPayoutAddr = await lendPayout.getAddress();
-
-  console.log("Deploying Lending StakeholderRegistry (farmId=", LEND_FARM_ID.toString(), ")...");
-  const lendRegistry = await StakeholderRegistry.deploy(coreAddr, LEND_FARM_ID);
-  await lendRegistry.waitForDeployment();
-  const lendRegistryAddr = await lendRegistry.getAddress();
-  if (env("SET_INITIAL_SPLITS", "true") === "true") {
-    await (await lendRegistry.setSplits(7000, 2500, 500)).wait();
-    await (await lendRegistry.setOwnerRecipient(deployerAddress)).wait();
-  }
-
-  console.log("Deploying Lending BaseFarm...");
-  const lendFarm = await BaseFarm.deploy(ASSET_TOKEN, LEND_VAULT_NAME, LEND_VAULT_SYMBOL, coreAddr);
-  await lendFarm.waitForDeployment();
-  const lendFarmAddr = await lendFarm.getAddress();
-  console.log("Lending Farm:", lendFarmAddr);
-  console.log("Wiring Lending Farm modules...");
-  await (await lendFarm.setStrategyRouter(lendRouterAddr)).wait();
-  await (await lendFarm.setPayoutPolicy(lendPayoutAddr)).wait();
-  await (await lendFarm.setLockupPolicy(lendLockAddr)).wait();
-  await (await lendFarm.setStakeholderRegistry(lendRegistryAddr)).wait();
+  const lendShareCfg = {
+    transferable: true,
+    transferFeeBps: 0,
+    feeReceiver: ethers.ZeroAddress,
+    protocolFeeReceiver: deployerAddress,
+    protocolRakeBps: 1000,
+  };
+  const [lendFarmId, lendBaseFarm] = await core.createApprovedFarm.staticCall(
+    ASSET_TOKEN,
+    LEND_VAULT_NAME,
+    LEND_VAULT_SYMBOL,
+    deployerAddress,
+    LEND_SPLITS.lpBps,
+    LEND_SPLITS.ownerBps,
+    LEND_SPLITS.verifierBps,
+    lendLockCfg,
+    lendPayoutCfg,
+    lendShareCfg,
+    [],
+    [],
+    []
+  );
+  await (await core.createApprovedFarm(
+    ASSET_TOKEN,
+    LEND_VAULT_NAME,
+    LEND_VAULT_SYMBOL,
+    deployerAddress,
+    LEND_SPLITS.lpBps,
+    LEND_SPLITS.ownerBps,
+    LEND_SPLITS.verifierBps,
+    lendLockCfg,
+    lendPayoutCfg,
+    lendShareCfg,
+    [],
+    [],
+    []
+  )).wait();
+  const lendMods = await core.farmsById(lendFarmId);
+  console.log("Lending Farm created:", { id: lendFarmId.toString(), baseFarm: lendBaseFarm });
 
   // Save addresses
   const addresses = {
@@ -251,18 +262,20 @@ async function main() {
       MockLiquidityManager: mockLmAddr,
       vaults: {
         staking: {
-          StrategyRouter: stakeRouterAddr,
-          LockupPolicy: stakeLockAddr,
-          PayoutPolicy: stakePayoutAddr,
-          StakeholderRegistry: stakeRegistryAddr,
-          BaseFarm: stakeFarmAddr,
+          StrategyRouter: stakeMods.router,
+          LockupPolicy: stakeMods.lockupPolicy,
+          PayoutPolicy: stakeMods.payoutPolicy,
+          StakeholderRegistry: stakeMods.stakeholderRegistry,
+          BaseFarm: stakeMods.baseFarm,
+          FarmId: stakeFarmId.toString(),
         },
         lending: {
-          StrategyRouter: lendRouterAddr,
-          LockupPolicy: lendLockAddr,
-          PayoutPolicy: lendPayoutAddr,
-          StakeholderRegistry: lendRegistryAddr,
-          BaseFarm: lendFarmAddr,
+          StrategyRouter: lendMods.router,
+          LockupPolicy: lendMods.lockupPolicy,
+          PayoutPolicy: lendMods.payoutPolicy,
+          StakeholderRegistry: lendMods.stakeholderRegistry,
+          BaseFarm: lendMods.baseFarm,
+          FarmId: lendFarmId.toString(),
         },
       },
     },
@@ -276,7 +289,7 @@ async function main() {
       STAKE: {
         VAULT_NAME: STAKE_VAULT_NAME,
         VAULT_SYMBOL: STAKE_VAULT_SYMBOL,
-        FARM_ID: STAKE_FARM_ID.toString(),
+        FARM_ID: stakeFarmId.toString(),
         LOCK_ENABLED: STAKE_LOCK_ENABLED,
         LOCK_ALLOW_EARLY: STAKE_LOCK_ALLOW_EARLY,
         LOCK_EARLY_BPS: STAKE_LOCK_EARLY_BPS,
@@ -293,7 +306,7 @@ async function main() {
       LEND: {
         VAULT_NAME: LEND_VAULT_NAME,
         VAULT_SYMBOL: LEND_VAULT_SYMBOL,
-        FARM_ID: LEND_FARM_ID.toString(),
+        FARM_ID: lendFarmId.toString(),
         LOCK_ENABLED: LEND_LOCK_ENABLED,
         LOCK_ALLOW_EARLY: LEND_LOCK_ALLOW_EARLY,
         LOCK_EARLY_BPS: LEND_LOCK_EARLY_BPS,

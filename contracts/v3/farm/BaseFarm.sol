@@ -14,6 +14,7 @@ import "../interfaces/ILockupPolicy.sol";
 import "../interfaces/IStakeholderRegistry.sol";
 import "../interfaces/IShareToken.sol";
 import "../interfaces/IPriceOracle.sol";
+import "../interfaces/IProtocolCore.sol";
 import "../tokens/ShareToken.sol";
 
 // Minimal interface to read the ProtocolCore owner
@@ -40,6 +41,9 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
     // ProtocolCore reference to gate sensitive updates (strategy router & policies)
     address public immutable protocolCore;
 
+    // Farm identity
+    uint256 public immutable farmId;
+
     // Share token minted/burned by this farm
     IShareToken public shareToken;
 
@@ -54,11 +58,18 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
     event LockupPolicySet(address indexed policy);
     event StakeholderRegistrySet(address indexed registry);
 
-    constructor(address asset_, string memory name_, string memory symbol_, address protocolCore_) Ownable(msg.sender) {
+    constructor(
+        address asset_,
+        string memory name_,
+        string memory symbol_,
+        address protocolCore_,
+        uint256 farmId_
+    ) Ownable(msg.sender) {
         require(asset_ != address(0), "InvalidAsset");
         require(protocolCore_ != address(0), "InvalidCore");
         asset = asset_;
         protocolCore = protocolCore_;
+        farmId = farmId_;
 
         // Deploy a dedicated share token, set this farm as minter, then hand ownership to farm owner
         ShareToken token = new ShareToken(name_, symbol_);
@@ -261,8 +272,10 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
             payoutPolicy.accrueFor(ownerRecipient, ownerNet);
         }
 
-        // Accrue for protocol receiver (protocol cut streams as well)
+        // Report and accrue protocol fee (protocol cut streams as well)
         if (protocolCut > 0) {
+            // Report protocol fee contribution to ProtocolCore for lightweight accounting
+            IProtocolCoreV3(protocolCore).reportProtocolFee(farmId, protocolCut);
             payoutPolicy.accrueFor(protocolReceiver, protocolCut);
         }
 

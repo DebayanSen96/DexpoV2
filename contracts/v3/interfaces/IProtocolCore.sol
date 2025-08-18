@@ -42,4 +42,8 @@ interface IProtocolCoreV3 {
         uint16 shareTransferFeeBps,
         uint16 protocolRakeBps
     ) external view;
+
+    // Farm lifecycle & reporting hooks
+    function registerFarm(address owner, address farm, uint256 farmId) external;
+    function reportProtocolFee(uint256 farmId, uint256 amount) external;
 }

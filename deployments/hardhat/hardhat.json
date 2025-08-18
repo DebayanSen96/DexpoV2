@@ -8,18 +8,20 @@
     "MockLiquidityManager": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
     "vaults": {
       "staking": {
-        "StrategyRouter": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
-        "LockupPolicy": "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
-        "PayoutPolicy": "0x610178dA211FEF7D417bC0e6FeD39F05609AD788",
-        "StakeholderRegistry": "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e",
-        "BaseFarm": "0x9A676e781A523b5d0C0e43731313A708CB607508"
+        "StrategyRouter": "0x61c36a8d610163660E21a8b7359e1Cac0C9133e1",
+        "LockupPolicy": "0x23dB4a08f2272df049a4932a4Cc3A6Dc1002B33E",
+        "PayoutPolicy": "0x8EFa1819Ff5B279077368d44B593a4543280e402",
+        "StakeholderRegistry": "0x6743E5c6E1B453372507E8dfD6CA53508721425B",
+        "BaseFarm": "0xA14d9C7a916Db01cCA55ec21Be1F7665C326928F",
+        "FarmId": "1"
       },
       "lending": {
-        "StrategyRouter": "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c",
-        "LockupPolicy": "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d",
-        "PayoutPolicy": "0x59b670e9fA9D0A427751Af201D676719a970857b",
-        "StakeholderRegistry": "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1",
-        "BaseFarm": "0x4A679253410272dd5232B3Ff7cF5dbB88f295319"
+        "StrategyRouter": "0x1c8d7d133c0c4AC780Fc1a4f71913FB6625F7De5",
+        "LockupPolicy": "0x7fc1375aA5d360Ca90cc443B5c3d3919aA8B9208",
+        "PayoutPolicy": "0xEd46dE7A5F16D09b02fF3890DB11C91316196182",
+        "StakeholderRegistry": "0xD7D8EA09CA464fbcC358CE39117dbFd05753dCA1",
+        "BaseFarm": "0x7fFAcD7f90cc330FfD99dbF6c88673F0727ec79b",
+        "FarmId": "2"
       }
     }
   },

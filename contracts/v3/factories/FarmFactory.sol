@@ -18,6 +18,10 @@ import "../interfaces/IShareToken.sol";
 contract FarmFactory is IFarmFactory, Ownable {
     address public immutable protocolCore;
 
+    // Lightweight registry for discovery: which farms were deployed for which owner
+    mapping(address => address[]) public farmsByOwner; // owner => list of baseFarm addresses
+    mapping(address => address) public ownerByFarm;    // baseFarm => owner
+
     error NotCore();
 
     modifier onlyCore() {
@@ -91,7 +95,7 @@ contract FarmFactory is IFarmFactory, Ownable {
             })
         );
         StakeholderRegistry registry = new StakeholderRegistry(core, farmId);
-        BaseFarm farm = new BaseFarm(asset, farmName, farmSymbol, core);
+        BaseFarm farm = new BaseFarm(asset, farmName, farmSymbol, core, farmId);
 
         // 2) Wire modules
         farm.setStrategyRouter(address(router));
@@ -133,7 +137,10 @@ contract FarmFactory is IFarmFactory, Ownable {
         // Cast to Ownable to access transferOwnership (not exposed on IShareToken)
         Ownable(address(st)).transferOwnership(owner);
 
-        // 6) Hand ownership of all modules to owner
+        // 6) Register with ProtocolCore and hand ownership of all modules to owner
+        IProtocolCoreV3(core).registerFarm(owner, address(farm), farmId);
+        farmsByOwner[owner].push(address(farm));
+        ownerByFarm[address(farm)] = owner;
         router.transferOwnership(owner);
         lockup.transferOwnership(owner);
         payout.transferOwnership(owner);

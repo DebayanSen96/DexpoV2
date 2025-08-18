@@ -5,7 +5,8 @@
     "deploy:v3": "hardhat run scripts/deploy-v3.ts",
     "deploy:v3:sepolia": "hardhat run scripts/deploy-v3.ts --network sepolia",
     "api:typecheck": "tsc -p server/tsconfig.json --noEmit",
-    "api:start": "ts-node server/index.ts"
+    "api:start": "ts-node server/index.ts",
+    "e2e:local": "hardhat run scripts/e2e-local.ts --network localhost"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -16,9 +17,12 @@
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^3.1.0",
     "@openzeppelin/contracts": "^5.4.0",
+    "@types/chai": "^4.3.20",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^22.17.1",
+    "chai": "^4.5.0",
     "ethers": "^6.13.4",
     "forge-std": "github:foundry-rs/forge-std#v1.9.4",
     "hardhat": "^2.26.0",

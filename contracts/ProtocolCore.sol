@@ -153,6 +153,10 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     uint256 internal protocolFeeRate; // % of farmOwner share
     uint256 internal transferFeeRate;
     uint256 internal reserveRatio; // % of fee retained in reserves
+
+    // Lightweight fee accounting for v3 farms
+    mapping(uint256 => uint256) public totalProtocolFeesByFarm; // farmId => cumulative protocol fee reported
+    uint256 public totalProtocolFees; // global cumulative protocol fees
     uint256 internal lastEmissionCall; // timestamp
     uint256 internal protocolReserves; // DXP
     uint256 internal emissionReserve; // DXP earmarked for emissions
@@ -218,8 +222,12 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         address router,
         address payoutPolicy,
         address lockupPolicy,
-        address stakeholderRegistry
+        address registry
     );
+
+    // Lightweight v3 registry extensions and fee reporting
+    event FarmRegistered(uint256 indexed farmId, address indexed farm, address indexed owner);
+    event ProtocolFeeReported(uint256 indexed farmId, address indexed farm, uint256 amount, uint256 newFarmTotal);
 
     event BenchmarkYieldUpdated(uint256 indexed farmId, uint256 newYield);
     event ConsensusModuleUpdated(address indexed consensusAddr);
@@ -433,6 +441,43 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     // ───────────────────────────────────────────────────────────
     //                FARM-OWNER REGISTRY HELPERS
     // ───────────────────────────────────────────────────────────
+
+    /**
+     * @notice Factory-callback: registers a newly created v3 farm.
+     * @dev Only callable by the configured `farmFactory`. Idempotent if already set.
+     */
+    function registerFarm(address owner_, address farm, uint256 farmId) external {
+        require(msg.sender == address(farmFactory), "!factory");
+        require(farm != address(0) && owner_ != address(0), "zero addr");
+        require(farmId != 0, "farmId=0 reserved");
+
+        // If not yet recorded, wire the primary lookups. Core creation paths already set these.
+        if (farmAddressOf[farmId] == address(0)) {
+            farmAddressOf[farmId] = farm;
+        }
+        if (farmIdOf[farm] == 0) {
+            farmIdOf[farm] = farmId;
+        }
+        if (farms[farm].farmAddress == address(0)) {
+            farms[farm] = FarmDetails({farmAddress: farm, owner: owner_, asset: address(0), farmId: farmId});
+        }
+
+        emit FarmRegistered(farmId, farm, owner_);
+    }
+
+    /**
+     * @notice Lightweight accounting: farms report protocol fee amounts they streamed to protocol receiver.
+     * @dev Only the registered baseFarm for `farmId` may call.
+     */
+    function reportProtocolFee(uint256 farmId, uint256 amount) external {
+        address farm = farmAddressOf[farmId];
+        require(farm != address(0), "unknown farmId");
+        require(msg.sender == farm, "!farm");
+        if (amount == 0) return;
+        totalProtocolFeesByFarm[farmId] += amount;
+        totalProtocolFees += amount;
+        emit ProtocolFeeReported(farmId, farm, amount, totalProtocolFeesByFarm[farmId]);
+    }
     function setApprovedFarmOwner(
         address who,
         bool approved
