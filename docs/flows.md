@@ -1,31 +1,30 @@
-# Lifecycle Flows
+# End-to-end Flows
 
-Key end-to-end flows with references to contracts and functions.
+## Deposit (LP)
 
-- __Non-Root Deposit with Bonus__
-  1. LP calls `Farm.provideLiquidity(amount, maturity)`.
-  2. Farm updates position, mints claim token 1:1.
-  3. Farm calls `ProtocolCore.distributeDepositBonus(farmId, lp, amount, maturity)`.
-  4. Protocol computes expected yield using benchmark, applies `depositBonusRatio`, pays DXP to LP, records pinned bonus.
+1. User calls `BaseFarm.deposit(assets, receiver)`.
+2. Assets transferred to farm; `LockupPolicy.onDeposit(receiver, assets)` starts lock if enabled.
+3. Shares minted: `ShareToken.mint(receiver, shares)` with `shares = convertToShares(assets)`.
 
-- __RootFarm Deposit__
-  1. LP calls `RootFarm.provideLiquidity(amount, maturity)`.
-  2. Mints `vDXP` 1:1 and increases `lockedDXP`.
+## Withdraw/Redeem (LP)
 
-- __vDXP Transfer Fee Unlock__
-  1. Holder calls `vDXP.transfer(recipient, amount)`.
-  2. Fee computed from `ProtocolCore.getTransferFeeRate()`; fee burned and `RootFarm.unlockDXP(fee)` called.
-  3. Increases `farmRevenueDXP` for later distribution.
+1. User calls `BaseFarm.withdraw(assets, receiver, owner)` or `redeem(shares, receiver, owner)`.
+2. `ShareToken.burn(owner, shares)`.
+3. `LockupPolicy.enforceWithdrawal(owner, assets)` returns penalty if early.
+4. If idle < needed, `router.deallocate(shortfall)` is called to pull funds.
+5. Farm transfers `assets - penalty` to receiver.
 
-- __Revenue Harvest & Distribution__
-  1. Owner calls `ProtocolCore.pullFarmRevenue(farmId)`.
-  2. Farm harvests & swaps to DXP, returns revenue.
-  3. Protocol `_distributeRevenue()` splits among verifiers, yield yodas, farm owner (after protocol fee), credits reserves if lists empty.
+## Harvest & Payout
 
-- __Bonus Reversal & Recycling__
-  1. Early withdraw triggers `ProtocolCore.reverseDepositBonus(...)` from farm, queues cooldown.
-  2. After `COOLDOWN_PERIOD`, `recycleCooldownTokens()` returns tokens to unissued pool and adjusts reserves.
+1. Operator calls `BaseFarm.harvest()` (or `harvestIfNeeded`).
+2. `router.harvest()` forwards realized base asset to farm.
+3. `payoutPolicy.onHarvest(netBase)` returns `(streamed, compounded)`.
+4. Farm splits `streamed` using `StakeholderRegistry.getSplits()`.
+5. Protocol rake applied on owner portion using `ShareToken.protocolFeeReceiver()` and `protocolRakeBps()`.
+6. Farm funds `PayoutPolicy` and calls `accrueFor(beneficiary, amount)` per beneficiary.
+7. Beneficiaries call `PayoutPolicy.claim(to)` to receive vested+unlocked base asset.
 
-- __Consensus Update__
-  1. `Consensus.startRound(farmId)`; verifiers submit `submit(farmId, score, benchmark)`.
-  2. `Consensus.finalizeRound(farmId)` → `ProtocolCore.recordConsensus(...)` storing `ConsensusResult` and benchmark.
+## Router Allocate/Deallocate
+
+- `BaseFarm.allocateToStrategies(amount)` -> Router pulls from farm and deposits across adapters per bps.
+- `BaseFarm.deallocateFromStrategies(amount)` -> Router withdraws from adapters and forwards to farm.

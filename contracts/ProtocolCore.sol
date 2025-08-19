@@ -344,7 +344,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     }
 
     // ───────────────────────────────────────────────────────────
-    //                        FARM RULES API
+    //                        FARM RULES 
     // ───────────────────────────────────────────────────────────
     function getFarmRules() external view returns (FarmRules memory) {
         return _farmRules;

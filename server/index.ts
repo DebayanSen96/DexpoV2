@@ -99,6 +99,7 @@ const DeployStrategyRequestSchema = z.object({
 const ProtocolCoreAbi = [
   'function owner() view returns (address)',
   'function approvedFarmOwners(address) view returns (bool)',
+  'function setApprovedFarmOwner(address who,bool approved)',
   'function createApprovedFarm(address asset,string farmName,string farmSymbol,address ownerRecipient,uint16 lpBps,uint16 ownerBps,uint16 verifierBps,tuple(bool enabled,bool allowEarlyExit,uint16 earlyExitBps,uint256 lockupSeconds,uint8 postLockMode) lockCfg,tuple(uint8 mode,uint16 streamBps,uint16 compoundBps,uint256 epoch,uint256 minHarvestInterval,bool compoundLpOnLock) payoutCfg,tuple(bool transferable,uint16 transferFeeBps,address feeReceiver,address protocolFeeReceiver,uint16 protocolRakeBps) stCfg,bytes32[] adapterKeys,address[] adapterAddrs,uint16[] adapterBps) returns (uint256 farmIdOut,address baseFarm)',
   'function createApprovedFarmFor(address creator,address asset,string farmName,string farmSymbol,address ownerRecipient,uint16 lpBps,uint16 ownerBps,uint16 verifierBps,tuple(bool enabled,bool allowEarlyExit,uint16 earlyExitBps,uint256 lockupSeconds,uint8 postLockMode) lockCfg,tuple(uint8 mode,uint16 streamBps,uint16 compoundBps,uint256 epoch,uint256 minHarvestInterval,bool compoundLpOnLock) payoutCfg,tuple(bool transferable,uint16 transferFeeBps,address feeReceiver,address protocolFeeReceiver,uint16 protocolRakeBps) stCfg,bytes32[] adapterKeys,address[] adapterAddrs,uint16[] adapterBps) returns (uint256 farmIdOut,address baseFarm)',
   'function farmsById(uint256) view returns (address baseFarm,address owner,address asset,uint256 farmId,address router,address payoutPolicy,address lockupPolicy,address stakeholderRegistry)'
@@ -336,7 +337,11 @@ async function main() {
         const creatorApproved: boolean = await core.approvedFarmOwners(payload.creator);
         console.log('creator.approvedFarmOwner', creatorApproved);
         if (!creatorApproved) {
-          return res.status(403).json({ error: 'Creator is not an approved farm owner in ProtocolCore' });
+          console.log('Approving creator as farm owner in ProtocolCore...');
+          const approveTx = await core.setApprovedFarmOwner(payload.creator, true);
+          console.log('approveTxHash', approveTx.hash);
+          await approveTx.wait();
+          console.log('Creator approved');
         }
       } else {
         const signerApproved: boolean = await core.approvedFarmOwners(signerAddr);

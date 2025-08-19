@@ -1,29 +1,27 @@
-# Tokens (DXP and vDXP)
+# Tokens: Share, Claim, and DXP
 
-This document covers tokenomics and mechanics of `DXP` and `vDXP`.
+## ShareToken (per farm)
 
-- __DXP__: `contracts/DXPToken.sol`
-  - __Supply__: 21,000,000 DXP total.
-    - Emissions: 60% (12.6M), time-based via `emitTokens()` with 4-year halving (`emissionPerBlock`, `blockTime`, `lastEmissionTime`, `lastHalvingTime`).
-    - Vesting: 40% (8.4M) distributed via `createVestingWallet()` using `VestingComponent` (cliff + linear).
-  - __Emissions__:
-    - `emitTokens()` checks halving, mints `intervals * emissionPerBlock` to owner (ProtocolCore on mainnet), updates trackers.
-    - Protocol integrates via `ProtocolCore.triggerEmission()` and `syncProtocolReserves()` to account reserves and emission reserve.
-  - __Recycling__:
-    - `recycleTokens(amount)`: burns caller’s tokens and re-mints to `address(this)` (unissued pool). Used when returned bonuses are recycled after cooldown.
-  - __Views__:
-    - `getIntervalsSinceLastEmission()`, `getCurrentEmissionRate()`.
+- File: `contracts/v3/tokens/ShareToken.sol`
+- Mint/Burn: only by `BaseFarm` as `minter`.
+- Transfer controls: `transferable` toggle; `transferFeeBps` up to 15%.
+- Fee distribution: owner `feeReceiver` and protocol `protocolFeeReceiver` with `protocolRakeBps` up to 20% of the fee portion.
 
-- __vDXP__: `contracts/vDXPToken.sol`
-  - __Role__: Claim and governance token for `RootFarm`.
-  - __Transfer Fee & Unlock__:
-    - On `transfer()`/`transferFrom()`, computes fee via `ProtocolCore.getTransferFeeRate()`.
-    - Burns fee from sender and calls `RootFarm.unlockDXP(fee)` (only if `associatedFarm` set) to move DXP from `lockedDXP` to `farmRevenueDXP`.
-    - Net tokens are transferred to recipient; `lastAcquireTimestamp[recipient] = block.timestamp` for cooling.
-  - __Cooling Period__:
-    - `coolingPeriod` governs when a holder is considered cooled; helpers `isCooledDown(user)` and `canVote(user)`.
-  - __Mint/Burn__:
-    - Only `minter` (set by Protocol) can `mint(to, amount)` and `burn(from, amount)`.
+## Claim Tokens
 
-- __Farm Claim Token__: `contracts/ClaimToken.sol`
-  - Base claim token for non-root farms (mint/burn controlled). Minted 1:1 on deposit, burned on withdrawal.
+- Generic farm claim: `contracts/ClaimToken.sol` → `FarmClaimToken` extending `BaseClaimToken` (mint/burn restricted to designated minter).
+- Root claim & governance: `contracts/vDXPToken.sol`
+  - Transfer fee (via protocol setting) is burned; equivalent DXP is unlocked in `RootFarm.unlockDXP(fee)`.
+  - Cooling period tracking: `coolingPeriod`, `lastAcquireTimestamp` for voting/claim gating.
+
+## DXP Tokenomics
+
+- File: `contracts/DXPToken.sol`
+- Supply: 21M total; 60% emissions (12.6M), 40% vested (8.4M).
+- Emissions: `emitTokens()` mints based on time intervals (`blockTime`) since `lastEmissionTime`; halves every 4 years (`halvingInterval`).
+- Vesting: `createVestingWallet(...)` deploys cliff+linear `VestingComponent` per beneficiary and mints allocation.
+- Recycling: `recycleTokens(amount)` burns sender tokens and re-mints to `address(this)` supply accounting.
+
+## Root Farm Mechanics (legacy path)
+
+- `contracts/RootFarm.sol`: LPs deposit DXP and receive vDXP 1:1; DXP is tracked as `lockedDXP` and unlocked via `vDXPToken` transfer fees calling `unlockDXP`.

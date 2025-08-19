@@ -1,50 +1,46 @@
-# Farms (Base, Root, Restake) and Factory
+# Farms: Creation & Customization
 
-> Deprecated (v2): The farm templates described here (`contracts/Farm.sol`, `contracts/RestakeFarm.sol`, and related factory/roots) are deprecated in Dexponent v3.
-> New deployments should use the v3 modular design based on a single `BaseVault` + `StrategyRouter` with adapters and policies. See `docs/v3-architecture.md` and `contracts/v3/`.
+## Creation Flow
 
-This document details farm behavior across `contracts/Farm.sol`, `contracts/RootFarm.sol`, `contracts/RestakeFarm.sol`, and the factory in `contracts/FarmFactory.sol`.
+- Entry point: `ProtocolCore.createApprovedFarm(...)` deploys a v3 farm using `FarmFactory.createFarmStack(...)`.
+- `FarmFactory` wires the stack and transfers ownership to the farm owner:
+  - Deploys clones for `StrategyRouter`, `LockupPolicy`, `PayoutPolicy`, `StakeholderRegistry`, and `BaseFarm`.
+  - Sets router/payout/lockup/registry on `BaseFarm` and authorizes `router.setFarm(baseFarm)` and `payout.setFarm(baseFarm)`.
+  - Configures registry splits and optional owner recipient.
+  - Configures `ShareToken` while factory is owner: `setTransferable`, `setTransferFeeBps`, `setFeeReceiver`, `setProtocolFee` then transfers token ownership to farm owner.
+  - Registers farm with `ProtocolCore.registerFarm(owner, baseFarm, farmId)`.
 
-- __Base Farm__: `contracts/Farm.sol`
-  - __State__:
-    - `asset`, `farmOwner`, `farmId`
-    - Principal: `totalLiquidity`, `deployedLiquidity`, `availableLiquidity()`
-    - Yield: `accYieldPerShare`, `yieldDebt[lp]`, `farmRevenueDXP`
-    - Positions: `positions[lp] = { principal, weightedMaturity, bonus, lastUpdate }`
-    - Incentive splits: `lpIncentiveSplit`, `verifierIncentiveSplit`, `yieldYodaIncentiveSplit`
-    - External: `claimToken`, `strategy`, `protocolMaster`, `liquidityManager`, `pool`
-  - __Deposit__: `provideLiquidity(amount, maturity)`
-    - Transfers principal to farm, updates `positions`, sets `yieldDebt[lp]`, mints claim token 1:1.
-    - Calls `protocolMaster.distributeDepositBonus(farmId, lp, amount, maturity)`.
-  - __Withdraw__: `withdrawLiquidity(amount, returnBonus)`
-    - Updates position and `yieldDebt`.
-    - Burns claim tokens.
-    - Early withdrawal handling delegates bonus reversal to `ProtocolCore.reverseDepositBonus(...)` when applicable.
-  - __Revenue__: `pullFarmRevenue()` (protocol-only)
-    - Harvests strategy via `FarmStrategy.harvestRewards()`.
-    - Adds `principalReserve`, swaps to DXP via `ILiquidityManager` if needed.
-    - LP share increases `accYieldPerShare`; remainder returned to Protocol as revenue.
-  - __Pool__: `setPool(address)` for price discovery (`IFarmLiquidityPool.getDXPToken()`).
+## Configuration Objects
 
-- __RootFarm__: `contracts/RootFarm.sol`
-  - Asset is DXP; tracks `lockedDXP`.
-  - __Deposit__: `provideLiquidity(amount, maturity)`
-    - Transfers DXP, increases `totalLiquidity` and `lockedDXP`, mints `vDXP` 1:1.
-    - Updates position and `yieldDebt`.
-  - __Withdraw__: `withdrawLiquidity(amount, returnBonus)`
-    - Early exit fee 0.5% added to `farmRevenueDXP`.
-    - Burns vDXP, unlocks DXP, transfers net DXP to LP.
-  - __Unlock from vDXP fee__: `unlockDXP(amount)` callable only by claim token.
-  - __Revenue credit__: `addRevenueDXP(amount)` protocol-only.
+- LockupConfig (`ILockupPolicy.LockConfig`): `enabled`, `allowEarlyExit`, `earlyExitBps`, `lockupSeconds`, `postLockMode`.
+- PayoutConfig (`IPayoutPolicy.Config`): `mode` (Stream/Lockup), `streamBps`, `compoundBps`, `epoch`, `minHarvestInterval`, `compoundLpOnLock`.
+- ShareTokenConfig: `transferable`, `transferFeeBps`, `feeReceiver`, `protocolFeeReceiver`, `protocolRakeBps`.
+- Strategy allocations: `router.setAllocations(adapterKeys, adapterAddrs, adapterBps)` bps must sum to 10_000.
 
-- __RestakeFarm__: `contracts/RestakeFarm.sol`
-  - Bonus restaking flow:
-    - `setDXPToken(address)` sets DXP interface.
-    - `restakeBonus(lp, bonusDXP)` increases allowance and calls `RootFarm.restakeDeposit(lp, bonusDXP)`.
-    - `reverseRestakedBonus(lp, bonusDXP)` pulls bonus from LP and calls `RootFarm.reverseRestake(lp, bonusDXP)`.
-  - Note: `RootFarm.restakeDeposit()` and `reverseRestake()` must be implemented to support these paths.
+## Factory Parameters (`IFarmFactory.createFarmStack`)
 
-- __Factory__: `contracts/FarmFactory.sol`
-  - `createFarm(salt, asset, maturityPeriod, verifierIncentiveSplit, yieldYodaIncentiveSplit, lpIncentiveSplit, strategy, claimToken, farmOwner)`
-  - `createRestakeFarm(...)` (with `rootFarmAddress`).
-  - Uses CREATE2 with `finalSalt = keccak256(abi.encodePacked(msg.sender, salt))`.
+From `contracts/v3/interfaces/IFarmFactory.sol`:
+
+- `asset`
+- `farmName`
+- `farmSymbol`
+- `core`
+- `farmId`
+- `owner`
+- `ownerRecipient`
+- `lpBps`
+- `ownerBps`
+- `verifierBps`
+- `lockCfg` (see `ILockupPolicy.LockConfig`)
+- `payoutCfg` (see `IPayoutPolicy.Config`)
+- `stCfg` (`ShareTokenConfig`)
+- `adapterKeys`
+- `adapterAddrs`
+- `adapterBps`
+
+## Customization & Operations
+
+- Rebalance targets: `BaseFarm.rebalance()` -> `StrategyRouter.rebalance()` (MVP changes targets only).
+- Allocate/Deallocate: `BaseFarm.allocateToStrategies(amount)`, `BaseFarm.deallocateFromStrategies(amount)`.
+- Module updates: First set allowed by farm owner or protocol owner; subsequent changes must be by `ProtocolCore` owner. See `BaseFarm.setStrategyRouter()`, `setPayoutPolicy()`, `setLockupPolicy()`, `setStakeholderRegistry()`.
+- Share token controls (by token owner): transferability, transfer fee, rake distribution caps (`MAX_TRANSFER_FEE_BPS`=15%, `MAX_PROTOCOL_RAKE_BPS`=20%).
