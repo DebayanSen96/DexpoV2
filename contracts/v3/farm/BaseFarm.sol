@@ -229,6 +229,7 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
      */
     function deposit(uint256 assets, address receiver) external override nonReentrant whenNotPaused returns (uint256 shares) {
         require(assets > 0, "ZeroAssets");
+        require(receiver != address(0), "ZeroReceiver");
         shares = convertToShares(assets);
         require(shares > 0, "ZeroShares");
 
@@ -253,6 +254,7 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
      */
     function mint(uint256 shares, address receiver) external override nonReentrant whenNotPaused returns (uint256 assets) {
         require(shares > 0, "ZeroShares");
+        require(receiver != address(0), "ZeroReceiver");
         assets = convertToAssets(shares);
         require(assets > 0, "ZeroAssets");
 
@@ -273,6 +275,7 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
      */
     function withdraw(uint256 assets, address receiver, address owner_) external override nonReentrant returns (uint256 shares) {
         require(assets > 0, "ZeroAssets");
+        require(receiver != address(0) && owner_ != address(0), "ZeroAddr");
         shares = convertToShares(assets);
         _withdraw(shares, assets, receiver, owner_);
     }
@@ -287,6 +290,7 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
      */
     function redeem(uint256 shares, address receiver, address owner_) external override nonReentrant returns (uint256 assets) {
         require(shares > 0, "ZeroShares");
+        require(receiver != address(0) && owner_ != address(0), "ZeroAddr");
         assets = convertToAssets(shares);
         _withdraw(shares, assets, receiver, owner_);
     }

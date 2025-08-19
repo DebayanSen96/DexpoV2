@@ -42,6 +42,11 @@ contract ShareToken is ERC20, Ownable, IShareToken {
 
     // --- Admin ---
 
+    modifier onlyMinter() {
+        if (msg.sender != minter) revert InvalidMinter();
+        _;
+    }
+
     function setMinter(address minter_) external onlyOwner {
         if (minter_ == address(0)) revert InvalidMinter();
         minter = minter_;
@@ -60,6 +65,7 @@ contract ShareToken is ERC20, Ownable, IShareToken {
     }
 
     function setFeeReceiver(address receiver) external onlyOwner {
+        require(receiver != address(0), "ZeroReceiver");
         feeReceiver = receiver;
         emit FeeReceiverSet(receiver);
     }
@@ -73,13 +79,11 @@ contract ShareToken is ERC20, Ownable, IShareToken {
 
     // --- Mint/Burn ---
 
-    function mint(address to, uint256 amount) external {
-        require(msg.sender == minter, "NotMinter");
+    function mint(address to, uint256 amount) external onlyMinter {
         _mint(to, amount);
     }
 
-    function burn(address from, uint256 amount) external {
-        require(msg.sender == minter, "NotMinter");
+    function burn(address from, uint256 amount) external onlyMinter {
         _burn(from, amount);
     }
 

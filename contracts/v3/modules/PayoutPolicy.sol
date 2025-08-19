@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../interfaces/IPayoutPolicy.sol";
@@ -14,7 +15,7 @@ import "../interfaces/IPayoutPolicy.sol";
  *         - accrueFor() records per-beneficiary linear streams over epoch duration.
  *         - claim() allows beneficiaries to withdraw vested and unlocked amounts.
  */
-contract PayoutPolicy is IPayoutPolicy, Ownable {
+contract PayoutPolicy is IPayoutPolicy, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     struct Stream {
@@ -56,6 +57,7 @@ contract PayoutPolicy is IPayoutPolicy, Ownable {
     function initialize(address asset_, Config memory cfg_, address initialOwner) external {
         require(!_initialized, "Init");
         require(asset_ != address(0) && initialOwner != address(0), "Zero");
+        require(uint64(cfg_.epoch) > 0, "EpochZero");
         asset = asset_;
         _cfg = cfg_;
         _transferOwnership(initialOwner);
@@ -73,6 +75,7 @@ contract PayoutPolicy is IPayoutPolicy, Ownable {
     /// @notice Update payout configuration.
     /// @param cfg New configuration to set.
     function setConfig(Config calldata cfg) external override onlyOwner {
+        require(uint64(cfg.epoch) > 0, "EpochZero");
         _cfg = cfg;
         emit ConfigSet(cfg);
     }
@@ -88,7 +91,7 @@ contract PayoutPolicy is IPayoutPolicy, Ownable {
      * @return streamed Portion to be streamed to beneficiaries over the epoch.
      * @return compounded Portion to be compounded or locked as per config.
      */
-    function onHarvest(uint256 netBase) external override returns (uint256 streamed, uint256 compounded) {
+    function onHarvest(uint256 netBase) external override onlyFarm returns (uint256 streamed, uint256 compounded) {
         lastHarvestAt = block.timestamp;
         if (netBase == 0) return (0, 0);
 
@@ -147,7 +150,8 @@ contract PayoutPolicy is IPayoutPolicy, Ownable {
      * @param to Recipient of the claimed base asset.
      * @return amount Total amount transferred.
      */
-    function claim(address to) external override returns (uint256 amount) {
+    function claim(address to) external override nonReentrant returns (uint256 amount) {
+        require(to != address(0), "ToZero");
         address account = msg.sender;
         Stream storage s = _stream[account];
         uint64 nowTs = uint64(block.timestamp);

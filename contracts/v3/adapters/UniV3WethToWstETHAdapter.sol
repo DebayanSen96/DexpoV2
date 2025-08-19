@@ -93,6 +93,7 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
     uint16 public slippageBps = 50; // 0.50% default
     uint256 public minDeposit;
     uint256 public minWithdraw;
+    uint32 public deadlineWindow = 300; // +5 minutes deadline buffer
 
     // Cached price for view-only TVL: WETH per 1 wstETH scaled by 1e18
     uint256 public wethPerWstEthX1e18;
@@ -109,6 +110,7 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
     event MinDepositSet(uint256 minDeposit);
     event MinWithdrawSet(uint256 minWithdraw);
     event PriceUpdated(uint256 wethPerWstEthX1e18);
+    event DeadlineWindowSet(uint32 deadlineWindow);
 
     // ---------------------------------------------------------------------
     // Errors
@@ -168,6 +170,8 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
     function setMinDeposit(uint256 v) external onlyOwner { minDeposit = v; emit MinDepositSet(v); }
     /// @notice Set minimum withdraw amount.
     function setMinWithdraw(uint256 v) external onlyOwner { minWithdraw = v; emit MinWithdrawSet(v); }
+    /// @notice Set the deadline window (seconds) added to block.timestamp for swap deadlines.
+    function setDeadlineWindow(uint32 s) external onlyOwner { require(s > 0 && s <= 3600, "BadDeadline"); deadlineWindow = s; emit DeadlineWindowSet(s); }
 
     /// @notice Manually refresh cached price using Quoter (wstETH -> WETH for 1e18 units).
     function updatePrice() external onlyOwner notPaused {
@@ -222,7 +226,7 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
                 tokenOut: wstETH,
                 fee: poolFee,
                 recipient: address(this),
-                deadline: block.timestamp,
+                deadline: block.timestamp + deadlineWindow,
                 amountIn: amount,
                 amountOutMinimum: minOut,
                 sqrtPriceLimitX96: 0
@@ -262,7 +266,7 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
                     tokenOut: asset,
                     fee: poolFee,
                     recipient: msg.sender,
-                    deadline: block.timestamp,
+                    deadline: block.timestamp + deadlineWindow,
                     amountOut: amount,
                     amountInMaximum: maxIn,
                     sqrtPriceLimitX96: 0
@@ -291,7 +295,7 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
                 tokenOut: asset,
                 fee: poolFee,
                 recipient: msg.sender,
-                deadline: block.timestamp,
+                deadline: block.timestamp + deadlineWindow,
                 amountIn: wstBal,
                 amountOutMinimum: minOut,
                 sqrtPriceLimitX96: 0
