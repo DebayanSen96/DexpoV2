@@ -196,6 +196,11 @@ contract DXPToken is ERC20Permit, Ownable, ReentrancyGuard {
     /**
      * @notice Creates a vesting wallet for a beneficiary with a cliff + linear vesting schedule.
      *        This can be used to distribute some or all of the VESTED_SUPPLY (8.4M).
+     * @param beneficiary      Account that will receive vested tokens over time.
+     * @param startTimestamp   Vesting start timestamp.
+     * @param durationSeconds  Total duration of vesting after the cliff.
+     * @param cliffSeconds     Cliff duration (no vesting occurs before this time).
+     * @param allocation       Amount of DXP to allocate to the vesting wallet.
      */
     function createVestingWallet(
         address beneficiary,
@@ -231,8 +236,9 @@ contract DXPToken is ERC20Permit, Ownable, ReentrancyGuard {
 
     /**
      * @notice Returns how many intervals (“blocks”) have passed since the last emission.
+     * @return intervals Number of intervals since `lastEmissionTime` based on `blockTime`.
      */
-    function getIntervalsSinceLastEmission() external view returns (uint256) {
+    function getIntervalsSinceLastEmission() external view returns (uint256 intervals) {
         uint256 timeElapsed = block.timestamp - lastEmissionTime;
         return timeElapsed / blockTime;
     }
@@ -242,8 +248,9 @@ contract DXPToken is ERC20Permit, Ownable, ReentrancyGuard {
      *         since `startTime`. 
      *         This is an approximate: the actual rate is `emissionPerBlock`, which we halve 
      *         whenever we pass a halving boundary in `emitTokens()`.
+     * @return emissionRate Current emission rate.
      */
-    function getCurrentEmissionRate() external view returns (uint256) {
+    function getCurrentEmissionRate() external view returns (uint256 emissionRate) {
         // e.g. we can do a purely time-based approach:
         // but actually, the contract logic only halves when we cross the boundary, so 
         // we rely on the actual `emissionPerBlock`.

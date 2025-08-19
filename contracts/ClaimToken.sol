@@ -13,6 +13,11 @@ import "./interfaces/BaseClaimToken.sol";
 contract FarmClaimToken is BaseClaimToken {
     // Additional farm-specific data or references can go here, if needed.
 
+    /// @notice Deploy a claim token bound to a specific minter (typically the farm).
+    /// @dev The minter is allowed to mint/burn on deposit/withdraw flows.
+    /// @param _name   ERC-20 name for the claim token.
+    /// @param _symbol ERC-20 symbol for the claim token.
+    /// @param _minter Address authorized to mint/burn claim tokens.
     constructor(
         string memory _name,
         string memory _symbol,

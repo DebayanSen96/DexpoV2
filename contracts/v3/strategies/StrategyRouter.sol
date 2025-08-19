@@ -34,6 +34,9 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
     EnumerableSet.Bytes32Set private _ids;
     mapping(bytes32 => Allocation) public alloc;
 
+    /// @notice Initialize the router with base asset and protocol core references.
+    /// @param asset_ Base asset managed across adapters.
+    /// @param protocolCore_ Protocol core used to authorize protocol owner.
     constructor(address asset_, address protocolCore_) Ownable(msg.sender) {
         asset = asset_;
         protocolCore = protocolCore_;
@@ -46,6 +49,12 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
 
     event FarmSet(address indexed farm);
 
+    /**
+     * @notice Current adapter allocations and weights.
+     * @return ids Adapter keys.
+     * @return adapters Adapter addresses.
+     * @return bps Target weights in basis points.
+     */
     function allocations() external view override returns (
         bytes32[] memory ids,
         address[] memory adapters,
@@ -63,6 +72,12 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         }
     }
 
+    /**
+     * @notice Replace the entire allocation set with new adapters and weights.
+     * @param ids Adapter keys.
+     * @param adapters Adapter addresses.
+     * @param bps Target weights per adapter, sum must equal 10_000.
+     */
     function setAllocations(
         bytes32[] calldata ids,
         address[] calldata adapters,
@@ -86,7 +101,8 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         require(sum == 10_000, "SumBps");
     }
 
-    // One-time farm setter used during initial wiring by the factory/owner
+    /// @notice One-time farm setter used during initial wiring by the factory/owner.
+    /// @param farm_ Farm address authorized for ops.
     function setFarm(address farm_) external onlyOwner {
         require(farm_ != address(0), "FarmZero");
         require(farm == address(0), "FarmSet");
@@ -99,6 +115,11 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         _;
     }
 
+    /**
+     * @notice Allocate base asset across adapters according to target weights.
+     * @param amount Amount of base asset to deploy.
+     * @return deployed Total units deployed across adapters.
+     */
     function allocate(uint256 amount) external override onlyFarm nonReentrant whenNotPaused returns (uint256 deployed) {
         require(amount > 0, "ZeroAmount");
         uint256 n = _ids.length();
@@ -122,6 +143,11 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         }
     }
 
+    /**
+     * @notice Withdraw base asset from adapters according to target weights.
+     * @param amount Amount of base asset to withdraw.
+     * @return received Base asset received and forwarded to the farm.
+     */
     function deallocate(uint256 amount) external override onlyFarm nonReentrant whenNotPaused returns (uint256 received) {
         require(amount > 0, "ZeroAmount");
         uint256 n = _ids.length();
@@ -142,6 +168,10 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         }
     }
 
+    /**
+     * @notice Update target weights without moving funds (MVP behavior).
+     * @param targetBps New target weights; must sum to 10_000.
+     */
     function rebalance(uint16[] calldata targetBps) external override onlyOwnerOrProtocolOwner whenNotPaused {
         uint256 n = _ids.length();
         require(targetBps.length == n, "LenMismatch");
@@ -155,6 +185,10 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         // Note: MVP does not actively move funds; only target weights are updated.
     }
 
+    /**
+     * @notice Harvest from all adapters and forward realized base asset to the farm.
+     * @return baseReturned Total base asset forwarded to farm.
+     */
     function harvest() external override onlyFarm nonReentrant whenNotPaused returns (uint256 baseReturned) {
         uint256 n = _ids.length();
         for (uint256 i = 0; i < n; i++) {
@@ -174,6 +208,7 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         }
     }
 
+    /// @notice Total base asset across all adapters (as reported by adapters).
     function totalAssets() external view override returns (uint256) {
         uint256 n = _ids.length();
         uint256 sum = 0;
@@ -187,7 +222,8 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         return sum;
     }
 
-    // Admin pause controls
+    /// @notice Pause admin actions.
     function pause() external onlyOwner { _pause(); }
+    /// @notice Unpause admin actions.
     function unpause() external onlyOwner { _unpause(); }
 }

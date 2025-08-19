@@ -44,27 +44,41 @@ contract PayoutPolicy is IPayoutPolicy, Ownable {
         _;
     }
 
+    /// @notice Initialize payout policy with base asset and configuration.
+    /// @param asset_ Base asset used for streaming and payouts.
+    /// @param cfg_ Initial configuration for payout behavior.
     constructor(address asset_, Config memory cfg_) Ownable(msg.sender) {
         require(asset_ != address(0), "AssetZero");
         asset = asset_;
         _cfg = cfg_;
     }
 
+    /// @notice Set the authorized farm for accrual operations.
+    /// @param farm_ Farm address allowed to call accrueFor().
     function setFarm(address farm_) external onlyOwner {
         require(farm_ != address(0), "FarmZero");
         farm = farm_;
         emit FarmSet(farm_);
     }
 
+    /// @notice Update payout configuration.
+    /// @param cfg New configuration to set.
     function setConfig(Config calldata cfg) external override onlyOwner {
         _cfg = cfg;
         emit ConfigSet(cfg);
     }
 
+    /// @notice Get the current payout configuration.
     function getConfig() external view override returns (Config memory) {
         return _cfg;
     }
 
+    /**
+     * @notice Split harvested base asset into streamed and compounded portions.
+     * @param netBase Net base asset realized by the farm.
+     * @return streamed Portion to be streamed to beneficiaries over the epoch.
+     * @return compounded Portion to be compounded or locked as per config.
+     */
     function onHarvest(uint256 netBase) external override returns (uint256 streamed, uint256 compounded) {
         lastHarvestAt = block.timestamp;
         if (netBase == 0) return (0, 0);
@@ -83,8 +97,12 @@ contract PayoutPolicy is IPayoutPolicy, Ownable {
         }
     }
 
-    // Accrue a new streamed amount for a beneficiary over the configured epoch.
-    // Assumes the asset tokens have already been transferred to this contract.
+    /**
+     * @notice Accrue a streamed amount for `beneficiary` over the configured epoch.
+     * @dev Assumes base asset tokens have already been transferred to this contract.
+     * @param beneficiary Address to accrue streaming rewards for.
+     * @param amount Amount of base asset to stream.
+     */
     function accrueFor(address beneficiary, uint256 amount) external onlyFarm {
         if (amount == 0) return;
         Stream storage s = _stream[beneficiary];
@@ -108,12 +126,18 @@ contract PayoutPolicy is IPayoutPolicy, Ownable {
         emit Accrued(beneficiary, amount, s.start, s.end);
     }
 
+    /// @notice Return the total amount claimable now for `account` (unlocked + vested).
     function claimable(address account) public view override returns (uint256) {
         Stream memory s = _stream[account];
         uint256 vested = _vestedAmount(s, uint64(block.timestamp));
         return _unlocked[account] + vested;
     }
 
+    /**
+     * @notice Claim available rewards to `to` address.
+     * @param to Recipient of the claimed base asset.
+     * @return amount Total amount transferred.
+     */
     function claim(address to) external override returns (uint256 amount) {
         address account = msg.sender;
         Stream storage s = _stream[account];
@@ -129,6 +153,7 @@ contract PayoutPolicy is IPayoutPolicy, Ownable {
         emit Claimed(account, to, amount);
     }
 
+    /// @dev Compute vested amount from a stream as of `nowTs`.
     function _vestedAmount(Stream memory s, uint64 nowTs) internal pure returns (uint256) {
         if (s.total == 0 || nowTs <= s.start) return 0;
         if (nowTs >= s.end) return uint256(s.total) - uint256(s.claimed);

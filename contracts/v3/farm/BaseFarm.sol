@@ -35,29 +35,44 @@ interface IHasOwner {
 contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
-    // Immutable base asset for this farm
+    /// @notice ERC-20 principal token accepted by the farm (immutable).
     address public immutable override asset;
 
-    // ProtocolCore reference to gate sensitive updates (strategy router & policies)
+    /// @notice ProtocolCore contract used to authorize sensitive updates.
     address public immutable protocolCore;
 
-    // Farm identity
+    /// @notice Unique farm identifier assigned by ProtocolCore (immutable).
     uint256 public immutable farmId;
 
-    // Share token minted/burned by this farm
+    /// @notice ERC-20 share token minted/burned by this farm.
     IShareToken public shareToken;
 
-    // Modules
+    /// @notice Strategy router managing strategy adapters and invested assets.
     IStrategyRouter public router;
+    /// @notice Payout policy contract for streaming distributions.
     IPayoutPolicy public payoutPolicy;
+    /// @notice Lockup policy contract enforcing deposit/withdraw rules.
     ILockupPolicy public lockupPolicy;
+    /// @notice Registry of owner/verifier stakeholders and their splits.
     IStakeholderRegistry public stakeholderRegistry;
 
+    /// @notice Emitted when the router is updated.
     event RouterSet(address indexed router);
+    /// @notice Emitted when the payout policy is updated.
     event PayoutPolicySet(address indexed policy);
+    /// @notice Emitted when the lockup policy is updated.
     event LockupPolicySet(address indexed policy);
+    /// @notice Emitted when the stakeholder registry is updated.
     event StakeholderRegistrySet(address indexed registry);
 
+    /**
+     * @notice Initializes a new BaseFarm and deploys its dedicated `ShareToken`.
+     * @param asset_ ERC-20 principal token address.
+     * @param name_ Name for the share token.
+     * @param symbol_ Symbol for the share token.
+     * @param protocolCore_ ProtocolCore contract address.
+     * @param farmId_ Unique farm identifier assigned by the protocol.
+     */
     constructor(
         address asset_,
         string memory name_,
@@ -80,11 +95,16 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
 
     // --- Admin wiring ---
 
-    // Internal helper: returns true if msg.sender is the ProtocolCore owner
+    /// @dev Internal helper: returns true if `msg.sender` is the ProtocolCore owner.
     function _isProtocolOwner() internal view returns (bool) {
         return IHasOwner(protocolCore).owner() == msg.sender;
     }
 
+    /**
+     * @notice Sets or updates the strategy router.
+     * @dev First set allowed by farm owner or ProtocolCore owner; subsequent updates only by ProtocolCore owner.
+     * @param router_ Router contract address.
+     */
     function setStrategyRouter(address router_) external override {
         require(router_ != address(0), "ZeroRouter");
         // Allow factory (initial owner) to set once; thereafter only protocol owner may change
@@ -97,6 +117,11 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         emit RouterSet(router_);
     }
 
+    /**
+     * @notice Sets or updates the payout policy.
+     * @dev First set allowed by farm owner or ProtocolCore owner; subsequent updates only by ProtocolCore owner.
+     * @param policy_ Payout policy contract address.
+     */
     function setPayoutPolicy(address policy_) external override {
         require(policy_ != address(0), "ZeroPayout");
         if (address(payoutPolicy) == address(0)) {
@@ -108,6 +133,11 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         emit PayoutPolicySet(policy_);
     }
 
+    /**
+     * @notice Sets or updates the lockup policy.
+     * @dev First set allowed by farm owner or ProtocolCore owner; subsequent updates only by ProtocolCore owner.
+     * @param policy_ Lockup policy contract address.
+     */
     function setLockupPolicy(address policy_) external override {
         require(policy_ != address(0), "ZeroLockup");
         if (address(lockupPolicy) == address(0)) {
@@ -119,6 +149,11 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         emit LockupPolicySet(policy_);
     }
 
+    /**
+     * @notice Sets or updates the stakeholder registry.
+     * @dev First set allowed by farm owner or ProtocolCore owner; subsequent updates only by ProtocolCore owner.
+     * @param registry_ Stakeholder registry contract address.
+     */
     function setStakeholderRegistry(address registry_) external override {
         require(registry_ != address(0), "ZeroRegistry");
         if (address(stakeholderRegistry) == address(0)) {
@@ -130,17 +165,27 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         emit StakeholderRegistrySet(registry_);
     }
 
+    /// @notice Pause deposits/allocations/harvest; withdrawals remain allowed.
     function pause() external override onlyOwner { _pause(); }
+    /// @notice Unpause contract operations.
     function unpause() external override onlyOwner { _unpause(); }
 
     // --- Views ---
 
+    /**
+     * @notice Returns the total managed assets (idle + invested via router).
+     */
     function totalAssets() public view override returns (uint256) {
         uint256 idle = IERC20(asset).balanceOf(address(this));
         uint256 invested = address(router) == address(0) ? 0 : router.totalAssets();
         return idle + invested;
     }
 
+    /**
+     * @notice Converts an asset amount to shares at current price per share.
+     * @param assets Asset amount.
+     * @return shares Amount of shares.
+     */
     function convertToShares(uint256 assets) public view override returns (uint256 shares) {
         uint256 supply = IERC20(address(shareToken)).totalSupply();
         uint256 ta = totalAssets();
@@ -150,6 +195,11 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         return (assets * supply) / ta;
     }
 
+    /**
+     * @notice Converts a share amount to assets at current price per share.
+     * @param shares Share amount.
+     * @return assets Amount of assets.
+     */
     function convertToAssets(uint256 shares) public view override returns (uint256 assets) {
         uint256 supply = IERC20(address(shareToken)).totalSupply();
         uint256 ta = totalAssets();
@@ -159,6 +209,13 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
 
     // --- Core flows ---
 
+    /**
+     * @notice Deposit `assets` and mint corresponding `shares` to `receiver`.
+     * @dev Assumes non fee-on-transfer tokens; for FOT tokens, actual received may differ.
+     * @param assets Asset amount to deposit.
+     * @param receiver Address that receives minted shares.
+     * @return shares Minted share amount.
+     */
     function deposit(uint256 assets, address receiver) external override nonReentrant whenNotPaused returns (uint256 shares) {
         require(assets > 0, "ZeroAssets");
         shares = convertToShares(assets);
@@ -176,6 +233,13 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         shareToken.mint(receiver, shares);
     }
 
+    /**
+     * @notice Mint `shares` to `receiver` by depositing the required `assets`.
+     * @dev Assumes non fee-on-transfer tokens; for FOT tokens, actual received may differ.
+     * @param shares Share amount to mint.
+     * @param receiver Address that receives minted shares.
+     * @return assets Required assets to deposit.
+     */
     function mint(uint256 shares, address receiver) external override nonReentrant whenNotPaused returns (uint256 assets) {
         require(shares > 0, "ZeroShares");
         assets = convertToAssets(shares);
@@ -188,18 +252,41 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         shareToken.mint(receiver, shares);
     }
 
+    /**
+     * @notice Withdraw `assets` to `receiver` by burning corresponding `shares` from `owner_`.
+     * @dev Restricted to `owner_` for MVP.
+     * @param assets Asset amount to withdraw.
+     * @param receiver Recipient of assets.
+     * @param owner_ Share owner whose shares are burned.
+     * @return shares Shares burned.
+     */
     function withdraw(uint256 assets, address receiver, address owner_) external override nonReentrant returns (uint256 shares) {
         require(assets > 0, "ZeroAssets");
         shares = convertToShares(assets);
         _withdraw(shares, assets, receiver, owner_);
     }
 
+    /**
+     * @notice Redeem `shares` from `owner_` and send the resulting `assets` to `receiver`.
+     * @dev Restricted to `owner_` for MVP.
+     * @param shares Share amount to redeem.
+     * @param receiver Recipient of assets.
+     * @param owner_ Share owner whose shares are burned.
+     * @return assets Assets returned.
+     */
     function redeem(uint256 shares, address receiver, address owner_) external override nonReentrant returns (uint256 assets) {
         require(shares > 0, "ZeroShares");
         assets = convertToAssets(shares);
         _withdraw(shares, assets, receiver, owner_);
     }
 
+    /**
+     * @dev Internal withdraw flow shared by `withdraw` and `redeem`.
+     * @param shares Shares to burn from `owner_`.
+     * @param assetsNeeded Asset amount to return to `receiver`.
+     * @param receiver Recipient of assets.
+     * @param owner_ Share owner whose shares are burned.
+     */
     function _withdraw(uint256 shares, uint256 assetsNeeded, address receiver, address owner_) internal {
         // Restrict to owner-only for MVP; allowance-based redemption can be added later
         require(msg.sender == owner_, "NotOwner");
@@ -237,6 +324,10 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
 
     // --- Strategy ops ---
 
+    /**
+     * @notice Harvest strategy rewards and stream per payout policy.
+     * @return netAssets Net base assets returned from router.harvest().
+     */
     function harvest() external override nonReentrant whenNotPaused returns (uint256 netAssets) {
         require(address(router) != address(0), "RouterMissing");
         require(address(payoutPolicy) != address(0), "PayoutMissing");
@@ -297,8 +388,10 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         }
     }
 
-    // Harvest only if minHarvestInterval has elapsed
-    function harvestIfNeeded() external nonReentrant whenNotPaused returns (bool harvested, uint256 netAssets) {
+    /// @notice Harvest only if `minHarvestInterval` has elapsed.
+    /// @return harvested True if a harvest was performed.
+    /// @return netAssets Net base assets returned if harvested, else 0.
+    function harvestIfNeeded() external whenNotPaused returns (bool harvested, uint256 netAssets) {
         require(address(payoutPolicy) != address(0) && address(router) != address(0), "ModulesMissing");
         IPayoutPolicy.Config memory cfg = payoutPolicy.getConfig();
         uint256 last = payoutPolicy.lastHarvestAt();
@@ -309,12 +402,18 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         return (true, netAssets);
     }
 
+    /**
+     * @notice Rebalance strategy target allocations via router.
+     * @param targetBps Target basis points per adapter id order.
+     */
     function rebalance(uint16[] calldata targetBps) external override onlyOwner whenNotPaused {
         require(address(router) != address(0), "RouterMissing");
         router.rebalance(targetBps);
     }
 
-    // Allocate idle assets from this farm to strategies via router according to target bps
+    /// @notice Allocate idle assets to strategies via router according to target bps.
+    /// @param amount Asset amount to allocate.
+    /// @return deployed Amount deployed by router.
     function allocateToStrategies(uint256 amount) external onlyOwner whenNotPaused returns (uint256 deployed) {
         require(address(router) != address(0), "RouterMissing");
         require(amount > 0, "ZeroAmount");
@@ -323,7 +422,9 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         deployed = router.allocate(amount);
     }
 
-    // Pull assets back from strategies to this farm according to target bps
+    /// @notice Pull assets back from strategies to this farm via router.
+    /// @param amount Asset amount to deallocate.
+    /// @return received Amount received by the farm.
     function deallocateFromStrategies(uint256 amount) external onlyOwner whenNotPaused returns (uint256 received) {
         require(address(router) != address(0), "RouterMissing");
         require(amount > 0, "ZeroAmount");

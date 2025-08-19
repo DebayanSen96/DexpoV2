@@ -76,6 +76,7 @@ contract Consensus is Ownable {
 
     /**
      * @notice Update the ProtocolCore reference
+     * @param _core The new `IProtocolCore` contract address.
      */
     function setProtocolCore(address _core) external onlyOwner {
         require(_core != address(0), "Invalid core");
@@ -84,6 +85,7 @@ contract Consensus is Ownable {
 
     /**
      * @notice Set the minimum quorum for round finalization
+     * @param _minQuorum Minimum number of verifier submissions required.
      */
     function setMinQuorum(uint256 _minQuorum) external onlyOwner {
         require(_minQuorum > 0, "Quorum > 0");

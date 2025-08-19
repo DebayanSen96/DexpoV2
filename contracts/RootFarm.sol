@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "./legacy/Farm.sol";
+import "./depricated/Farm.sol";
 import "./interfaces/legacy/FarmStrategy.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -20,6 +20,7 @@ contract RootFarm is Farm {
 
     /**
      * @notice Constructs the RootFarm.
+     * @param _farmId The canonical farm id for RootFarm (usually 0).
      * @param _dxpToken The DXP token address (the asset for RootFarm).
      * @param _maturityPeriod A reference maturity period (each deposit can choose its own).
      * @param _verifierIncentiveSplit Percentage share for verifiers.
@@ -109,9 +110,9 @@ contract RootFarm is Farm {
      *         Applies a 0.5% slash fee if withdrawn before maturity.
      *         Burns the corresponding claim tokens and unlocks DXP from the locked pool.
      * @param amount The amount of DXP to withdraw.
-     * @param returnBonus (Unused in RootFarm; no bonus logic is applied.)
+     
      */
-    function withdrawLiquidity(uint256 amount, bool returnBonus)
+    function withdrawLiquidity(uint256 amount, bool /*returnBonus*/)
         external
         override
         whenNotPaused
@@ -170,6 +171,8 @@ contract RootFarm is Farm {
         farmRevenueDXP += amount;
     }
 
+    /// @notice Account revenue in DXP units to be distributed by the farm.
+    /// @param amount Amount of DXP to add to farm revenue accounting.
     function addRevenueDXP(uint256 amount) external nonReentrant onlyProtocolMaster {
         farmRevenueDXP += amount;
     }

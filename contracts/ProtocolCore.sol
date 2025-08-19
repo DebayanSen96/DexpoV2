@@ -336,6 +336,8 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     // ───────────────────────────────────────────────────────────
     //                   V3 FARM FACTORY WIRING
     // ───────────────────────────────────────────────────────────
+    /// @notice Set the v3 `FarmFactory` contract used to deploy farm stacks.
+    /// @param f Address of the factory contract.
     function setFarmFactory(address f) external onlyOwner {
         require(f != address(0), "zero address");
         farmFactory = IFarmFactory(f);
@@ -446,6 +448,12 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
      * @notice Factory-callback: registers a newly created v3 farm.
      * @dev Only callable by the configured `farmFactory`. Idempotent if already set.
      */
+    /**
+     * @notice Factory callback to register a v3 farm in the core registry.
+     * @param owner_ Farm owner (creator) address.
+     * @param farm   BaseFarm address.
+     * @param farmId Canonical farm id assigned by the factory.
+     */
     function registerFarm(address owner_, address farm, uint256 farmId) external {
         require(msg.sender == address(farmFactory), "!factory");
         require(farm != address(0) && owner_ != address(0), "zero addr");
@@ -469,6 +477,9 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
      * @notice Lightweight accounting: farms report protocol fee amounts they streamed to protocol receiver.
      * @dev Only the registered baseFarm for `farmId` may call.
      */
+    /// @notice Report protocol fee streamed by a farm to protocol receiver.
+    /// @param farmId Farm identifier.
+    /// @param amount Amount of fee accounted for this report.
     function reportProtocolFee(uint256 farmId, uint256 amount) external {
         address farm = farmAddressOf[farmId];
         require(farm != address(0), "unknown farmId");
@@ -478,6 +489,9 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         totalProtocolFees += amount;
         emit ProtocolFeeReported(farmId, farm, amount, totalProtocolFeesByFarm[farmId]);
     }
+    /// @notice Approve or revoke an address to create farms via this core.
+    /// @param who Address to (un)approve.
+    /// @param approved True to approve, false to revoke.
     function setApprovedFarmOwner(
         address who,
         bool approved

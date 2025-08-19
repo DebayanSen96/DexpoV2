@@ -122,6 +122,13 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
     // Constructor
     // ---------------------------------------------------------------------
 
+    /// @notice Initialize adapter wiring for WETH<->wstETH via Uniswap V3 (Base chain).
+    /// @param asset_ Base asset (WETH) expected from the router.
+    /// @param wstETH_ Target token to hold between cycles.
+    /// @param router_ StrategyRouter authorized to operate this adapter.
+    /// @param swapRouter_ Uniswap V3 SwapRouter address.
+    /// @param quoter_ Uniswap V3 QuoterV2 address.
+    /// @param poolFee_ Uniswap V3 pool fee tier.
     constructor(
         address asset_,
         address wstETH_,
@@ -147,15 +154,22 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
     // Admin
     // ---------------------------------------------------------------------
 
+    /// @notice Update the authorized router.
     function setRouter(address r) external onlyOwner { require(r != address(0), "Zero"); router = r; emit RouterSet(r); }
+    /// @notice Update DEX endpoints and pool fee.
     function setDex(address s, address q, uint24 f) external onlyOwner { require(s!=address(0)&&q!=address(0), "Zero"); swapRouter=s; quoter=q; poolFee=f; emit DexSet(s,q,f); }
+    /// @notice Update the target token address.
     function setTokens(address wstETH_) external onlyOwner { require(wstETH_!=address(0),"Zero"); wstETH=wstETH_; emit TokensSet(asset, wstETH_); }
+    /// @notice Pause/unpause adapter operations.
     function setPaused(bool p) external onlyOwner { paused = p; emit PausedSet(p); }
+    /// @notice Set max slippage in bps used for swaps.
     function setSlippageBps(uint16 bps) external onlyOwner { slippageBps = bps; emit SlippageSet(bps); }
+    /// @notice Set minimum deposit amount.
     function setMinDeposit(uint256 v) external onlyOwner { minDeposit = v; emit MinDepositSet(v); }
+    /// @notice Set minimum withdraw amount.
     function setMinWithdraw(uint256 v) external onlyOwner { minWithdraw = v; emit MinWithdrawSet(v); }
 
-    // Manually refresh cached price using Quoter (wstETH -> WETH for 1e18 units)
+    /// @notice Manually refresh cached price using Quoter (wstETH -> WETH for 1e18 units).
     function updatePrice() external onlyOwner notPaused {
         // Quote how much WETH out for 1 wstETH (1e18)
         (uint256 wethOut,,,) = IQuoterV2(quoter).quoteExactInputSingle(wstETH, asset, poolFee, 1e18, 0);
@@ -186,7 +200,11 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
     // IStrategyAdapter
     // ---------------------------------------------------------------------
 
-    // Deposit WETH, swap to wstETH, hold. Returns amount of asset spent.
+    /**
+     * @notice Deposit base asset, swap to wstETH, hold balance in adapter.
+     * @param amount Amount of base asset to deposit.
+     * @return sharesOrAmt Amount of wstETH acquired (adapter units).
+     */
     function deposit(uint256 amount, bytes calldata /*params*/) external override onlyRouter notPaused returns (uint256 sharesOrAmt) {
         if (amount == 0 || amount < minDeposit) revert AmountTooSmall();
 
@@ -219,7 +237,11 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
         return outAmt; // report wstETH received as deployed units
     }
 
-    // Withdraw WETH by swapping wstETH back. Returns WETH received to router.
+    /**
+     * @notice Withdraw base asset by swapping wstETH back to WETH.
+     * @param amount Target WETH amount to receive.
+     * @return received WETH received by the router.
+     */
     function withdraw(uint256 amount, bytes calldata /*params*/) external override onlyRouter notPaused returns (uint256 received) {
         if (amount == 0 || amount < minWithdraw) revert AmountTooSmall();
 
@@ -281,7 +303,7 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
         }
     }
 
-    // No separate rewards; yield is embedded in wstETH price.
+    /// @notice No separate rewards; yield is embedded in wstETH price.
     function harvest() external override onlyRouter notPaused returns (
         uint256 baseDelta,
         address[] memory rewardTokens,
@@ -292,7 +314,7 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
         rewardAmts = new uint256[](0);
     }
 
-    // TVL quoted in WETH: simulate full unwind via Quoter
+    /// @notice TVL quoted in WETH using cached price approximation.
     function totalAssets() external view override returns (uint256) {
         uint256 wstBal = IERC20(wstETH).balanceOf(address(this));
         if (wstBal == 0 || wethPerWstEthX1e18 == 0) return 0;
@@ -300,7 +322,7 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
         return (wstBal * wethPerWstEthX1e18) / 1e18;
     }
 
-    // Emergency
+    /// @notice Emergency sweep for accidentally sent tokens.
     function sweep(address token, address to, uint256 amount) external onlyOwner {
         require(to != address(0), "ToZero");
         IERC20(token).safeTransfer(to, amount);

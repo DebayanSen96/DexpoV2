@@ -29,11 +29,34 @@ contract FarmFactory is IFarmFactory, Ownable {
         _;
     }
 
+    /// @notice Initialize the factory bound to a specific `ProtocolCore`.
+    /// @param core Address of the ProtocolCore that is authorized to call this factory.
     constructor(address core) Ownable(msg.sender) {
         require(core != address(0), "CoreZero");
         protocolCore = core;
     }
 
+    /**
+     * @notice Deploy and wire a complete v3 farm stack (BaseFarm, Router, Policies, Registry, ShareToken).
+     * @dev Callable only by ProtocolCore. Validates configuration against core rules.
+     * @param asset           ERC20 asset used as principal for the farm.
+     * @param farmName        Name for the ShareToken.
+     * @param farmSymbol      Symbol for the ShareToken.
+     * @param core            ProtocolCore address (used for callbacks and permissions).
+     * @param farmId          Canonical farm id assigned by the core.
+     * @param owner           Farm owner address (will receive ownership of deployed modules).
+     * @param ownerRecipient  Optional recipient address for the owner's fee share.
+     * @param lpBps           LP split in basis points.
+     * @param ownerBps        Owner split in basis points.
+     * @param verifierBps     Verifier split in basis points.
+     * @param lockCfg         Lockup module configuration.
+     * @param payoutCfg       Payout module configuration.
+     * @param stCfg           ShareToken configuration (transferability, fees).
+     * @param adapterKeys     Strategy adapter keys.
+     * @param adapterAddrs    Strategy adapter addresses.
+     * @param adapterBps      Strategy adapter allocation bps.
+     * @return addrs Struct of deployed module addresses.
+     */
     function createFarmStack(
         address asset,
         string calldata farmName,
