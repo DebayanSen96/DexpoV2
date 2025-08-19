@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "../interfaces/IStakeholderRegistry.sol";
-import "../../interfaces/IProtocolCore.sol";
+import "../interfaces/IProtocolCore.sol";
 
 /**
  * @title StakeholderRegistry (v3)
@@ -13,19 +13,28 @@ contract StakeholderRegistry is IStakeholderRegistry, Ownable {
     Splits private _splits; // lp, owner, verifier
     address private _ownerRecipient;
 
-    IProtocolCore public protocolCore;
-    uint256 public immutable farmId;
+    IProtocolCoreV3 public protocolCore;
+    uint256 public farmId;
 
     event SplitsSet(uint16 lpBps, uint16 ownerBps, uint16 verifierBps);
     event OwnerRecipientSet(address recipient);
 
-    /// @notice Initialize registry bound to a ProtocolCore and farm id.
+    /// @notice Parameterless constructor to satisfy Ownable base. Not used by clones.
+    constructor() Ownable(msg.sender) {}
+
+    bool private _initialized;
+
+    /// @notice Initialize registry bound to a ProtocolCore and farm id, and set owner.
     /// @param core ProtocolCore address to query approved verifiers.
     /// @param farmId_ Farm id this registry belongs to.
-    constructor(address core, uint256 farmId_) Ownable(msg.sender) {
-        require(core != address(0), "CoreZero");
-        protocolCore = IProtocolCore(core);
+    /// @param initialOwner Owner to assign for admin functions.
+    function initialize(address core, uint256 farmId_, address initialOwner) external {
+        require(!_initialized, "Init");
+        require(core != address(0) && initialOwner != address(0), "Zero");
+        protocolCore = IProtocolCoreV3(core);
         farmId = farmId_;
+        _transferOwnership(initialOwner);
+        _initialized = true;
     }
 
     /// @notice Set LP/Owner/Verifier splits. Must sum to 10_000 bps.

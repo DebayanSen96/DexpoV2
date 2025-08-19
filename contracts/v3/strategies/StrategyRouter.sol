@@ -23,8 +23,8 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using SafeERC20 for IERC20;
 
-    address public immutable override asset;
-    address public immutable protocolCore;
+    address public override asset;
+    address public protocolCore;
 
     // Farm authorized to operate allocate/deallocate/harvest
     address public farm;
@@ -34,12 +34,22 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
     EnumerableSet.Bytes32Set private _ids;
     mapping(bytes32 => Allocation) public alloc;
 
+    /// @notice Parameterless constructor to satisfy Ownable base. Not used by clones.
+    constructor() Ownable(msg.sender) {}
+
+    bool private _initialized;
+
     /// @notice Initialize the router with base asset and protocol core references.
     /// @param asset_ Base asset managed across adapters.
     /// @param protocolCore_ Protocol core used to authorize protocol owner.
-    constructor(address asset_, address protocolCore_) Ownable(msg.sender) {
+    /// @param initialOwner Owner to set for admin controls.
+    function initialize(address asset_, address protocolCore_, address initialOwner) external {
+        require(!_initialized, "Init");
+        require(asset_ != address(0) && protocolCore_ != address(0) && initialOwner != address(0), "Zero");
         asset = asset_;
         protocolCore = protocolCore_;
+        _transferOwnership(initialOwner);
+        _initialized = true;
     }
 
     modifier onlyOwnerOrProtocolOwner() {

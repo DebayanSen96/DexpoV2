@@ -16,9 +16,21 @@ contract LockupPolicy is ILockupPolicy, Ownable {
 
     event LockConfigSet(LockConfig cfg);
 
-    /// @notice Initialize with the provided lock configuration.
+    /// @notice Parameterless constructor to satisfy Ownable base. Not used by clones.
+    constructor() Ownable(msg.sender) {}
+
+    bool private _initialized;
+
+    /// @notice Initialize with the provided lock configuration and set owner.
     /// @param cfg_ Initial lock configuration.
-    constructor(LockConfig memory cfg_) Ownable(msg.sender) { _cfg = cfg_; }
+    /// @param initialOwner Owner to assign for admin functions.
+    function initialize(LockConfig memory cfg_, address initialOwner) external {
+        require(!_initialized, "Init");
+        require(initialOwner != address(0), "Zero");
+        _cfg = cfg_;
+        _transferOwnership(initialOwner);
+        _initialized = true;
+    }
 
     /// @notice Update the lock configuration.
     /// @param cfg New lock configuration.

@@ -128,6 +128,53 @@ async function main() {
   console.log("Wiring FarmFactory in ProtocolCore...");
   await (await core.setFarmFactory(farmFactoryAddr)).wait();
 
+  // 5.1) Deploy implementation contracts for clone-based modules and set them in the factory
+  console.log("Deploying v3 module implementations (BaseFarm, StrategyRouter, PayoutPolicy, LockupPolicy, StakeholderRegistry)...");
+  const BaseFarmImplF = await ethers.getContractFactory("contracts/v3/farm/BaseFarm.sol:BaseFarm");
+  const RouterImplF = await ethers.getContractFactory("contracts/v3/strategies/StrategyRouter.sol:StrategyRouter");
+  const PayoutImplF = await ethers.getContractFactory("contracts/v3/modules/PayoutPolicy.sol:PayoutPolicy");
+  const LockupImplF = await ethers.getContractFactory("contracts/v3/modules/LockupPolicy.sol:LockupPolicy");
+  const RegistryImplF = await ethers.getContractFactory("contracts/v3/modules/StakeholderRegistry.sol:StakeholderRegistry");
+
+  const baseFarmImpl = await BaseFarmImplF.deploy();
+  await baseFarmImpl.waitForDeployment();
+  const baseFarmImplAddr = await baseFarmImpl.getAddress();
+
+  const routerImpl = await RouterImplF.deploy();
+  await routerImpl.waitForDeployment();
+  const routerImplAddr = await routerImpl.getAddress();
+
+  const payoutImpl = await PayoutImplF.deploy();
+  await payoutImpl.waitForDeployment();
+  const payoutImplAddr = await payoutImpl.getAddress();
+
+  const lockupImpl = await LockupImplF.deploy();
+  await lockupImpl.waitForDeployment();
+  const lockupImplAddr = await lockupImpl.getAddress();
+
+  const registryImpl = await RegistryImplF.deploy();
+  await registryImpl.waitForDeployment();
+  const registryImplAddr = await registryImpl.getAddress();
+
+  console.log("Module Implementations:", {
+    BaseFarm: baseFarmImplAddr,
+    StrategyRouter: routerImplAddr,
+    PayoutPolicy: payoutImplAddr,
+    LockupPolicy: lockupImplAddr,
+    StakeholderRegistry: registryImplAddr,
+  });
+
+  console.log("Setting implementations in FarmFactory...");
+  await (
+    await farmFactory.setImplementations(
+      baseFarmImplAddr,
+      routerImplAddr,
+      payoutImplAddr,
+      lockupImplAddr,
+      registryImplAddr
+    )
+  ).wait();
+
   // Optionally approve deployer as farm owner in core (useful for tests)
   console.log("Approving deployer as farm owner in ProtocolCore...");
   await (await core.setApprovedFarmOwner(deployerAddress, true)).wait();
@@ -259,6 +306,13 @@ async function main() {
       DXPToken: dxpAddr,
       ProtocolCore: coreAddr,
       FarmFactory: farmFactoryAddr,
+      implementations: {
+        BaseFarm: baseFarmImplAddr,
+        StrategyRouter: routerImplAddr,
+        PayoutPolicy: payoutImplAddr,
+        LockupPolicy: lockupImplAddr,
+        StakeholderRegistry: registryImplAddr,
+      },
       MockLiquidityManager: mockLmAddr,
       vaults: {
         staking: {

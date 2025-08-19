@@ -28,7 +28,7 @@ contract PayoutPolicy is IPayoutPolicy, Ownable {
     uint256 public override lastHarvestAt;
 
     // Custodied base asset and authorized farm that can accrue streams
-    address public immutable asset;
+    address public asset;
     address public farm;
 
     mapping(address => Stream) private _stream;
@@ -44,13 +44,22 @@ contract PayoutPolicy is IPayoutPolicy, Ownable {
         _;
     }
 
+    /// @notice Parameterless constructor to satisfy Ownable base.
+    constructor() Ownable(msg.sender) {}
+
+    bool private _initialized;
+
     /// @notice Initialize payout policy with base asset and configuration.
     /// @param asset_ Base asset used for streaming and payouts.
     /// @param cfg_ Initial configuration for payout behavior.
-    constructor(address asset_, Config memory cfg_) Ownable(msg.sender) {
-        require(asset_ != address(0), "AssetZero");
+    /// @param initialOwner Owner to assign for admin functions.
+    function initialize(address asset_, Config memory cfg_, address initialOwner) external {
+        require(!_initialized, "Init");
+        require(asset_ != address(0) && initialOwner != address(0), "Zero");
         asset = asset_;
         _cfg = cfg_;
+        _transferOwnership(initialOwner);
+        _initialized = true;
     }
 
     /// @notice Set the authorized farm for accrual operations.

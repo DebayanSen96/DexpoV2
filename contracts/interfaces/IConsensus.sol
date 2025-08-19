@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
 interface IConsensus {
     /// @notice Returns the current protocol fee rate applied to revenue.
     /// @dev Fee rate is expressed as an integer percentage (0 to 100).

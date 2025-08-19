@@ -35,14 +35,14 @@ interface IHasOwner {
 contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
-    /// @notice ERC-20 principal token accepted by the farm (immutable).
-    address public immutable override asset;
+    /// @notice ERC-20 principal token accepted by the farm.
+    address public override asset;
 
     /// @notice ProtocolCore contract used to authorize sensitive updates.
-    address public immutable protocolCore;
+    address public protocolCore;
 
-    /// @notice Unique farm identifier assigned by ProtocolCore (immutable).
-    uint256 public immutable farmId;
+    /// @notice Unique farm identifier assigned by ProtocolCore.
+    uint256 public farmId;
 
     /// @notice ERC-20 share token minted/burned by this farm.
     IShareToken public shareToken;
@@ -65,32 +65,43 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
     /// @notice Emitted when the stakeholder registry is updated.
     event StakeholderRegistrySet(address indexed registry);
 
+    /// @notice Parameterless constructor to satisfy Ownable base. Not used by clones.
+    constructor() Ownable(msg.sender) {}
+
+    bool private _initialized;
+
     /**
-     * @notice Initializes a new BaseFarm and deploys its dedicated `ShareToken`.
+     * @notice Initialize BaseFarm and deploy its dedicated `ShareToken`.
      * @param asset_ ERC-20 principal token address.
      * @param name_ Name for the share token.
      * @param symbol_ Symbol for the share token.
      * @param protocolCore_ ProtocolCore contract address.
      * @param farmId_ Unique farm identifier assigned by the protocol.
+     * @param initialOwner Owner to assign for admin functions (factory during wiring).
      */
-    constructor(
+    function initialize(
         address asset_,
         string memory name_,
         string memory symbol_,
         address protocolCore_,
-        uint256 farmId_
-    ) Ownable(msg.sender) {
+        uint256 farmId_,
+        address initialOwner
+    ) external {
+        require(!_initialized, "Init");
         require(asset_ != address(0), "InvalidAsset");
-        require(protocolCore_ != address(0), "InvalidCore");
+        require(protocolCore_ != address(0) && initialOwner != address(0), "InvalidCoreOrOwner");
         asset = asset_;
         protocolCore = protocolCore_;
         farmId = farmId_;
 
-        // Deploy a dedicated share token, set this farm as minter, then hand ownership to farm owner
+        // Deploy a dedicated share token, set this farm as minter, then hand ownership to factory (initialOwner)
         ShareToken token = new ShareToken(name_, symbol_);
         token.setMinter(address(this));
-        token.transferOwnership(msg.sender);
+        token.transferOwnership(initialOwner);
         shareToken = IShareToken(address(token));
+
+        _transferOwnership(initialOwner);
+        _initialized = true;
     }
 
     // --- Admin wiring ---
