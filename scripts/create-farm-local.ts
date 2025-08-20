@@ -94,7 +94,17 @@ async function main() {
     return;
   }
 
-  // For test purposes, hardcode adapter params from the latest deployment
+  // Fetch catalog and choose a template (prefer Lido template if available)
+  let templateId = 'staking.liquid.lido.v1';
+  try {
+    const catRes = await fetch(`${serverUrl}/api/v3/catalog?network=${network}`);
+    const catText = await catRes.text();
+    const catalog = JSON.parse(catText);
+    const lido = catalog?.items?.find((i: any) => i.id === 'staking.liquid.lido.v1');
+    templateId = lido?.id || catalog?.items?.[0]?.id || templateId;
+  } catch {}
+
+  // For test purposes, use local placeholder addresses for overrides
   // These contracts are placeholders for local testing; no swaps will be executed in this script.
   const wstETH: string | undefined = dep.params?.ASSET_TOKEN || dep.contracts?.DXPToken;
   const swapRouter: string | undefined = dep.contracts?.MockLiquidityManager || dep.contracts?.FarmFactory;
@@ -115,14 +125,17 @@ async function main() {
     router,
     bps,
     deployOnly: false,
-    wstETH,
-    swapRouter,
-    quoter,
-    poolFee,
-    slippageBps,
+    templateId,
+    overrides: {
+      wstETH,
+      swapRouter,
+      quoter,
+      poolFee,
+      slippageBps,
+    },
   };
-  if (minDeposit !== undefined) stratReq.minDeposit = minDeposit;
-  if (minWithdraw !== undefined) stratReq.minWithdraw = minWithdraw;
+  if (minDeposit !== undefined) stratReq.overrides.minDeposit = minDeposit;
+  if (minWithdraw !== undefined) stratReq.overrides.minWithdraw = minWithdraw;
 
   console.log('Strategy Request Payload:');
   console.log(JSON.stringify(stratReq, null, 2));

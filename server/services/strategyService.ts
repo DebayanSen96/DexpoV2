@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import path from 'path';
 import fs from 'fs/promises';
+import { getTemplate } from './catalog';
 
 export type Network = 'localhost' | 'hardhat' | 'basesepolia' | 'base';
 
@@ -45,6 +46,17 @@ async function loadUniV3AdapterArtifact(): Promise<{ abi: any; bytecode: string 
   const json = JSON.parse(raw);
   const { abi, bytecode } = json;
   if (!abi || !bytecode) throw new Error('Invalid UniV3 adapter artifact');
+  return { abi, bytecode };
+}
+
+async function loadArtifactFromPath(artifactPath: string): Promise<{ abi: any; bytecode: string }>{
+  const full = path.isAbsolute(artifactPath)
+    ? artifactPath
+    : path.join(process.cwd(), artifactPath);
+  const raw = await fs.readFile(full, 'utf8');
+  const json = JSON.parse(raw);
+  const { abi, bytecode } = json;
+  if (!abi || !bytecode) throw new Error(`Invalid artifact at ${artifactPath}`);
   return { abi, bytecode };
 }
 
@@ -150,6 +162,95 @@ export async function deployUniV3AdapterAndWire(
   }
 
   // Wire into router
+  let allocationTxHash = '';
+  if (!params.deployOnly) {
+    const bps = params.bps ?? 10000;
+    const setTx = await routerC.setAllocations([strategyKey], [adapterAddr], [bps]);
+    const setRc = await setTx.wait();
+    allocationTxHash = setRc.hash;
+  }
+
+  return {
+    adapter: adapterAddr,
+    deployTxHash,
+    configTxHashes,
+    allocationTxHash,
+    strategyKeyUsed: strategyKey,
+  };
+}
+
+export async function deployAdapterFromTemplateAndWire(
+  network: Network,
+  params: {
+    provider: ethers.JsonRpcProvider;
+    signer: ethers.Signer;
+    router: string;
+    templateId: string;
+    overrides?: Record<string, any>;
+    bps?: number;
+    deployOnly?: boolean;
+  }
+): Promise<{
+  adapter: string;
+  deployTxHash: string;
+  configTxHashes: string[];
+  allocationTxHash: string;
+  strategyKeyUsed: string;
+}> {
+  const { provider, signer, router, templateId, overrides } = params;
+  const routerC = new ethers.Contract(router, StrategyRouterAbi, signer);
+
+  // Load template and artifact
+  const tmpl = await getTemplate(network, templateId);
+  const { abi, bytecode } = await loadArtifactFromPath(tmpl.artifact);
+
+  // Build inputs map: start with defaults, then overrides
+  const inputs: Record<string, any> = { ...(tmpl.defaults || {}) };
+  for (const [k, v] of Object.entries(overrides || {})) inputs[k] = v;
+
+  // Resolve baseAsset lazily via router.asset() if needed
+  if (tmpl.constructor.params.includes('baseAsset') && inputs.baseAsset == null) {
+    inputs.baseAsset = await routerC.asset();
+  }
+  // Always ensure router param exists when required
+  if (tmpl.constructor.params.includes('router')) inputs.router = router;
+
+  // Create contract
+  const ctorArgs = tmpl.constructor.params.map((p) => {
+    if (inputs[p] == null) throw new Error(`Missing constructor param: ${p}`);
+    return inputs[p];
+  });
+  const factory = new ethers.ContractFactory(abi, bytecode, signer);
+  const contract = await factory.deploy(...ctorArgs);
+  const deployTx = contract.deploymentTransaction();
+  const deployTxHash = deployTx?.hash || '';
+  await contract.waitForDeployment();
+  const adapterAddr: string = await contract.getAddress();
+  const adapter = new ethers.Contract(adapterAddr, abi, signer);
+
+  const configTxHashes: string[] = [];
+  // Common optional setters if present
+  if (inputs.slippageBps != null && typeof (adapter as any).setSlippageBps === 'function') {
+    const tx = await (adapter as any).setSlippageBps(inputs.slippageBps);
+    const rc = await tx.wait();
+    configTxHashes.push(rc.hash);
+  }
+  if (inputs.minDeposit != null && typeof (adapter as any).setMinDeposit === 'function') {
+    const tx = await (adapter as any).setMinDeposit(BigInt(inputs.minDeposit));
+    const rc = await tx.wait();
+    configTxHashes.push(rc.hash);
+  }
+  if (inputs.minWithdraw != null && typeof (adapter as any).setMinWithdraw === 'function') {
+    const tx = await (adapter as any).setMinWithdraw(BigInt(inputs.minWithdraw));
+    const rc = await tx.wait();
+    configTxHashes.push(rc.hash);
+  }
+
+  // Compute strategy key (bytes32(adapter))
+  const addrNum = BigInt(adapterAddr);
+  const strategyKey = ('0x' + addrNum.toString(16).padStart(64, '0')) as string;
+
+  // Wire into router unless deployOnly
   let allocationTxHash = '';
   if (!params.deployOnly) {
     const bps = params.bps ?? 10000;

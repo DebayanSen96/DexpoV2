@@ -6,7 +6,8 @@ import { ethers } from 'ethers';
 import path from 'path';
 import fs from 'fs/promises';
 import dotenv from 'dotenv';
-import { deployUniV3AdapterAndWire } from './services/strategyService';
+import { deployUniV3AdapterAndWire, deployAdapterFromTemplateAndWire } from './services/strategyService';
+import { loadStrategyCatalog } from './services/catalog';
 
 dotenv.config();
 
@@ -84,6 +85,9 @@ const DeployStrategyRequestSchema = z.object({
   strategyKey: z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional(),
   bps: z.number().int().min(0).max(10000).optional(),
   deployOnly: z.boolean().optional(),
+  // Template-based deployment
+  templateId: z.string().optional(),
+  overrides: z.record(z.any()).optional(),
   // Adapter params (optional overrides)
   baseAsset: addr.optional(),
   wstETH: addr.optional(),
@@ -203,7 +207,7 @@ async function main() {
     try {
       console.log('POST /api/v3/strategies/deploy-and-wire');
       const parsed = DeployStrategyRequestSchema.parse(req.body);
-      const { network, router: routerIn, farmId, addresses, strategyKey, bps, deployOnly, baseAsset, wstETH, swapRouter, quoter, poolFee, slippageBps, minDeposit, minWithdraw } = parsed;
+      const { network, router: routerIn, farmId, addresses, strategyKey, bps, deployOnly, baseAsset, wstETH, swapRouter, quoter, poolFee, slippageBps, minDeposit, minWithdraw, templateId, overrides } = parsed;
 
       const rpcUrl = resolveRpcUrl(network);
       const pk = resolveSignerKey(network, parsed.ownerPrivateKey);
@@ -231,23 +235,33 @@ async function main() {
 
       if (!routerAddr) return res.status(400).json({ error: 'Unable to resolve router address' });
 
-      // Deploy adapter and wire allocations (require router owner)
-      const result = await deployUniV3AdapterAndWire(network, {
-        provider,
-        signer,
-        router: routerAddr,
-        strategyKey,
-        bps,
-        deployOnly,
-        baseAsset,
-        wstETH,
-        swapRouter,
-        quoter,
-        poolFee,
-        slippageBps,
-        minDeposit,
-        minWithdraw,
-      });
+      // Deploy adapter and wire allocations. If templateId provided, use template-based deploy.
+      const result = templateId
+        ? await deployAdapterFromTemplateAndWire(network, {
+            provider,
+            signer,
+            router: routerAddr,
+            templateId,
+            overrides,
+            bps,
+            deployOnly,
+          })
+        : await deployUniV3AdapterAndWire(network, {
+            provider,
+            signer,
+            router: routerAddr,
+            strategyKey,
+            bps,
+            deployOnly,
+            baseAsset,
+            wstETH,
+            swapRouter,
+            quoter,
+            poolFee,
+            slippageBps,
+            minDeposit,
+            minWithdraw,
+          });
 
       return res.json({
         network,
@@ -269,6 +283,18 @@ async function main() {
   app.get('/health', (_req: Request, res: Response) => {
     console.log('GET /health');
     res.json({ ok: true });
+  });
+
+  // Expose strategy catalog for frontend to render choices
+  app.get('/api/v3/catalog', async (req: Request, res: Response) => {
+    try {
+      const network = (req.query.network as string) as 'localhost'|'hardhat'|'basesepolia'|'base' || 'base';
+      const catalog = await loadStrategyCatalog(network);
+      return res.json({ network, ...catalog });
+    } catch (err: any) {
+      console.error('Error in /api/v3/catalog', err);
+      return res.status(500).json({ error: err?.message || 'Unknown error' });
+    }
   });
 
   app.post('/api/v3/create-farm', async (req: Request, res: Response) => {
