@@ -1,0 +1,18 @@
+{
+  "id": "staking.node.ssv.v1",
+  "title": "Staking → Node → SSV Network (generic base asset)",
+  "kind": "staking",
+  "path": ["staking", "node", "ssv", "v1"],
+  "artifact": "artifacts/contracts/v3/adapters/NodeSsvStakingAdapter.sol/NodeSsvStakingAdapter.json",
+  "constructor": {
+    "params": [
+      "baseAsset",
+      "router",
+      "ssvNetwork",
+      "withdrawalCredentials",
+      "operatorIds",
+      "ssvToken"
+    ]
+  },
+  "defaults": {}
+}

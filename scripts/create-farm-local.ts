@@ -94,18 +94,8 @@ async function main() {
     return;
   }
 
-  // Fetch catalog and choose a template (prefer Lido template if available)
-  let templateId = 'staking.liquid.lido.v1';
-  try {
-    const catRes = await fetch(`${serverUrl}/api/v3/catalog?network=${network}`);
-    const catText = await catRes.text();
-    const catalog = JSON.parse(catText);
-    const lido = catalog?.items?.find((i: any) => i.id === 'staking.liquid.lido.v1');
-    templateId = lido?.id || catalog?.items?.[0]?.id || templateId;
-  } catch {}
-
   // For test purposes, use local placeholder addresses for overrides
-  // These contracts are placeholders for local testing; no swaps will be executed in this script.
+  // These contracts are placeholders for local testing; no swaps/bridges will be executed in this script.
   const wstETH: string | undefined = dep.params?.ASSET_TOKEN || dep.contracts?.DXPToken;
   const swapRouter: string | undefined = dep.contracts?.MockLiquidityManager || dep.contracts?.FarmFactory;
   const quoter: string | undefined = dep.contracts?.FarmFactory || dep.contracts?.ProtocolCore;
@@ -120,41 +110,93 @@ async function main() {
   const minWithdraw = '0';
   const bps = 10000;
 
-  const stratReq: any = {
+  // 2a) Deploy legacy UniV3 adapter (earlier flow) with deployOnly=true
+  const legacyReq: any = {
+    network: payload.network,
+    router,
+    bps,
+    deployOnly: true,
+    wstETH,
+    swapRouter,
+    quoter,
+    poolFee,
+    slippageBps,
+    minDeposit,
+    minWithdraw,
+  };
+  console.log('Legacy Strategy Request Payload (deployOnly):');
+  console.log(JSON.stringify(legacyReq, null, 2));
+  console.log('POST', `${serverUrl}/api/v3/strategies/deploy-and-wire`);
+  const legacyRes = await fetch(`${serverUrl}/api/v3/strategies/deploy-and-wire`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(legacyReq),
+  });
+  const legacyText = await legacyRes.text();
+  console.log('Legacy Strategy Status:', legacyRes.status);
+  try {
+    const legacyJson = JSON.parse(legacyText);
+    console.log('Legacy Strategy Response JSON:');
+    console.log(JSON.stringify(legacyJson, null, 2));
+  } catch {
+    console.log('Legacy Strategy Response Text:');
+    console.log(legacyText);
+  }
+
+  // 2b) Deploy a new template-based adapter (SSV preferred, fallback to Stargate)
+  // Prepare SSV overrides (dummy non-zero addresses ok for localhost)
+  const ssvNetwork = dep.contracts?.ProtocolCore || router; // any non-zero address
+  const ssvToken = dep.contracts?.DXPToken || asset;        // any non-zero address
+  const withdrawalCredentials = '0x' + '00'.repeat(32);     // bytes32
+  const operatorIds = [1, 2, 3, 4];
+
+  // If SSV required addresses are unavailable, fallback to Stargate template
+  const canUseSSV = Boolean(ssvNetwork && ssvToken);
+  const templateId = canUseSSV ? 'staking.node.ssv.v1' : 'bridge.stargate.v1';
+
+  const templateOverrides: any = canUseSSV
+    ? {
+        ssvNetwork,
+        ssvToken,
+        withdrawalCredentials,
+        operatorIds,
+        minDeposit,
+        minWithdraw,
+      }
+    : {
+        stargateRouter: dep.contracts?.FarmFactory || router,
+        lzEndpoint: dep.contracts?.ProtocolCore || router,
+        poolId: 1,
+        dstChainId: 100,
+        minDeposit,
+        minWithdraw,
+      };
+
+  const tmplReq = {
     network: payload.network,
     router,
     bps,
     deployOnly: false,
     templateId,
-    overrides: {
-      wstETH,
-      swapRouter,
-      quoter,
-      poolFee,
-      slippageBps,
-    },
+    overrides: templateOverrides,
   };
-  if (minDeposit !== undefined) stratReq.overrides.minDeposit = minDeposit;
-  if (minWithdraw !== undefined) stratReq.overrides.minWithdraw = minWithdraw;
-
-  console.log('Strategy Request Payload:');
-  console.log(JSON.stringify(stratReq, null, 2));
+  console.log('Template Strategy Request Payload:');
+  console.log(JSON.stringify(tmplReq, null, 2));
   console.log('POST', `${serverUrl}/api/v3/strategies/deploy-and-wire`);
-
-  const sres = await fetch(`${serverUrl}/api/v3/strategies/deploy-and-wire`, {
+  const tmplRes = await fetch(`${serverUrl}/api/v3/strategies/deploy-and-wire`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(stratReq),
+    body: JSON.stringify(tmplReq),
   });
-  const stext = await sres.text();
-  console.log('Strategy Status:', sres.status);
+  const tmplText = await tmplRes.text();
+  console.log('Template Strategy Status:', tmplRes.status);
   try {
-    const sjson = JSON.parse(stext);
-    console.log('Strategy Response JSON:');
-    console.log(JSON.stringify(sjson, null, 2));
+    const tmplJson = JSON.parse(tmplText);
+    console.log('Template Strategy Response JSON:');
+    console.log(JSON.stringify(tmplJson, null, 2));
   } catch {
-    console.log('Strategy Response Text:');
-    console.log(stext);
+    console.log('Template Strategy Response Text:');
+    console.log(tmplText);
   }
 }
 
