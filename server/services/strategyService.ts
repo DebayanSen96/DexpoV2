@@ -264,6 +264,22 @@ export async function deployAdapterFromTemplateAndWire(
     configTxHashes.push(rc.hash);
   }
 
+  // Template-defined post-deploy setters (generic)
+  if (tmpl.postDeploy?.setters && Array.isArray(tmpl.postDeploy.setters)) {
+    for (const s of tmpl.postDeploy.setters) {
+      const fn = (s as any).fn as string;
+      const arg = (s as any).arg as string;
+      if (!fn || !arg) continue;
+      const val = (inputs as any)[arg];
+      if (val == null) throw new Error(`Missing postDeploy arg: ${arg}`);
+      const targetFn = (adapter as any)[fn];
+      if (typeof targetFn !== 'function') continue;
+      const tx = await targetFn(val);
+      const rc = await tx.wait();
+      configTxHashes.push(rc.hash);
+    }
+  }
+
   // Compute strategy key (bytes32(adapter))
   const addrNum = BigInt(adapterAddr);
   const strategyKey = ('0x' + addrNum.toString(16).padStart(64, '0')) as string;

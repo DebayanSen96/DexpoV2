@@ -7,6 +7,21 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../interfaces/IStrategyAdapter.sol";
 import "../interfaces/IOwnable.sol";
 
+// Minimal interface for the BridgingAdapter utility contract
+interface IBridgingAdapter {
+    function depositToChain(
+        address token,
+        uint256 amount,
+        uint256 destinationChainId,
+        address recipient,
+        uint256 outputAmount,
+        uint32 quoteTimestamp,
+        uint32 fillDeadline,
+        address exclusiveRelayer,
+        uint32 exclusivityDeadline
+    ) external payable;
+}
+
 /**
  * @title NodeSsvStakingAdapter (Generic)
  * @notice Minimal, router-controlled adapter scaffold for staking via SSV Network.
@@ -35,6 +50,9 @@ contract NodeSsvStakingAdapter is IStrategyAdapter, Ownable {
     bytes32 public withdrawalCredentials;
     uint64[] public operatorIds;
 
+    // Optional bridging configuration (for cross-chain deposits/withdrawals)
+    address public bridgingAdapter; // BridgingAdapter contract used for cross-chain transfers
+
     // Controls
     bool public paused;
     uint256 public minDeposit;
@@ -47,6 +65,7 @@ contract NodeSsvStakingAdapter is IStrategyAdapter, Ownable {
     event RouterSet(address indexed router);
     event SsvConfigSet(address indexed ssvNetwork, address indexed ssvToken, bytes32 withdrawalCredentials);
     event OperatorsSet(uint64[] operatorIds);
+    event BridgingAdapterSet(address indexed adapter);
     event PausedSet(bool paused);
     event MinDepositSet(uint256 minDeposit);
     event MinWithdrawSet(uint256 minWithdraw);
@@ -58,6 +77,7 @@ contract NodeSsvStakingAdapter is IStrategyAdapter, Ownable {
     error NotRouter();
     error Paused();
     error AmountTooSmall();
+    error BridgeNotConfigured();
 
     // ---------------------------------------------------------------------
     // Constructor
@@ -103,6 +123,9 @@ contract NodeSsvStakingAdapter is IStrategyAdapter, Ownable {
         for (uint256 i = 0; i < ids.length; i++) operatorIds.push(ids[i]);
         emit OperatorsSet(ids);
     }
+    function setBridgingAdapter(address a) external onlyOwner {
+        bridgingAdapter = a; emit BridgingAdapterSet(a);
+    }
     function setPaused(bool p) external onlyOwner { paused = p; emit PausedSet(p); }
     function setMinDeposit(uint256 v) external onlyOwner { minDeposit = v; emit MinDepositSet(v); }
     function setMinWithdraw(uint256 v) external onlyOwner { minWithdraw = v; emit MinWithdrawSet(v); }
@@ -118,9 +141,47 @@ contract NodeSsvStakingAdapter is IStrategyAdapter, Ownable {
     // IStrategyAdapter
     // ---------------------------------------------------------------------
 
-    function deposit(uint256 amount, bytes calldata /*params*/) external override onlyRouter notPaused returns (uint256 sharesOrAmt) {
+    function deposit(uint256 amount, bytes calldata params) external override onlyRouter notPaused returns (uint256 sharesOrAmt) {
         if (amount == 0 || amount < minDeposit) revert AmountTooSmall();
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
+
+        // Optionally perform bridging via BridgingAdapter if instructed by params.
+        // Expected encoding for params (if bridging is desired):
+        // (bool doBridge, uint256 destinationChainId, address recipient, uint256 outputAmount,
+        //  uint32 quoteTimestamp, uint32 fillDeadline, address exclusiveRelayer, uint32 exclusivityDeadline)
+        if (params.length > 0) {
+            (
+                bool doBridge,
+                uint256 destinationChainId,
+                address recipient,
+                uint256 outputAmount,
+                uint32 quoteTimestamp,
+                uint32 fillDeadline,
+                address exclusiveRelayer,
+                uint32 exclusivityDeadline
+            ) = abi.decode(params, (bool, uint256, address, uint256, uint32, uint32, address, uint32));
+
+            if (doBridge) {
+                if (bridgingAdapter == address(0)) revert BridgeNotConfigured();
+                // Approve BridgingAdapter to pull funds from this adapter
+                IERC20(asset).forceApprove(bridgingAdapter, 0);
+                IERC20(asset).approve(bridgingAdapter, amount);
+                IBridgingAdapter(bridgingAdapter).depositToChain(
+                    asset,
+                    amount,
+                    destinationChainId,
+                    recipient,
+                    outputAmount,
+                    quoteTimestamp,
+                    fillDeadline,
+                    exclusiveRelayer,
+                    exclusivityDeadline
+                );
+                // Clear approval for safety
+                IERC20(asset).forceApprove(bridgingAdapter, 0);
+            }
+        }
+
         // Future: stake via SSV network using configured operators.
         return amount;
     }

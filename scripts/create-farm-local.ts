@@ -34,25 +34,45 @@ async function main() {
   const minDeposit = '0';
   const minWithdraw = '0';
 
-  // SSV template overrides (use local non-zero addresses)
+  // SSV template overrides (use placeholders if not available locally)
   const ssvNetwork = dep.contracts?.ProtocolCore || '0x0000000000000000000000000000000000000001';
   const ssvToken = dep.contracts?.DXPToken || asset;
   const withdrawalCredentials = '0x' + '00'.repeat(32);
   const operatorIds = [1, 2, 3, 4];
 
-  // Stargate template overrides (use local placeholders)
-  const stargateRouter = dep.contracts?.FarmFactory || '0x0000000000000000000000000000000000000002';
-  const lzEndpoint = dep.contracts?.ProtocolCore || '0x0000000000000000000000000000000000000003';
+  // BridgingAdapter from deployment (required for SSV postDeploy setter)
+  const bridgingAdapter: string | undefined = dep.contracts?.BridgingAdapter;
+  if (!bridgingAdapter) {
+    throw new Error('BridgingAdapter not found in deployment. Please run deploy-v3.ts (or deploy-v3_withMock.ts) to deploy and write contracts.BridgingAdapter, then re-run this script.');
+  }
 
   const items: any[] = [
+    // 60% allocation to SSV Node staking with bridging enabled via postDeploy setter
     {
       templateId: 'staking.node.ssv.v1',
-      overrides: { ssvNetwork, ssvToken, withdrawalCredentials, operatorIds, minDeposit, minWithdraw },
+      overrides: {
+        ssvNetwork,
+        ssvToken,
+        withdrawalCredentials,
+        operatorIds,
+        bridgingAdapter,
+        minDeposit,
+        minWithdraw,
+      },
       bps: 6000,
     },
+    // 40% allocation to Lido liquid staking adapter (UniV3 WETH->wstETH)
     {
-      templateId: 'bridge.stargate.v1',
-      overrides: { stargateRouter, lzEndpoint, poolId: 1, dstChainId: 100, minDeposit, minWithdraw },
+      templateId: 'staking.liquid.lido.v1',
+      overrides: {
+        // Use lowercase to bypass checksum validation in local runs
+        wstETH: '0xc1cba3fcea344f92d9239c08c0568f6f2f0ee452',
+        swapRouter: '0x2626664c2603336e57b271c5c0b26f421741e481',
+        quoter: '0x3d4e44eb1374240ce5f1b871ab261cd16335b76a',
+        poolFee: 100,
+        minDeposit,
+        minWithdraw,
+      },
       bps: 4000,
     },
   ];

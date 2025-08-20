@@ -67,13 +67,17 @@ export async function loadStrategyCatalog(network: Network): Promise<StrategyCat
   const dir = templatesDirForNetwork(network);
   const items = await loadTemplatesFromDir(dir);
   if (items.length > 0) {
-    return { version: '1.0.0', items };
+    const filtered = items.filter(i => i.kind !== 'bridge' && !(i.id || '').startsWith('bridge.'));
+    return { version: '1.0.0', items: filtered };
   }
 
   // Fallback: try templates from base network
   if (network !== 'base') {
     const baseItems = await loadTemplatesFromDir(templatesDirForNetwork('base'));
-    if (baseItems.length > 0) return { version: '1.0.0', items: baseItems };
+    if (baseItems.length > 0) {
+      const filteredBase = baseItems.filter(i => i.kind !== 'bridge' && !(i.id || '').startsWith('bridge.'));
+      return { version: '1.0.0', items: filteredBase };
+    }
   }
 
   // Legacy fallback: single catalog file
@@ -82,14 +86,16 @@ export async function loadStrategyCatalog(network: Network): Promise<StrategyCat
     const raw = await fs.readFile(p, 'utf8');
     const json = JSON.parse(raw);
     if (!json.items || !Array.isArray(json.items)) throw new Error('Invalid catalog: items missing');
-    return json as StrategyCatalog;
+    const filtered = (json.items as StrategyTemplate[]).filter(i => i.kind !== 'bridge' && !(i.id || '').startsWith('bridge.'));
+    return { version: json.version || '1.0.0', items: filtered } as StrategyCatalog;
   } catch (e: any) {
     if (network !== 'base') {
       try {
         const basePath = catalogPathForNetwork('base');
         const raw = await fs.readFile(basePath, 'utf8');
         const json = JSON.parse(raw);
-        return json as StrategyCatalog;
+        const filtered = (json.items as StrategyTemplate[]).filter(i => i.kind !== 'bridge' && !(i.id || '').startsWith('bridge.'));
+        return { version: json.version || '1.0.0', items: filtered } as StrategyCatalog;
       } catch {}
     }
     throw new Error(`Strategy catalog not found for ${network}: ${e?.message || e}`);

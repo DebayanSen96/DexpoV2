@@ -118,6 +118,22 @@ async function main() {
   console.log("Wiring LiquidityManager in ProtocolCore...");
   await (await core.setLiquidityManager(mockLmAddr)).wait();
 
+  // 4.1) Deploy BridgingAdapter (owner = deployer; external bridge addresses set to zero for now)
+  console.log("Deploying BridgingAdapter...");
+  const BridgingAdapterF = await ethers.getContractFactory("contracts/libraries/BridgeAdaptor.sol:BridgingAdapter");
+  const bridgingAdapter = await BridgingAdapterF.deploy(
+    deployerAddress,
+    ethers.ZeroAddress,
+    ethers.ZeroAddress,
+    ethers.ZeroAddress,
+    ethers.ZeroAddress,
+    ethers.ZeroAddress,
+    ethers.ZeroAddress
+  );
+  await bridgingAdapter.waitForDeployment();
+  const bridgingAdapterAddr = await bridgingAdapter.getAddress();
+  console.log("BridgingAdapter:", bridgingAdapterAddr);
+
   // 5) Deploy FarmFactory (v3) and wire into ProtocolCore
   console.log("Deploying v3 FarmFactory...");
   const FarmFactory = await ethers.getContractFactory("contracts/v3/factories/FarmFactory.sol:FarmFactory");
@@ -314,6 +330,7 @@ async function main() {
         StakeholderRegistry: registryImplAddr,
       },
       MockLiquidityManager: mockLmAddr,
+      BridgingAdapter: bridgingAdapterAddr,
       vaults: {
         staking: {
           StrategyRouter: stakeMods.router,

@@ -14,5 +14,10 @@
       "ssvToken"
     ]
   },
-  "defaults": {}
+  "defaults": {},
+  "postDeploy": {
+    "setters": [
+      { "fn": "setBridgingAdapter", "arg": "bridgingAdapter" }
+    ]
+  }
 }

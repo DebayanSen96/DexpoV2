@@ -2,27 +2,6 @@
   "version": "1.0.0",
   "items": [
     {
-      "id": "bridge.stargate.v1",
-      "title": "Bridge → LayerZero/Stargate (generic base asset)",
-      "kind": "bridge",
-      "path": ["bridge", "stargate", "v1"],
-      "artifact": "artifacts/contracts/v3/adapters/LayerZeroStargateBridgeAdapter.sol/LayerZeroStargateBridgeAdapter.json",
-      "constructor": {
-        "params": [
-          "baseAsset",
-          "protocolCore",
-          "stargateRouter",
-          "lzEndpoint",
-          "poolId",
-          "dstChainId"
-        ]
-      },
-      "defaults": {
-        "poolId": 0,
-        "dstChainId": 0
-      }
-    },
-    {
       "id": "staking.node.ssv.v1",
       "title": "Staking → Node → SSV Network (generic base asset)",
       "kind": "staking",
