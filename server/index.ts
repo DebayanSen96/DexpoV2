@@ -225,7 +225,7 @@ async function main() {
         }
         if (!protocolCore) return res.status(400).json({ error: 'Missing ProtocolCore address to resolve farm router' });
         const core = new ethers.Contract(protocolCore, ProtocolCoreAbi, signer);
-        const info = await core.vaultsById(farmId);
+        const info = await core.farmsById(farmId);
         routerAddr = info[4];
       }
 
