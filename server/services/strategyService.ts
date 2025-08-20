@@ -28,6 +28,7 @@ export type DeployUniV3AdapterParams = {
 const StrategyRouterAbi = [
   'function asset() view returns (address)',
   'function owner() view returns (address)',
+  'function protocolCore() view returns (address)',
   'function setAllocations(bytes32[] ids,address[] adapters,uint16[] bps) external',
 ];
 
@@ -123,7 +124,10 @@ export async function deployUniV3AdapterAndWire(
   // Load artifact and deploy
   const { abi, bytecode } = await loadUniV3AdapterArtifact();
   const factory = new ethers.ContractFactory(abi, bytecode, signer);
-  const contract = await factory.deploy(baseAsset, wstETH, router, swapRouter, quoter, poolFee);
+  // Resolve protocol core from router
+  const protocolCore: string = await routerC.protocolCore();
+  // New constructor signature expects protocolCore instead of router
+  const contract = await factory.deploy(baseAsset, wstETH, protocolCore, swapRouter, quoter, poolFee);
   const deployTx = contract.deploymentTransaction();
   const deployTxHash = deployTx?.hash || '';
   await contract.waitForDeployment();
@@ -131,6 +135,12 @@ export async function deployUniV3AdapterAndWire(
   const adapter = new ethers.Contract(adapterAddr, abi, signer);
 
   const configTxHashes: string[] = [];
+  // One-time router wiring (secure)
+  if (typeof (adapter as any).setRouterOnce === 'function') {
+    const tx = await (adapter as any).setRouterOnce(router);
+    const rc = await tx.wait();
+    configTxHashes.push(rc.hash);
+  }
   // Optional settings
   if (typeof params.slippageBps === 'number') {
     const tx = await adapter.setSlippageBps(params.slippageBps);
@@ -212,8 +222,10 @@ export async function deployAdapterFromTemplateAndWire(
   if (tmpl.constructor.params.includes('baseAsset') && inputs.baseAsset == null) {
     inputs.baseAsset = await routerC.asset();
   }
-  // Always ensure router param exists when required
-  if (tmpl.constructor.params.includes('router')) inputs.router = router;
+  // Ensure protocolCore param is provided for new adapters when required
+  if (tmpl.constructor.params.includes('protocolCore') && inputs.protocolCore == null) {
+    inputs.protocolCore = await routerC.protocolCore();
+  }
 
   // Create contract
   const ctorArgs = tmpl.constructor.params.map((p) => {
@@ -229,6 +241,12 @@ export async function deployAdapterFromTemplateAndWire(
   const adapter = new ethers.Contract(adapterAddr, abi, signer);
 
   const configTxHashes: string[] = [];
+  // One-time router wiring if adapter supports it
+  if (typeof (adapter as any).setRouterOnce === 'function') {
+    const tx = await (adapter as any).setRouterOnce(router);
+    const rc = await tx.wait();
+    configTxHashes.push(rc.hash);
+  }
   // Common optional setters if present
   if (inputs.slippageBps != null && typeof (adapter as any).setSlippageBps === 'function') {
     const tx = await (adapter as any).setSlippageBps(inputs.slippageBps);

@@ -10,7 +10,7 @@
       "constructor": {
         "params": [
           "baseAsset",
-          "router",
+          "protocolCore",
           "stargateRouter",
           "lzEndpoint",
           "poolId",
@@ -31,7 +31,7 @@
       "constructor": {
         "params": [
           "baseAsset",
-          "router",
+          "protocolCore",
           "ssvNetwork",
           "withdrawalCredentials",
           "operatorIds",

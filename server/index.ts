@@ -202,6 +202,285 @@ async function main() {
     next();
   });
 
+  // Atomic: create farm, deploy adapters from templates, wire router and set allocations
+  const CreateFarmWithStrategiesRequestSchema = z.object({
+    network: z.enum(['localhost', 'hardhat', 'basesepolia', 'base']),
+    ownerPrivateKey: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
+    payload: FarmCreationPayloadSchema, // strategies field may be provided but is ignored here
+    addresses: z.object({ protocolCore: addr.optional(), farmFactory: addr.optional() }).optional(),
+    items: z.array(z.object({
+      templateId: z.string(),
+      overrides: z.record(z.any()).optional(),
+      bps: z.number().int().min(0).max(10000),
+    })).min(1),
+  });
+
+  app.post('/api/v3/create-farm-with-strategies', async (req: Request, res: Response) => {
+    try {
+      console.log('POST /api/v3/create-farm-with-strategies');
+      const parsed = CreateFarmWithStrategiesRequestSchema.parse(req.body);
+      const { network, payload } = parsed;
+
+      // pre-validate
+      assertSplitSum(payload.splits.lpBps, payload.splits.ownerBps, payload.splits.verifierBps);
+      const itemsSum = parsed.items.reduce((a, b) => a + b.bps, 0);
+      if (itemsSum !== 10000) return res.status(400).json({ error: 'Sum of bps must equal 10000' });
+
+      const rpcUrl = resolveRpcUrl(network);
+      const pk = resolveSignerKey(network, parsed.ownerPrivateKey);
+      if (!pk) return res.status(400).json({ error: 'No signer private key available' });
+      const provider = new ethers.JsonRpcProvider(rpcUrl);
+      const baseSigner = new ethers.Wallet(pk, provider);
+      const signer = new ethers.NonceManager(baseSigner);
+      const signerAddr = await signer.getAddress();
+
+      // Resolve addresses from request or deployments
+      let protocolCore = parsed.addresses?.protocolCore;
+      let farmFactory = parsed.addresses?.farmFactory;
+      if (!protocolCore || !farmFactory) {
+        const dep = await readLatestDeploymentFor(network);
+        protocolCore = protocolCore || dep?.contracts?.ProtocolCore;
+        farmFactory = farmFactory || dep?.contracts?.FarmFactory;
+      }
+      if (!protocolCore) return res.status(400).json({ error: 'Missing ProtocolCore address' });
+
+      const core = new ethers.Contract(protocolCore, ProtocolCoreAbi, signer);
+      const coreOwner: string = await core.owner();
+      const isProtocolOwner = coreOwner.toLowerCase() === signerAddr.toLowerCase();
+      if (isProtocolOwner) {
+        const creatorApproved: boolean = await core.approvedFarmOwners(payload.creator);
+        if (!creatorApproved) {
+          const approveTx = await core.setApprovedFarmOwner(payload.creator, true);
+          await approveTx.wait();
+        }
+      } else {
+        const signerApproved: boolean = await core.approvedFarmOwners(signerAddr);
+        if (!signerApproved) return res.status(403).json({ error: 'Signer is not an approved farm owner in ProtocolCore' });
+        if (payload.creator.toLowerCase() !== signerAddr.toLowerCase()) {
+          return res.status(403).json({ error: 'Only protocol owner may create farms for another creator' });
+        }
+      }
+
+      // Build configs
+      const lockCfg = {
+        enabled: payload.lockConfig.enabled,
+        allowEarlyExit: payload.lockConfig.allowEarlyExit,
+        earlyExitBps: payload.lockConfig.earlyExitBps,
+        lockupSeconds: payload.lockConfig.lockupSeconds,
+        postLockMode: payload.lockConfig.postLockMode,
+      };
+      const payoutCfg = {
+        mode: toPayoutMode(payload.payoutConfig.mode),
+        streamBps: payload.payoutConfig.streamBps,
+        compoundBps: payload.payoutConfig.compoundBps,
+        epoch: payload.payoutConfig.epochSeconds,
+        minHarvestInterval: payload.payoutConfig.minHarvestIntervalSeconds,
+        compoundLpOnLock: payload.payoutConfig.compoundLpOnLock,
+      };
+      const stCfg = {
+        transferable: payload.shareToken ? payload.shareToken.transferable : true,
+        transferFeeBps: payload.shareToken ? payload.shareToken.transferFeeBps : 0,
+        feeReceiver: payload.shareToken?.feeReceiver ?? ethers.ZeroAddress,
+        protocolFeeReceiver: payload.shareToken?.protocolFeeReceiver ?? ethers.ZeroAddress,
+        protocolRakeBps: payload.shareToken?.protocolRakeBps ?? 0,
+      };
+
+      // Create farm with empty strategies first
+      const tx = await core.createApprovedFarmFor(
+        payload.creator,
+        payload.asset,
+        payload.farmName,
+        payload.farmSymbol,
+        payload.recipients.ownerRecipient,
+        payload.splits.lpBps,
+        payload.splits.ownerBps,
+        payload.splits.verifierBps,
+        lockCfg,
+        payoutCfg,
+        stCfg,
+        [],
+        [],
+        []
+      );
+      const receipt = await tx.wait();
+
+      const iface = new ethers.Interface([...ProtocolCoreAbi, ...FarmCreatedEvent]);
+      let farmId: string | undefined;
+      let modules: any = {};
+      for (const log of receipt.logs) {
+        try {
+          const parsedLog = iface.parseLog(log);
+          if (parsedLog?.name === 'FarmCreated') {
+            farmId = (parsedLog.args[0] as bigint).toString();
+            modules = {
+              baseFarm: parsedLog.args[1] as string,
+              owner: parsedLog.args[2] as string,
+              router: parsedLog.args[3] as string,
+              payoutPolicy: parsedLog.args[4] as string,
+              lockupPolicy: parsedLog.args[5] as string,
+              stakeholderRegistry: parsedLog.args[6] as string,
+            };
+            break;
+          }
+        } catch {}
+      }
+      if (!farmId) return res.status(500).json({ error: 'Failed to resolve new farm id' });
+      if (!modules.router) {
+        const all = await core.farmsById(farmId);
+        modules = {
+          baseFarm: all[0], owner: all[1], asset: all[2], farmId: (all[3] as bigint).toString(),
+          router: all[4], payoutPolicy: all[5], lockupPolicy: all[6], stakeholderRegistry: all[7],
+        };
+      }
+
+      const routerAddr: string = modules.router;
+
+      // Deploy adapters for this router (deployOnly=true to defer allocation)
+      const perItem: Array<{
+        templateId: string;
+        adapter: string;
+        strategyKey: string;
+        txs: { deploy: string; configs: string[] };
+        bps: number;
+      }> = [];
+      for (const it of parsed.items) {
+        const r = await deployAdapterFromTemplateAndWire(network, {
+          provider,
+          signer,
+          router: routerAddr,
+          templateId: it.templateId,
+          overrides: it.overrides,
+          bps: 0,
+          deployOnly: true,
+        });
+        perItem.push({
+          templateId: it.templateId,
+          adapter: r.adapter,
+          strategyKey: r.strategyKeyUsed,
+          txs: { deploy: r.deployTxHash, configs: r.configTxHashes },
+          bps: it.bps,
+        });
+      }
+
+      // Set allocations in a single call
+      const RouterSetAllocAbi = ['function setAllocations(bytes32[] ids,address[] adapters,uint16[] bps) external'];
+      const routerC = new ethers.Contract(routerAddr, RouterSetAllocAbi, signer);
+      const ids = perItem.map(i => i.strategyKey);
+      const adapters = perItem.map(i => i.adapter);
+      const bps = perItem.map(i => i.bps);
+      const setTx = await routerC.setAllocations(ids, adapters, bps);
+      const setRc = await setTx.wait();
+
+      return res.json({
+        network,
+        txs: { createFarm: receipt.hash, allocation: setRc.hash },
+        farm: { id: farmId, modules },
+        router: routerAddr,
+        items: perItem,
+      });
+    } catch (err: any) {
+      console.error('Error in /api/v3/create-farm-with-strategies', err);
+      return res.status(500).json({ error: err?.message || 'Unknown error' });
+    }
+  });
+
+  // Batch: deploy multiple template-based adapters and wire allocations in one call
+  const DeployStrategyBatchRequestSchema = z.object({
+    network: z.enum(['localhost', 'hardhat', 'basesepolia', 'base']),
+    ownerPrivateKey: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
+    router: addr.optional(),
+    farmId: z.union([z.string(), z.number()]).optional(),
+    addresses: z.object({ protocolCore: addr.optional() }).optional(),
+    items: z.array(z.object({
+      templateId: z.string(),
+      overrides: z.record(z.any()).optional(),
+      bps: z.number().int().min(0).max(10000),
+    })).min(1),
+  });
+
+  app.post('/api/v3/strategies/batch-deploy-and-allocate', async (req: Request, res: Response) => {
+    try {
+      console.log('POST /api/v3/strategies/batch-deploy-and-allocate');
+      const parsed = DeployStrategyBatchRequestSchema.parse(req.body);
+      const { network, router: routerIn, farmId, addresses } = parsed;
+
+      const sum = parsed.items.reduce((a, b) => a + b.bps, 0);
+      if (sum !== 10000) return res.status(400).json({ error: 'Sum of bps must equal 10000' });
+
+      const rpcUrl = resolveRpcUrl(network);
+      const pk = resolveSignerKey(network, parsed.ownerPrivateKey);
+      if (!pk) return res.status(400).json({ error: 'No signer private key available' });
+      const provider = new ethers.JsonRpcProvider(rpcUrl);
+      const baseSigner = new ethers.Wallet(pk, provider);
+      const signer = new ethers.NonceManager(baseSigner);
+
+      // Resolve router address (direct or via farmId using ProtocolCore)
+      let routerAddr = routerIn;
+      if (!routerAddr) {
+        if (!farmId) return res.status(400).json({ error: 'Provide router or farmId' });
+        let protocolCore = addresses?.protocolCore;
+        if (!protocolCore) {
+          const dep = await readLatestDeploymentFor(network);
+          protocolCore = dep?.contracts?.ProtocolCore;
+        }
+        if (!protocolCore) return res.status(400).json({ error: 'Missing ProtocolCore address to resolve farm router' });
+        const core = new ethers.Contract(protocolCore, ProtocolCoreAbi, signer);
+        const info = await core.farmsById(farmId);
+        routerAddr = info[4];
+      }
+      if (!routerAddr) return res.status(400).json({ error: 'Unable to resolve router address' });
+
+      // Deploy each adapter without wiring
+      const perItem: Array<{
+        templateId: string;
+        adapter: string;
+        strategyKey: string;
+        txs: { deploy: string; configs: string[] };
+        bps: number;
+      }> = [];
+
+      for (const it of parsed.items) {
+        const r = await deployAdapterFromTemplateAndWire(network, {
+          provider,
+          signer,
+          router: routerAddr,
+          templateId: it.templateId,
+          overrides: it.overrides,
+          bps: 0,
+          deployOnly: true,
+        });
+        perItem.push({
+          templateId: it.templateId,
+          adapter: r.adapter,
+          strategyKey: r.strategyKeyUsed,
+          txs: { deploy: r.deployTxHash, configs: r.configTxHashes },
+          bps: it.bps,
+        });
+      }
+
+      // Single setAllocations with all items
+      const StrategyRouterAbi = [
+        'function setAllocations(bytes32[] ids,address[] adapters,uint16[] bps) external',
+      ];
+      const routerC = new ethers.Contract(routerAddr, StrategyRouterAbi, signer);
+      const ids = perItem.map(i => i.strategyKey);
+      const adapters = perItem.map(i => i.adapter);
+      const bps = perItem.map(i => i.bps);
+      const setTx = await routerC.setAllocations(ids, adapters, bps);
+      const setRc = await setTx.wait();
+
+      return res.json({
+        network,
+        router: routerAddr,
+        items: perItem,
+        txs: { allocation: setRc.hash },
+      });
+    } catch (err: any) {
+      console.error('Error in /api/v3/strategies/batch-deploy-and-allocate', err);
+      return res.status(500).json({ error: err?.message || 'Unknown error' });
+    }
+  });
+
   // Deploy and wire a UniV3 staking adapter to a router (or farm via ProtocolCore)
   app.post('/api/v3/strategies/deploy-and-wire', async (req: Request, res: Response) => {
     try {

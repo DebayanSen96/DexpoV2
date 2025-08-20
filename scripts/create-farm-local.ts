@@ -1,5 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 async function readDeployment(network: string) {
   const dir = path.join(process.cwd(), 'deployments', network);
@@ -15,7 +18,7 @@ async function readDeployment(network: string) {
 async function main() {
   // Config
   const network = 'localhost';
-  const serverUrl = 'http://127.0.0.1:3001';
+  const serverUrl = process.env.SERVER_URL || 'http://127.0.0.1:3001';
 
   // Creator address to assign farm ownership to (no private key needed)
   const creator = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'; // Hardhat default account[0]
@@ -27,9 +30,37 @@ async function main() {
 
   // Note: Do not attempt on-chain approvals here; server will use its signer.
 
-  // Build payload
+  // Strategy items for unified flow
+  const minDeposit = '0';
+  const minWithdraw = '0';
+
+  // SSV template overrides (use local non-zero addresses)
+  const ssvNetwork = dep.contracts?.ProtocolCore || '0x0000000000000000000000000000000000000001';
+  const ssvToken = dep.contracts?.DXPToken || asset;
+  const withdrawalCredentials = '0x' + '00'.repeat(32);
+  const operatorIds = [1, 2, 3, 4];
+
+  // Stargate template overrides (use local placeholders)
+  const stargateRouter = dep.contracts?.FarmFactory || '0x0000000000000000000000000000000000000002';
+  const lzEndpoint = dep.contracts?.ProtocolCore || '0x0000000000000000000000000000000000000003';
+
+  const items: any[] = [
+    {
+      templateId: 'staking.node.ssv.v1',
+      overrides: { ssvNetwork, ssvToken, withdrawalCredentials, operatorIds, minDeposit, minWithdraw },
+      bps: 6000,
+    },
+    {
+      templateId: 'bridge.stargate.v1',
+      overrides: { stargateRouter, lzEndpoint, poolId: 1, dstChainId: 100, minDeposit, minWithdraw },
+      bps: 4000,
+    },
+  ];
+
+  // Build unified request payload
   const payload = {
     network: network as 'localhost',
+    ownerPrivateKey: (process.env.LOCALHOST_PRIVATE_KEY || process.env.PRIVATE_KEY) as string | undefined,
     payload: {
       creator,
       asset,
@@ -54,22 +85,22 @@ async function main() {
       },
       shareToken: {
         transferable: true,
-        transferFeeBps: 50, // 0.50%
+        transferFeeBps: 50,
         feeReceiver: creator,
         protocolFeeReceiver: creator,
-        protocolRakeBps: 200, // 2.00%
+        protocolRakeBps: 200,
       },
-      // strategies omitted; server allows empty, and ProtocolCore can accept no adapters
     },
+    items,
   };
 
   // Print request payload
   console.log('Request Payload:');
   console.log(JSON.stringify(payload, null, 2));
-  console.log('POST', `${serverUrl}/api/v3/create-farm`);
+  console.log('POST', `${serverUrl}/api/v3/create-farm-with-strategies`);
 
   // POST to server
-  const res = await fetch(`${serverUrl}/api/v3/create-farm`, {
+  const res = await fetch(`${serverUrl}/api/v3/create-farm-with-strategies`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
@@ -87,117 +118,8 @@ async function main() {
     console.log(text);
   }
 
-  // Step 2: Deploy and wire strategy using returned router
-  const router: string | undefined = json?.modules?.router;
-  if (!router) {
-    console.log('No router in response; skipping strategy deployment test.');
-    return;
-  }
-
-  // For test purposes, use local placeholder addresses for overrides
-  // These contracts are placeholders for local testing; no swaps/bridges will be executed in this script.
-  const wstETH: string | undefined = dep.params?.ASSET_TOKEN || dep.contracts?.DXPToken;
-  const swapRouter: string | undefined = dep.contracts?.MockLiquidityManager || dep.contracts?.FarmFactory;
-  const quoter: string | undefined = dep.contracts?.FarmFactory || dep.contracts?.ProtocolCore;
-  if (!wstETH || !swapRouter || !quoter) {
-    console.log('Missing mock addresses in deployments for adapter params; skipping strategy deployment test.');
-    return;
-  }
-
-  const poolFee = 500;
-  const slippageBps = 30;
-  const minDeposit = '0';
-  const minWithdraw = '0';
-  const bps = 10000;
-
-  // 2a) Deploy legacy UniV3 adapter (earlier flow) with deployOnly=true
-  const legacyReq: any = {
-    network: payload.network,
-    router,
-    bps,
-    deployOnly: true,
-    wstETH,
-    swapRouter,
-    quoter,
-    poolFee,
-    slippageBps,
-    minDeposit,
-    minWithdraw,
-  };
-  console.log('Legacy Strategy Request Payload (deployOnly):');
-  console.log(JSON.stringify(legacyReq, null, 2));
-  console.log('POST', `${serverUrl}/api/v3/strategies/deploy-and-wire`);
-  const legacyRes = await fetch(`${serverUrl}/api/v3/strategies/deploy-and-wire`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(legacyReq),
-  });
-  const legacyText = await legacyRes.text();
-  console.log('Legacy Strategy Status:', legacyRes.status);
-  try {
-    const legacyJson = JSON.parse(legacyText);
-    console.log('Legacy Strategy Response JSON:');
-    console.log(JSON.stringify(legacyJson, null, 2));
-  } catch {
-    console.log('Legacy Strategy Response Text:');
-    console.log(legacyText);
-  }
-
-  // 2b) Deploy a new template-based adapter (SSV preferred, fallback to Stargate)
-  // Prepare SSV overrides (dummy non-zero addresses ok for localhost)
-  const ssvNetwork = dep.contracts?.ProtocolCore || router; // any non-zero address
-  const ssvToken = dep.contracts?.DXPToken || asset;        // any non-zero address
-  const withdrawalCredentials = '0x' + '00'.repeat(32);     // bytes32
-  const operatorIds = [1, 2, 3, 4];
-
-  // If SSV required addresses are unavailable, fallback to Stargate template
-  const canUseSSV = Boolean(ssvNetwork && ssvToken);
-  const templateId = canUseSSV ? 'staking.node.ssv.v1' : 'bridge.stargate.v1';
-
-  const templateOverrides: any = canUseSSV
-    ? {
-        ssvNetwork,
-        ssvToken,
-        withdrawalCredentials,
-        operatorIds,
-        minDeposit,
-        minWithdraw,
-      }
-    : {
-        stargateRouter: dep.contracts?.FarmFactory || router,
-        lzEndpoint: dep.contracts?.ProtocolCore || router,
-        poolId: 1,
-        dstChainId: 100,
-        minDeposit,
-        minWithdraw,
-      };
-
-  const tmplReq = {
-    network: payload.network,
-    router,
-    bps,
-    deployOnly: false,
-    templateId,
-    overrides: templateOverrides,
-  };
-  console.log('Template Strategy Request Payload:');
-  console.log(JSON.stringify(tmplReq, null, 2));
-  console.log('POST', `${serverUrl}/api/v3/strategies/deploy-and-wire`);
-  const tmplRes = await fetch(`${serverUrl}/api/v3/strategies/deploy-and-wire`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(tmplReq),
-  });
-  const tmplText = await tmplRes.text();
-  console.log('Template Strategy Status:', tmplRes.status);
-  try {
-    const tmplJson = JSON.parse(tmplText);
-    console.log('Template Strategy Response JSON:');
-    console.log(JSON.stringify(tmplJson, null, 2));
-  } catch {
-    console.log('Template Strategy Response Text:');
-    console.log(tmplText);
-  }
+  // Unified flow already created farm and allocated strategies.
+  console.log('Unified flow complete.');
 }
 
 main().catch((e) => {

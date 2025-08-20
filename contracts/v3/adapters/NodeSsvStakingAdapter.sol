@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../interfaces/IStrategyAdapter.sol";
+import "../interfaces/IOwnable.sol";
 
 /**
  * @title NodeSsvStakingAdapter (Generic)
@@ -22,8 +23,11 @@ contract NodeSsvStakingAdapter is IStrategyAdapter, Ownable {
     // Base asset expected by the router (e.g., WETH)
     address public immutable override asset;
 
+    // Protocol core and router wiring
+    address public protocolCore;
     // Only StrategyRouter may operate
     address public router;
+    bool public routerSet;
 
     // SSV endpoints/config
     address public ssvNetwork;     // SSV Network contract
@@ -61,21 +65,20 @@ contract NodeSsvStakingAdapter is IStrategyAdapter, Ownable {
 
     constructor(
         address asset_,
-        address router_,
+        address protocolCore_,
         address ssvNetwork_,
         bytes32 withdrawalCredentials_,
         uint64[] memory operatorIds_,
         address ssvToken_
     ) Ownable(msg.sender) {
-        require(asset_ != address(0) && router_ != address(0), "Zero");
+        require(asset_ != address(0) && protocolCore_ != address(0), "Zero");
         require(ssvNetwork_ != address(0) && ssvToken_ != address(0), "Zero");
         asset = asset_;
-        router = router_;
+        protocolCore = protocolCore_;
         ssvNetwork = ssvNetwork_;
         ssvToken = ssvToken_;
         withdrawalCredentials = withdrawalCredentials_;
         operatorIds = operatorIds_;
-        emit RouterSet(router);
         emit SsvConfigSet(ssvNetwork_, ssvToken_, withdrawalCredentials_);
         emit OperatorsSet(operatorIds_);
     }
@@ -84,7 +87,13 @@ contract NodeSsvStakingAdapter is IStrategyAdapter, Ownable {
     // Admin
     // ---------------------------------------------------------------------
 
-    function setRouter(address r) external onlyOwner { require(r != address(0), "Zero"); router = r; emit RouterSet(r); }
+    function setRouterOnce(address r) external {
+        require(!routerSet, "RouterSet");
+        require(r != address(0), "Zero");
+        address coreOwner = IOwnable(protocolCore).owner();
+        require(msg.sender == protocolCore || msg.sender == coreOwner, "Unauthorized");
+        router = r; routerSet = true; emit RouterSet(r);
+    }
     function setSsvConfig(address network, address token, bytes32 wc) external onlyOwner {
         require(network != address(0) && token != address(0), "Zero");
         ssvNetwork = network; ssvToken = token; withdrawalCredentials = wc; emit SsvConfigSet(network, token, wc);

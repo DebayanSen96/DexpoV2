@@ -5,7 +5,7 @@
   "path": ["staking", "liquid", "lido"],
   "artifact": "artifacts/contracts/v3/adapters/UniV3WethToWstETHAdapter.sol/UniV3WethToWstETHAdapter.json",
   "constructor": {
-    "params": ["baseAsset", "wstETH", "router", "swapRouter", "quoter", "poolFee"]
+    "params": ["baseAsset", "wstETH", "protocolCore", "swapRouter", "quoter", "poolFee"]
   },
   "defaults": {
     "wstETH": "0xc1CbA3fCEa344f92D9239C08C0568F6F2F0eE452",

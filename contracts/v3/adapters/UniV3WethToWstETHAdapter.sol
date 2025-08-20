@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../interfaces/IStrategyAdapter.sol";
+import "../interfaces/IOwnable.sol";
 
 interface ISwapRouterV3 {
     struct ExactInputSingleParams {
@@ -78,8 +79,11 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
     // Target token held (wstETH on Base)
     address public wstETH;
 
+    // Protocol core and router wiring
+    address public protocolCore;
     // Only StrategyRouter may operate
     address public router;
+    bool public routerSet;
 
     // DEX endpoints
     address public swapRouter; // Uniswap V3 SwapRouter
@@ -127,27 +131,27 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
     /// @notice Initialize adapter wiring for WETH<->wstETH via Uniswap V3 (Base chain).
     /// @param asset_ Base asset (WETH) expected from the router.
     /// @param wstETH_ Target token to hold between cycles.
-    /// @param router_ StrategyRouter authorized to operate this adapter.
+    /// @param protocolCore_ ProtocolCore used to authorize router setter (core or its owner).
     /// @param swapRouter_ Uniswap V3 SwapRouter address.
     /// @param quoter_ Uniswap V3 QuoterV2 address.
     /// @param poolFee_ Uniswap V3 pool fee tier.
     constructor(
         address asset_,
         address wstETH_,
-        address router_,
+        address protocolCore_,
         address swapRouter_,
         address quoter_,
         uint24 poolFee_
     ) Ownable(msg.sender) {
         require(asset_ != address(0) && wstETH_ != address(0), "TokenZero");
-        require(router_ != address(0) && swapRouter_ != address(0) && quoter_ != address(0), "AddrZero");
+        require(protocolCore_ != address(0) && swapRouter_ != address(0) && quoter_ != address(0), "AddrZero");
         asset = asset_;
         wstETH = wstETH_;
-        router = router_;
+        protocolCore = protocolCore_;
         swapRouter = swapRouter_;
         quoter = quoter_;
         poolFee = poolFee_;
-        emit RouterSet(router_);
+        // router intentionally unset at deploy; will be set once by protocol core
         emit DexSet(swapRouter_, quoter_, poolFee_);
         emit TokensSet(asset_, wstETH_);
     }
@@ -156,8 +160,16 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
     // Admin
     // ---------------------------------------------------------------------
 
-    /// @notice Update the authorized router.
-    function setRouter(address r) external onlyOwner { require(r != address(0), "Zero"); router = r; emit RouterSet(r); }
+    /// @notice One-time router setter restricted to ProtocolCore or its owner.
+    function setRouterOnce(address r) external {
+        require(!routerSet, "RouterSet");
+        require(r != address(0), "Zero");
+        address coreOwner = IOwnable(protocolCore).owner();
+        require(msg.sender == protocolCore || msg.sender == coreOwner, "Unauthorized");
+        router = r;
+        routerSet = true;
+        emit RouterSet(r);
+    }
     /// @notice Update DEX endpoints and pool fee.
     function setDex(address s, address q, uint24 f) external onlyOwner { require(s!=address(0)&&q!=address(0), "Zero"); swapRouter=s; quoter=q; poolFee=f; emit DexSet(s,q,f); }
     /// @notice Update the target token address.

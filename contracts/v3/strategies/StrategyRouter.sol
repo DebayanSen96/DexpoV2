@@ -29,6 +29,12 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
     // Farm authorized to operate allocate/deallocate/harvest
     address public farm;
 
+    // Address that owned the router at initialization time (the factory)
+    address public initializer;
+
+    // Once true, adapter addresses are sealed; only BPS can be changed via rebalance()
+    bool public allocationsSealed;
+
     struct Allocation { address adapter; uint16 bps; }
 
     EnumerableSet.Bytes32Set private _ids;
@@ -48,6 +54,7 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         require(asset_ != address(0) && protocolCore_ != address(0) && initialOwner != address(0), "Zero");
         asset = asset_;
         protocolCore = protocolCore_;
+        initializer = initialOwner;
         _transferOwnership(initialOwner);
         _initialized = true;
     }
@@ -92,7 +99,12 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         bytes32[] calldata ids,
         address[] calldata adapters,
         uint16[] calldata bps
-    ) external override onlyOwnerOrProtocolOwner whenNotPaused {
+    ) external override whenNotPaused {
+        // Only the initializer (factory at creation) or ProtocolCore owner may set adapter addresses
+        // and this can only happen once; after that, addresses are sealed.
+        require(!allocationsSealed, "AllocSealed");
+        address pOwner = IOwnable(protocolCore).owner();
+        require(msg.sender == initializer || msg.sender == pOwner, "Unauthorized");
         require(ids.length == adapters.length && ids.length == bps.length, "LenMismatch");
         uint256 sum;
         // reset existing set
@@ -109,6 +121,8 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
             sum += bps[j];
         }
         require(sum == 10_000, "SumBps");
+        // Seal addresses to prevent further changes; only bps can change via rebalance()
+        allocationsSealed = true;
     }
 
     /// @notice One-time farm setter used during initial wiring by the factory/owner.

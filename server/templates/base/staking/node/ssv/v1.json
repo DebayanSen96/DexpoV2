@@ -7,7 +7,7 @@
   "constructor": {
     "params": [
       "baseAsset",
-      "router",
+      "protocolCore",
       "ssvNetwork",
       "withdrawalCredentials",
       "operatorIds",

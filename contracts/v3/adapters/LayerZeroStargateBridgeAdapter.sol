@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../interfaces/IStrategyAdapter.sol";
+import "../interfaces/IOwnable.sol";
 
 /**
  * @title LayerZeroStargateBridgeAdapter (Generic)
@@ -22,8 +23,11 @@ contract LayerZeroStargateBridgeAdapter is IStrategyAdapter, Ownable {
     // Base asset expected by the router (e.g., WETH)
     address public immutable override asset;
 
+    // Protocol core and router wiring
+    address public protocolCore;
     // Only StrategyRouter may operate
     address public router;
+    bool public routerSet;
 
     // Bridge endpoints/config
     address public stargateRouter; // Stargate Router
@@ -60,21 +64,20 @@ contract LayerZeroStargateBridgeAdapter is IStrategyAdapter, Ownable {
 
     constructor(
         address asset_,
-        address router_,
+        address protocolCore_,
         address stargateRouter_,
         address lzEndpoint_,
         uint16 poolId_,
         uint16 dstChainId_
     ) Ownable(msg.sender) {
-        require(asset_ != address(0) && router_ != address(0), "Zero");
+        require(asset_ != address(0) && protocolCore_ != address(0), "Zero");
         require(stargateRouter_ != address(0) && lzEndpoint_ != address(0), "Zero");
         asset = asset_;
-        router = router_;
+        protocolCore = protocolCore_;
         stargateRouter = stargateRouter_;
         lzEndpoint = lzEndpoint_;
         poolId = poolId_;
         dstChainId = dstChainId_;
-        emit RouterSet(router);
         emit BridgeSet(stargateRouter_, lzEndpoint_, poolId_, dstChainId_);
     }
 
@@ -82,7 +85,13 @@ contract LayerZeroStargateBridgeAdapter is IStrategyAdapter, Ownable {
     // Admin
     // ---------------------------------------------------------------------
 
-    function setRouter(address r) external onlyOwner { require(r != address(0), "Zero"); router = r; emit RouterSet(r); }
+    function setRouterOnce(address r) external {
+        require(!routerSet, "RouterSet");
+        require(r != address(0), "Zero");
+        address coreOwner = IOwnable(protocolCore).owner();
+        require(msg.sender == protocolCore || msg.sender == coreOwner, "Unauthorized");
+        router = r; routerSet = true; emit RouterSet(r);
+    }
     function setBridge(address s, address lz, uint16 p, uint16 dst) external onlyOwner {
         require(s != address(0) && lz != address(0), "Zero");
         stargateRouter = s; lzEndpoint = lz; poolId = p; dstChainId = dst; emit BridgeSet(s, lz, p, dst);
