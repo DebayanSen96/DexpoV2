@@ -1,0 +1,25 @@
+{
+  "id": "index.bluechip.v1",
+  "title": "Index → Bluechip Basket (Uniswap V3)",
+  "kind": "index",
+  "path": ["index", "bluechip", "v1"],
+  "artifact": "artifacts/contracts/v3/adapters/BluechipIndexAdapter.sol/BluechipIndexAdapter.json",
+  "constructor": {
+    "params": [
+      "baseAsset",
+      "protocolCore",
+      "swapRouter",
+      "quoter",
+      "tokens",
+      "weightsBps",
+      "poolFees"
+    ]
+  },
+  "defaults": {
+    "tokens": [],
+    "weightsBps": [],
+    "poolFees": [],
+    "swapRouter": "0x2626664c2603336E57B271c5C0b26F421741e481",
+    "quoter": "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a"
+  }
+}
