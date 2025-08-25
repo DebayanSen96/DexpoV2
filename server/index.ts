@@ -134,9 +134,15 @@ async function readLatestDeploymentFor(network: string): Promise<any | undefined
   try {
     const dir = path.join(process.cwd(), 'deployments', network);
     const files = await fs.readdir(dir);
-    const jsons = files.filter(f => f.endsWith('.json')).sort();
+    const jsons = files.filter(f => f.endsWith('.json'));
     if (jsons.length === 0) return undefined;
-    const latest = jsons[jsons.length - 1];
+    // Pick the most recently modified file to avoid stale selections (e.g., v3.json)
+    const withTimes = await Promise.all(jsons.map(async f => ({
+      file: f,
+      mtime: (await fs.stat(path.join(dir, f))).mtimeMs,
+    })));
+    withTimes.sort((a, b) => a.mtime - b.mtime);
+    const latest = withTimes[withTimes.length - 1].file;
     const raw = await fs.readFile(path.join(dir, latest), 'utf8');
     return JSON.parse(raw);
   } catch {

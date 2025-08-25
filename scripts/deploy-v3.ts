@@ -99,6 +99,29 @@ async function main() {
   const coreAddr = await core.getAddress();
   console.log("ProtocolCore:", coreAddr);
 
+  // Approve server/deployment signer (from env) as an approved farm owner
+  // This helps the API/server create farms without requiring manual approval.
+  try {
+    const signerPk = process.env.PRIVATE_KEY
+      || process.env.LOCALHOST_PRIVATE_KEY
+      || process.env.BASE_SEPOLIA_PRIVATE_KEY
+      || process.env.BASE_MAINNET_PRIVATE_KEY;
+    if (signerPk) {
+      const signerAddrForApproval = new ethers.Wallet(signerPk).address;
+      const already = await (core as any).approvedFarmOwners(signerAddrForApproval);
+      if (!already) {
+        console.log("Approving signer as farm owner in ProtocolCore...", signerAddrForApproval);
+        await (await (core as any).setApprovedFarmOwner(signerAddrForApproval, true)).wait();
+      } else {
+        console.log("Signer already approved as farm owner:", signerAddrForApproval);
+      }
+    } else {
+      console.log("No env signer private key found to auto-approve as farm owner.");
+    }
+  } catch (e) {
+    console.warn("Warning: failed to auto-approve signer as farm owner", e);
+  }
+
   // Transfer DXPToken ownership to ProtocolCore so it can call emitTokens/recycle
   console.log("Transferring DXPToken ownership to ProtocolCore...");
   await (await dxp.transferOwnership(coreAddr)).wait();
