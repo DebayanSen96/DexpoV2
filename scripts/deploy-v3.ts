@@ -1,4 +1,4 @@
-import hre from "hardhat";
+  import hre from "hardhat";
 import "dotenv/config";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
@@ -46,37 +46,39 @@ async function main() {
   const PAYOUT_COMPOUND_ON_LOCK = env("PAYOUT_COMPOUND_ON_LOCK", "true") === "true";
 
   // Per-vault overrides (staking vs lending)
-  // Staking (streaming focus)
-  const STAKE_VAULT_NAME = env("STAKE_VAULT_NAME", "Dexponent Staking Vault")!;
-  const STAKE_VAULT_SYMBOL = env("STAKE_VAULT_SYMBOL", "dSTAKE")!;
+  // Staking (NodeSSV) — lockup focus
+  const STAKE_VAULT_NAME = env("STAKE_VAULT_NAME", "Dexponent NodeSSV Vault")!; // uses NodeSsvStakingAdapter
+  const STAKE_VAULT_SYMBOL = env("STAKE_VAULT_SYMBOL", "dSSV")!;
   const STAKE_FARM_ID = BigInt(env("STAKE_FARM_ID", "1")!);
-  const STAKE_LOCK_ENABLED = env("STAKE_LOCK_ENABLED", "false") === "true";
+  const STAKE_LOCK_ENABLED = env("STAKE_LOCK_ENABLED", "true") === "true";
   const STAKE_LOCK_ALLOW_EARLY = env("STAKE_LOCK_ALLOW_EARLY", "true") === "true";
-  const STAKE_LOCK_EARLY_BPS = Number(env("STAKE_LOCK_EARLY_BPS", "200")); // 2%
-  const STAKE_LOCK_SECONDS = Number(env("STAKE_LOCK_SECONDS", "0"));
-  const STAKE_LOCK_POST_MODE = Number(env("STAKE_LOCK_POST_MODE", "0"));
-  const STAKE_PAYOUT_MODE = Number(env("STAKE_PAYOUT_MODE", String(PAYOUT_MODE))); // default stream
-  const STAKE_PAYOUT_STREAM_BPS = Number(env("STAKE_PAYOUT_STREAM_BPS", String(PAYOUT_STREAM_BPS)));
-  const STAKE_PAYOUT_COMPOUND_BPS = Number(env("STAKE_PAYOUT_COMPOUND_BPS", String(PAYOUT_COMPOUND_BPS)));
+  const STAKE_LOCK_EARLY_BPS = Number(env("STAKE_LOCK_EARLY_BPS", "500")); // 5%
+  const STAKE_LOCK_SECONDS = Number(env("STAKE_LOCK_SECONDS", "1209600")); // 14 days
+  const STAKE_LOCK_POST_MODE = Number(env("STAKE_LOCK_POST_MODE", "1"));
+  const STAKE_PAYOUT_MODE = Number(env("STAKE_PAYOUT_MODE", "1")); // Lockup
+  const STAKE_PAYOUT_STREAM_BPS = Number(env("STAKE_PAYOUT_STREAM_BPS", "0"));
+  const STAKE_PAYOUT_COMPOUND_BPS = Number(env("STAKE_PAYOUT_COMPOUND_BPS", "10000"));
   const STAKE_PAYOUT_EPOCH = BigInt(env("STAKE_PAYOUT_EPOCH", String(PAYOUT_EPOCH))!);
   const STAKE_PAYOUT_MIN_HARVEST = BigInt(env("STAKE_PAYOUT_MIN_HARVEST", String(PAYOUT_MIN_HARVEST))!);
-  const STAKE_PAYOUT_COMPOUND_ON_LOCK = env("STAKE_PAYOUT_COMPOUND_ON_LOCK", String(PAYOUT_COMPOUND_ON_LOCK)) === "true";
+  const STAKE_PAYOUT_COMPOUND_ON_LOCK = env("STAKE_PAYOUT_COMPOUND_ON_LOCK", "true") === "true";
 
-  // Lending (lockup focus)
-  const LEND_VAULT_NAME = env("LEND_VAULT_NAME", "Dexponent Lending Vault")!;
-  const LEND_VAULT_SYMBOL = env("LEND_VAULT_SYMBOL", "dLEND")!;
+  // Bluechip Index (streaming focus) — uses BluechipIndexAdapter
+  const LEND_VAULT_NAME = env("LEND_VAULT_NAME", "Dexponent Bluechip Vault")!; // test: BluechipIndexAdapter
+  const LEND_VAULT_SYMBOL = env("LEND_VAULT_SYMBOL", "dBLUE")!;
   const LEND_FARM_ID = BigInt(env("LEND_FARM_ID", "2")!);
-  const LEND_LOCK_ENABLED = env("LEND_LOCK_ENABLED", "true") === "true";
+  const LEND_LOCK_ENABLED = env("LEND_LOCK_ENABLED", "false") === "true";
   const LEND_LOCK_ALLOW_EARLY = env("LEND_LOCK_ALLOW_EARLY", "true") === "true";
-  const LEND_LOCK_EARLY_BPS = Number(env("LEND_LOCK_EARLY_BPS", "500")); // 5%
-  const LEND_LOCK_SECONDS = Number(env("LEND_LOCK_SECONDS", "1209600")); // 14 days
-  const LEND_LOCK_POST_MODE = Number(env("LEND_LOCK_POST_MODE", "1"));
-  const LEND_PAYOUT_MODE = Number(env("LEND_PAYOUT_MODE", "1")); // default Lockup
-  const LEND_PAYOUT_STREAM_BPS = Number(env("LEND_PAYOUT_STREAM_BPS", "0"));
-  const LEND_PAYOUT_COMPOUND_BPS = Number(env("LEND_PAYOUT_COMPOUND_BPS", "10000"));
+  const LEND_LOCK_EARLY_BPS = Number(env("LEND_LOCK_EARLY_BPS", "200")); // 2%
+  const LEND_LOCK_SECONDS = Number(env("LEND_LOCK_SECONDS", "0"));
+  const LEND_LOCK_POST_MODE = Number(env("LEND_LOCK_POST_MODE", "0"));
+  const LEND_PAYOUT_MODE = Number(env("LEND_PAYOUT_MODE", "0")); // Stream
+  const LEND_PAYOUT_STREAM_BPS = Number(env("LEND_PAYOUT_STREAM_BPS", "3000"));
+  const LEND_PAYOUT_COMPOUND_BPS = Number(env("LEND_PAYOUT_COMPOUND_BPS", "7000"));
   const LEND_PAYOUT_EPOCH = BigInt(env("LEND_PAYOUT_EPOCH", String(PAYOUT_EPOCH))!);
   const LEND_PAYOUT_MIN_HARVEST = BigInt(env("LEND_PAYOUT_MIN_HARVEST", String(PAYOUT_MIN_HARVEST))!);
   const LEND_PAYOUT_COMPOUND_ON_LOCK = env("LEND_PAYOUT_COMPOUND_ON_LOCK", "true") === "true";
+
+  // No env-based adapter logic. We'll deploy two standalone adapters below with dummy params for testing.
 
   // Prepare deployer and nonce tracking
   const [deployerSigner] = await ethers.getSigners();
@@ -243,6 +245,60 @@ async function main() {
   const STAKE_SPLITS = { lpBps: 7000, ownerBps: 2500, verifierBps: 500 } as const;
   const LEND_SPLITS = { lpBps: 7000, ownerBps: 2500, verifierBps: 500 } as const;
 
+  // Helper for adapter key encoding
+  const toBytes32FromAddress = (addr: string) => {
+    const n = BigInt(addr);
+    return ("0x" + n.toString(16).padStart(64, "0")) as string;
+  };
+  // NOTE: This deployment script intentionally uses dummy addresses for external endpoints.
+  // These are ONLY for test farms and not meant for production routing.
+
+  // Deploy two standalone adapters (TEST ONLY: dummy external addresses)
+  // 1) BluechipIndexAdapter (uses Uniswap V3 router/quoter) — dummy router/quoter addrs
+  const BluechipF = await ethers.getContractFactory("contracts/v3/adapters/BluechipIndexAdapter.sol:BluechipIndexAdapter");
+  const dummyRouter = deployerAddress; // non-zero placeholder
+  const dummyQuoter = deployerAddress; // non-zero placeholder
+  const bluechip = await BluechipF.deploy(
+    ASSET_TOKEN,
+    coreAddr,
+    dummyRouter,
+    dummyQuoter,
+    [], // initial tokens
+    [], // weights
+    [], // pool fees
+    await nextTxOpts()
+  );
+  await bluechip.waitForDeployment();
+  const bluechipAddr = await bluechip.getAddress();
+  console.log("BluechipIndexAdapter (TEST):", bluechipAddr);
+
+  // 2) NodeSsvStakingAdapter — dummy SSV network and token addrs, empty operators
+  const NodeSsvF = await ethers.getContractFactory("contracts/v3/adapters/NodeSsvStakingAdapter.sol:NodeSsvStakingAdapter");
+  const dummySsvNetwork = deployerAddress; // non-zero placeholder
+  const dummySsvToken = deployerAddress;   // non-zero placeholder
+  const nodeSsv = await NodeSsvF.deploy(
+    ASSET_TOKEN,
+    coreAddr,
+    dummySsvNetwork,
+    "0x0000000000000000000000000000000000000000000000000000000000000000", // withdrawal credentials
+    [], // operatorIds
+    dummySsvToken,
+    await nextTxOpts()
+  );
+  await nodeSsv.waitForDeployment();
+  const nodeSsvAddr = await nodeSsv.getAddress();
+  console.log("NodeSsvStakingAdapter (TEST):", nodeSsvAddr);
+
+  // Staking farm uses NodeSsvStakingAdapter (test)
+  const stakeAdapterKeys = [toBytes32FromAddress(nodeSsvAddr)];
+  const stakeAdapterAddrs = [nodeSsvAddr];
+  const stakeAdapterBps = [10000];
+
+  // Bluechip index farm uses BluechipIndexAdapter (test)
+  const lendAdapterKeys = [toBytes32FromAddress(bluechipAddr)];
+  const lendAdapterAddrs = [bluechipAddr];
+  const lendAdapterBps = [10000];
+
   // --- Staking Farm ---
   console.log("Creating Staking farm via ProtocolCore.createApprovedFarm...");
   const stakeLockCfg = {
@@ -267,22 +323,7 @@ async function main() {
     protocolFeeReceiver: deployerAddress,
     protocolRakeBps: 1000, // 10% of owner share as protocol rake
   };
-  const [stakeFarmId, stakeBaseFarm] = await core.createApprovedFarm.staticCall(
-    ASSET_TOKEN,
-    STAKE_VAULT_NAME,
-    STAKE_VAULT_SYMBOL,
-    deployerAddress, // ownerRecipient
-    STAKE_SPLITS.lpBps,
-    STAKE_SPLITS.ownerBps,
-    STAKE_SPLITS.verifierBps,
-    stakeLockCfg,
-    stakePayoutCfg,
-    stakeShareCfg,
-    [],
-    [],
-    []
-  );
-  await (await core.createApprovedFarm(
+  const stakeTx = await core.createApprovedFarm(
     ASSET_TOKEN,
     STAKE_VAULT_NAME,
     STAKE_VAULT_SYMBOL,
@@ -293,16 +334,27 @@ async function main() {
     stakeLockCfg,
     stakePayoutCfg,
     stakeShareCfg,
-    [],
-    [],
-    [],
+    stakeAdapterKeys,
+    stakeAdapterAddrs,
+    stakeAdapterBps,
     await nextTxOpts()
-  )).wait();
+  );
+  const stakeRcpt = await stakeTx.wait();
+  // Parse FarmCreated to get actual farmId and baseFarm
+  const stakeEvent = stakeRcpt.logs
+    .filter((l: any) => l.address.toLowerCase() === coreAddr.toLowerCase())
+    .map((l: any) => {
+      try { return (core.interface as any).parseLog(l); } catch { return undefined; }
+    })
+    .find((ev: any) => ev && ev.name === "FarmCreated");
+  const stakeFarmId = stakeEvent?.args?.farmId as bigint;
+  const stakeBaseFarm = stakeEvent?.args?.baseFarm as string;
   const stakeMods = await core.farmsById(stakeFarmId);
-  console.log("Staking Farm created:", { id: stakeFarmId.toString(), baseFarm: stakeBaseFarm });
+  console.log("Staking Farm created:", { id: String(stakeFarmId), baseFarm: stakeBaseFarm });
 
   // --- Lending Farm ---
-  console.log("Creating Lending farm via ProtocolCore.createApprovedFarm...");
+  // Adapter arrays already built above (NodeSsvStakingAdapter)
+  console.log("Creating Bluechip Index farm via ProtocolCore.createApprovedFarm...");
   const lendLockCfg = {
     enabled: LEND_LOCK_ENABLED,
     allowEarlyExit: LEND_LOCK_ALLOW_EARLY,
@@ -325,7 +377,7 @@ async function main() {
     protocolFeeReceiver: deployerAddress,
     protocolRakeBps: 1000,
   };
-  const [lendFarmId, lendBaseFarm] = await core.createApprovedFarm.staticCall(
+  const lendTx = await core.createApprovedFarm(
     ASSET_TOKEN,
     LEND_VAULT_NAME,
     LEND_VAULT_SYMBOL,
@@ -336,28 +388,20 @@ async function main() {
     lendLockCfg,
     lendPayoutCfg,
     lendShareCfg,
-    [],
-    [],
-    []
-  );
-  await (await core.createApprovedFarm(
-    ASSET_TOKEN,
-    LEND_VAULT_NAME,
-    LEND_VAULT_SYMBOL,
-    deployerAddress,
-    LEND_SPLITS.lpBps,
-    LEND_SPLITS.ownerBps,
-    LEND_SPLITS.verifierBps,
-    lendLockCfg,
-    lendPayoutCfg,
-    lendShareCfg,
-    [],
-    [],
-    [],
+    lendAdapterKeys,
+    lendAdapterAddrs,
+    lendAdapterBps,
     await nextTxOpts()
-  )).wait();
+  );
+  const lendRcpt = await lendTx.wait();
+  const lendEvent = lendRcpt.logs
+    .filter((l: any) => l.address.toLowerCase() === coreAddr.toLowerCase())
+    .map((l: any) => { try { return (core.interface as any).parseLog(l); } catch { return undefined; } })
+    .find((ev: any) => ev && ev.name === "FarmCreated");
+  const lendFarmId = lendEvent?.args?.farmId as bigint;
+  const lendBaseFarm = lendEvent?.args?.baseFarm as string;
   const lendMods = await core.farmsById(lendFarmId);
-  console.log("Lending Farm created:", { id: lendFarmId.toString(), baseFarm: lendBaseFarm });
+  console.log("Bluechip Index Farm created:", { id: String(lendFarmId), baseFarm: lendBaseFarm });
 
   // Save addresses
   const addresses = {
@@ -384,64 +428,74 @@ async function main() {
           StakeholderRegistry: stakeMods.stakeholderRegistry,
           BaseFarm: stakeMods.baseFarm,
           FarmId: stakeFarmId.toString(),
+          Adapters: {
+            keys: stakeAdapterKeys,
+            addrs: stakeAdapterAddrs,
+            bps: stakeAdapterBps,
+          },
         },
-        lending: {
+        bluechip: {
           StrategyRouter: lendMods.router,
           LockupPolicy: lendMods.lockupPolicy,
           PayoutPolicy: lendMods.payoutPolicy,
           StakeholderRegistry: lendMods.stakeholderRegistry,
           BaseFarm: lendMods.baseFarm,
           FarmId: lendFarmId.toString(),
+          Adapters: {
+            keys: lendAdapterKeys,
+            addrs: lendAdapterAddrs,
+            bps: lendAdapterBps,
+          },
         },
       },
     },
-    params: {
-      ASSET_TOKEN,
-      USDC_TOKEN,
-      FALLBACK_BONUS_RATIO: FALLBACK_BONUS_RATIO.toString(),
-      PROTOCOL_FEE_RATE: PROTOCOL_FEE_RATE.toString(),
-      RESERVE_RATIO: RESERVE_RATIO.toString(),
-      // Staking config snapshot
-      STAKE: {
-        VAULT_NAME: STAKE_VAULT_NAME,
-        VAULT_SYMBOL: STAKE_VAULT_SYMBOL,
-        FARM_ID: stakeFarmId.toString(),
-        LOCK_ENABLED: STAKE_LOCK_ENABLED,
-        LOCK_ALLOW_EARLY: STAKE_LOCK_ALLOW_EARLY,
-        LOCK_EARLY_BPS: STAKE_LOCK_EARLY_BPS,
-        LOCK_SECONDS: STAKE_LOCK_SECONDS,
-        LOCK_POST_MODE: STAKE_LOCK_POST_MODE,
-        PAYOUT_MODE: STAKE_PAYOUT_MODE,
-        PAYOUT_STREAM_BPS: STAKE_PAYOUT_STREAM_BPS,
-        PAYOUT_COMPOUND_BPS: STAKE_PAYOUT_COMPOUND_BPS,
-        PAYOUT_EPOCH: STAKE_PAYOUT_EPOCH.toString(),
-        PAYOUT_MIN_HARVEST: STAKE_PAYOUT_MIN_HARVEST.toString(),
-        PAYOUT_COMPOUND_ON_LOCK: STAKE_PAYOUT_COMPOUND_ON_LOCK,
-      },
-      // Lending config snapshot
-      LEND: {
-        VAULT_NAME: LEND_VAULT_NAME,
-        VAULT_SYMBOL: LEND_VAULT_SYMBOL,
-        FARM_ID: lendFarmId.toString(),
-        LOCK_ENABLED: LEND_LOCK_ENABLED,
-        LOCK_ALLOW_EARLY: LEND_LOCK_ALLOW_EARLY,
-        LOCK_EARLY_BPS: LEND_LOCK_EARLY_BPS,
-        LOCK_SECONDS: LEND_LOCK_SECONDS,
-        LOCK_POST_MODE: LEND_LOCK_POST_MODE,
-        PAYOUT_MODE: LEND_PAYOUT_MODE,
-        PAYOUT_STREAM_BPS: LEND_PAYOUT_STREAM_BPS,
-        PAYOUT_COMPOUND_BPS: LEND_PAYOUT_COMPOUND_BPS,
-        PAYOUT_EPOCH: LEND_PAYOUT_EPOCH.toString(),
-        PAYOUT_MIN_HARVEST: LEND_PAYOUT_MIN_HARVEST.toString(),
-        PAYOUT_COMPOUND_ON_LOCK: LEND_PAYOUT_COMPOUND_ON_LOCK,
-      },
+  params: {
+    ASSET_TOKEN,
+    USDC_TOKEN,
+    FALLBACK_BONUS_RATIO: FALLBACK_BONUS_RATIO.toString(),
+    PROTOCOL_FEE_RATE: PROTOCOL_FEE_RATE.toString(),
+    RESERVE_RATIO: RESERVE_RATIO.toString(),
+    // Staking (NodeSSV) config snapshot
+    STAKE: {
+      VAULT_NAME: STAKE_VAULT_NAME,
+      VAULT_SYMBOL: STAKE_VAULT_SYMBOL,
+      FARM_ID: stakeFarmId.toString(),
+      LOCK_ENABLED: STAKE_LOCK_ENABLED,
+      LOCK_ALLOW_EARLY: STAKE_LOCK_ALLOW_EARLY,
+      LOCK_EARLY_BPS: STAKE_LOCK_EARLY_BPS,
+      LOCK_SECONDS: STAKE_LOCK_SECONDS,
+      LOCK_POST_MODE: STAKE_LOCK_POST_MODE,
+      PAYOUT_MODE: STAKE_PAYOUT_MODE,
+      PAYOUT_STREAM_BPS: STAKE_PAYOUT_STREAM_BPS,
+      PAYOUT_COMPOUND_BPS: STAKE_PAYOUT_COMPOUND_BPS,
+      PAYOUT_EPOCH: STAKE_PAYOUT_EPOCH.toString(),
+      PAYOUT_MIN_HARVEST: STAKE_PAYOUT_MIN_HARVEST.toString(),
+      PAYOUT_COMPOUND_ON_LOCK: STAKE_PAYOUT_COMPOUND_ON_LOCK,
     },
-  } as const;
+    // Bluechip Index config snapshot
+    BLUECHIP: {
+      VAULT_NAME: LEND_VAULT_NAME,
+      VAULT_SYMBOL: LEND_VAULT_SYMBOL,
+      FARM_ID: lendFarmId.toString(),
+      LOCK_ENABLED: LEND_LOCK_ENABLED,
+      LOCK_ALLOW_EARLY: LEND_LOCK_ALLOW_EARLY,
+      LOCK_EARLY_BPS: LEND_LOCK_EARLY_BPS,
+      LOCK_SECONDS: LEND_LOCK_SECONDS,
+      LOCK_POST_MODE: LEND_LOCK_POST_MODE,
+      PAYOUT_MODE: LEND_PAYOUT_MODE,
+      PAYOUT_STREAM_BPS: LEND_PAYOUT_STREAM_BPS,
+      PAYOUT_COMPOUND_BPS: LEND_PAYOUT_COMPOUND_BPS,
+      PAYOUT_EPOCH: LEND_PAYOUT_EPOCH.toString(),
+      PAYOUT_MIN_HARVEST: LEND_PAYOUT_MIN_HARVEST.toString(),
+      PAYOUT_COMPOUND_ON_LOCK: LEND_PAYOUT_COMPOUND_ON_LOCK,
+    },
+  },
+} as const;
 
-  const outDir = join("deployments", network);
-  const outFile = join(outDir, `${network}.json`);
-  await mkdir(outDir, { recursive: true });
-  await writeFile(outFile, JSON.stringify(addresses, null, 2));
+const outDir = join("deployments", network);
+const outFile = join(outDir, `${network}.json`);
+await mkdir(outDir, { recursive: true });
+await writeFile(outFile, JSON.stringify(addresses, null, 2));
 
   console.log("Deployment complete. Addresses saved to:", outFile);
 }

@@ -37,7 +37,7 @@ async function main() {
 
   // Deposit into staking (no lock)
   console.log("\n-- Staking: deposit --");
-  await (await stakeVault.deposit(amount, deployer.address)).wait();
+  await (await stakeVault.deposit(amount)).wait();
   const stakeShareAddr = await stakeVault.shareToken();
   const stakeShare = await ethers.getContractAt("ERC20", stakeShareAddr);
   console.log("stake shares minted:", (await stakeShare.balanceOf(deployer.address)).toString());
@@ -46,7 +46,7 @@ async function main() {
 
   // Deposit into lending (locked)
   console.log("\n-- Lending: deposit --");
-  await (await lendVault.deposit(amount, deployer.address)).wait();
+  await (await lendVault.deposit(amount)).wait();
   const lendShareAddr = await lendVault.shareToken();
   const lendShare = await ethers.getContractAt("ERC20", lendShareAddr);
   console.log("lend shares minted:", (await lendShare.balanceOf(deployer.address)).toString());
@@ -57,7 +57,7 @@ async function main() {
   const withdrawAssets = ethers.parseUnits("400", 18);
   console.log("\n-- Lending: early withdraw 400 (expect 5% penalty) --");
   const balBefore = await asset.balanceOf(deployer.address);
-  await (await lendVault.withdraw(withdrawAssets, deployer.address, deployer.address)).wait();
+  await (await lendVault.withdraw(withdrawAssets, deployer.address)).wait();
   const balAfter = await asset.balanceOf(deployer.address);
   const received = balAfter - balBefore;
   console.log("Received:", received.toString());
@@ -68,7 +68,7 @@ async function main() {
   // Withdraw from staking (no penalty) 300
   console.log("\n-- Staking: withdraw 300 (no penalty) --");
   const balBeforeStake = await asset.balanceOf(deployer.address);
-  await (await stakeVault.withdraw(ethers.parseUnits("300", 18), deployer.address, deployer.address)).wait();
+  await (await stakeVault.withdraw(ethers.parseUnits("300", 18), deployer.address)).wait();
   const balAfterStake = await asset.balanceOf(deployer.address);
   console.log("Received:", (balAfterStake - balBeforeStake).toString());
 

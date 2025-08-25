@@ -9,10 +9,23 @@ interface IBaseFarm {
     function convertToShares(uint256 assets) external view returns (uint256 shares);
     function convertToAssets(uint256 shares) external view returns (uint256 assets);
 
-    function deposit(uint256 assets, address receiver) external returns (uint256 shares);
-    function mint(uint256 shares, address receiver) external returns (uint256 assets);
-    function withdraw(uint256 assets, address receiver, address owner) external returns (uint256 shares);
-    function redeem(uint256 shares, address receiver, address owner) external returns (uint256 assets);
+    function deposit(uint256 assets) external returns (uint256 shares);
+    function mint(uint256 shares) external returns (uint256 assets);
+    function withdrawShares(uint256 shares) external returns (uint256 assets);
+    function fullExit() external returns (uint256 assets);
+
+    // Position view
+    function getUserPosition(address account)
+        external
+        view
+        returns (
+            uint256 shares,
+            uint256 assets,
+            uint256 claimableRewards,
+            uint64 lockStart,
+            uint64 lockEnd,
+            bool locked
+        );
 
     // Policy wiring
     function setPayoutPolicy(address payoutPolicy) external;

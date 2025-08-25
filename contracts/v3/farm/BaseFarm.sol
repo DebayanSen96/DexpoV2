@@ -221,15 +221,13 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
     // --- Core flows ---
 
     /**
-     * @notice Deposit `assets` and mint corresponding `shares` to `receiver`.
+     * @notice Deposit `assets` and mint corresponding `shares` to msg.sender.
      * @dev Assumes non fee-on-transfer tokens; for FOT tokens, actual received may differ.
      * @param assets Asset amount to deposit.
-     * @param receiver Address that receives minted shares.
      * @return shares Minted share amount.
      */
-    function deposit(uint256 assets, address receiver) external override nonReentrant whenNotPaused returns (uint256 shares) {
+    function deposit(uint256 assets) external override nonReentrant whenNotPaused returns (uint256 shares) {
         require(assets > 0, "ZeroAssets");
-        require(receiver != address(0), "ZeroReceiver");
         shares = convertToShares(assets);
         require(shares > 0, "ZeroShares");
 
@@ -238,81 +236,68 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
 
         // lockup hook
         if (address(lockupPolicy) != address(0)) {
-            lockupPolicy.onDeposit(receiver, assets);
+            lockupPolicy.onDeposit(msg.sender, assets);
         }
 
-        // mint shares
-        shareToken.mint(receiver, shares);
+        // mint shares to sender
+        shareToken.mint(msg.sender, shares);
     }
 
     /**
-     * @notice Mint `shares` to `receiver` by depositing the required `assets`.
+     * @notice Mint `shares` to msg.sender by depositing the required `assets`.
      * @dev Assumes non fee-on-transfer tokens; for FOT tokens, actual received may differ.
      * @param shares Share amount to mint.
-     * @param receiver Address that receives minted shares.
      * @return assets Required assets to deposit.
      */
-    function mint(uint256 shares, address receiver) external override nonReentrant whenNotPaused returns (uint256 assets) {
+    function mint(uint256 shares) external override nonReentrant whenNotPaused returns (uint256 assets) {
         require(shares > 0, "ZeroShares");
-        require(receiver != address(0), "ZeroReceiver");
         assets = convertToAssets(shares);
         require(assets > 0, "ZeroAssets");
 
         IERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
         if (address(lockupPolicy) != address(0)) {
-            lockupPolicy.onDeposit(receiver, assets);
+            lockupPolicy.onDeposit(msg.sender, assets);
         }
-        shareToken.mint(receiver, shares);
+        shareToken.mint(msg.sender, shares);
     }
 
     /**
-     * @notice Withdraw `assets` to `receiver` by burning corresponding `shares` from `owner_`.
-     * @dev Restricted to `owner_` for MVP.
-     * @param assets Asset amount to withdraw.
-     * @param receiver Recipient of assets.
-     * @param owner_ Share owner whose shares are burned.
-     * @return shares Shares burned.
+     * @notice Partially exit by specifying share amount to burn.
+     * @param shares Share amount to burn.
+     * @return assets Assets returned to msg.sender based on current PPS.
      */
-    function withdraw(uint256 assets, address receiver, address owner_) external override nonReentrant returns (uint256 shares) {
-        require(assets > 0, "ZeroAssets");
-        require(receiver != address(0) && owner_ != address(0), "ZeroAddr");
-        shares = convertToShares(assets);
-        _withdraw(shares, assets, receiver, owner_);
-    }
-
-    /**
-     * @notice Redeem `shares` from `owner_` and send the resulting `assets` to `receiver`.
-     * @dev Restricted to `owner_` for MVP.
-     * @param shares Share amount to redeem.
-     * @param receiver Recipient of assets.
-     * @param owner_ Share owner whose shares are burned.
-     * @return assets Assets returned.
-     */
-    function redeem(uint256 shares, address receiver, address owner_) external override nonReentrant returns (uint256 assets) {
+    function withdrawShares(uint256 shares) external nonReentrant returns (uint256 assets) {
         require(shares > 0, "ZeroShares");
-        require(receiver != address(0) && owner_ != address(0), "ZeroAddr");
         assets = convertToAssets(shares);
-        _withdraw(shares, assets, receiver, owner_);
+        require(assets > 0, "ZeroAssets");
+        _withdraw(shares, assets);
     }
 
     /**
-     * @dev Internal withdraw flow shared by `withdraw` and `redeem`.
-     * @param shares Shares to burn from `owner_`.
-     * @param assetsNeeded Asset amount to return to `receiver`.
-     * @param receiver Recipient of assets.
-     * @param owner_ Share owner whose shares are burned.
+     * @notice Fully exit position: burn all shares held by msg.sender and receive all corresponding assets.
+     * @return assets Assets returned to msg.sender.
      */
-    function _withdraw(uint256 shares, uint256 assetsNeeded, address receiver, address owner_) internal {
-        // Restrict to owner-only for MVP; allowance-based redemption can be added later
-        require(msg.sender == owner_, "NotOwner");
+    function fullExit() external override nonReentrant returns (uint256 assets) {
+        uint256 shares = IERC20(address(shareToken)).balanceOf(msg.sender);
+        require(shares > 0, "NoShares");
+        assets = convertToAssets(shares);
+        require(assets > 0, "ZeroAssets");
+        _withdraw(shares, assets);
+    }
 
-        // Burn shares from owner_
-        shareToken.burn(owner_, shares);
+    /**
+     * @dev Internal withdraw flow shared by `withdrawShares` and `fullExit`.
+     * @param shares Shares to burn from msg.sender.
+     * @param assetsNeeded Asset amount to return to msg.sender.
+     */
+    function _withdraw(uint256 shares, uint256 assetsNeeded) internal {
+        // Burn caller's shares
+        shareToken.burn(msg.sender, shares);
 
         // Apply lockup and penalty
         uint256 penalty = 0;
         if (address(lockupPolicy) != address(0)) {
-            penalty = lockupPolicy.enforceWithdrawal(owner_, assetsNeeded);
+            penalty = lockupPolicy.enforceWithdrawal(msg.sender, assetsNeeded);
         }
 
         // Ensure liquidity: if idle < assetsNeeded, pull back from strategies via router
@@ -334,7 +319,39 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
             // Penalty remains in farm, effectively benefiting remaining LPs via PPS
         }
 
-        IERC20(asset).safeTransfer(receiver, payout);
+        IERC20(asset).safeTransfer(msg.sender, payout);
+    }
+
+    // --- User position view ---
+    /**
+     * @notice Returns a snapshot of a user's position in the farm.
+     * @param account The address to query.
+     * @return shares Balance of farm share token held by `account`.
+     * @return assets Current equivalent asset value for `shares`.
+     * @return claimableRewards Claimable rewards according to `payoutPolicy` (0 if none).
+     * @return lockStart Lock start timestamp from `lockupPolicy` (0 if not applicable).
+     * @return lockEnd Lock end timestamp from `lockupPolicy` (0 if not applicable).
+     * @return locked True if currently locked according to `lockupPolicy`.
+     */
+    function getUserPosition(address account)
+        external
+        view
+        override
+        returns (
+            uint256 shares,
+            uint256 assets,
+            uint256 claimableRewards,
+            uint64 lockStart,
+            uint64 lockEnd,
+            bool locked
+        )
+    {
+        shares = IERC20(address(shareToken)).balanceOf(account);
+        assets = convertToAssets(shares);
+        claimableRewards = address(payoutPolicy) == address(0) ? 0 : payoutPolicy.claimable(account);
+        if (address(lockupPolicy) != address(0)) {
+            (lockStart, lockEnd, locked) = lockupPolicy.lockInfo(account);
+        }
     }
 
     // --- Strategy ops ---
