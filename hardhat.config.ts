@@ -5,14 +5,12 @@ const networks: HardhatUserConfig["networks"] = {
   hardhat: {
     allowUnlimitedContractSize: true,
   },
+  "base-sepolia": {
+    url: "https://sepolia.base.org", // Replace with your actual RPC URL
+    accounts: ["0x6e748857c30404a686a96457624bffc3e3f06346a29c7d808671687dcdc7a34b"], // Replace with your actual private key
+    chainId: 84532
+  },
 };
-
-if (process.env.SEPOLIA_RPC_URL) {
-  networks.sepolia = {
-    url: "https://sepolia.base.org",
-    accounts: ["8c94cd0dba51e5ebe7a4bb7efc3a5a577ff8e66d9c3e28e1448d468e8055402c"],
-  };
-}
 
 const config: HardhatUserConfig = {
   solidity: {

@@ -13,6 +13,9 @@ import "../farm/BaseFarm.sol";
 import "../interfaces/IShareToken.sol";
 import "../interfaces/IPayoutPolicy.sol";
 
+/// @dev Minimal interface for adapters that support one-time router wiring
+interface IAdapterRouterSettable { function setRouterOnce(address r) external; }
+
 /**
  * @title FarmFactory (v3)
  * @notice Deploys and wires a complete Dexponent v3 farm stack. Restricted to ProtocolCore.
@@ -177,12 +180,18 @@ contract FarmFactory is IFarmFactory, Ownable {
             registry.setOwnerRecipient(ownerRecipient);
         }
 
-        // 4) Optional allocations
+        // 4) Wire adapters to the router and set allocations (if provided)
         if (adapterKeys.length > 0) {
             require(
                 adapterKeys.length == adapterAddrs.length && adapterKeys.length == adapterBps.length,
                 "LenMismatch"
             );
+            // Allow factory (as current router owner/initializer) to wire the router into adapters
+            for (uint256 i = 0; i < adapterAddrs.length; i++) {
+                require(adapterAddrs[i] != address(0), "BadAdapter");
+                IAdapterRouterSettable(adapterAddrs[i]).setRouterOnce(address(router));
+            }
+            // Now set allocations on the router
             router.setAllocations(adapterKeys, adapterAddrs, adapterBps);
         }
 

@@ -8,6 +8,16 @@ function env(name: string, def?: string): string | undefined {
   return process.env[name] ?? def;
 }
 
+// Helper: get EIP-1559 gas overrides with a safety bump
+async function getGasOverrides(ethers: any) {
+  const feeData = await ethers.provider.getFeeData();
+  const fallbackMaxFee = ethers.parseUnits("20", "gwei");
+  const fallbackPriority = ethers.parseUnits("1.5", "gwei");
+  const maxFeePerGas = (feeData.maxFeePerGas ?? fallbackMaxFee) * 12n / 10n; // +20%
+  const maxPriorityFeePerGas = (feeData.maxPriorityFeePerGas ?? fallbackPriority) * 12n / 10n; // +20%
+  return { maxFeePerGas, maxPriorityFeePerGas };
+}
+
 async function main() {
   const network: string = ((hre as any).network?.name as string) || process.env.HARDHAT_NETWORK || "hardhat";
   const { ethers } = hre as any;
@@ -68,17 +78,28 @@ async function main() {
   const LEND_PAYOUT_MIN_HARVEST = BigInt(env("LEND_PAYOUT_MIN_HARVEST", String(PAYOUT_MIN_HARVEST))!);
   const LEND_PAYOUT_COMPOUND_ON_LOCK = env("LEND_PAYOUT_COMPOUND_ON_LOCK", "true") === "true";
 
+  // Prepare deployer and nonce tracking
+  const [deployerSigner] = await ethers.getSigners();
+  const deployerAddress = await deployerSigner.getAddress();
+  let nextNonce = await ethers.provider.getTransactionCount(deployerAddress, "latest");
+  console.log("Deployer:", deployerAddress);
+
+  // Helper to get tx options with incrementing nonce, always syncing from chain first
+  const nextTxOpts = async () => {
+    const chainNonce = await ethers.provider.getTransactionCount(deployerAddress, "latest");
+    if (chainNonce > nextNonce) nextNonce = chainNonce; // sync forward
+    const opts = { ...(await getGasOverrides(ethers)), nonce: nextNonce };
+    nextNonce += 1; // use nonce, then increment
+    return opts;
+  };
+
   // 1) Deploy DXPToken
   console.log("Deploying DXPToken...");
   const DXPFactory = await ethers.getContractFactory("DXPToken");
-  const dxp = await DXPFactory.deploy();
+  const dxp = await DXPFactory.deploy(await nextTxOpts());
   await dxp.waitForDeployment();
   const dxpAddr = await dxp.getAddress();
   console.log("DXPToken:", dxpAddr);
-
-  // Infer deployer/owner from the first deployed contract
-  const deployerAddress = await dxp.owner();
-  console.log("Deployer:", deployerAddress);
 
   // Resolve base asset after DXP is available; default to DXP if not provided
   const ASSET_TOKEN = ASSET_TOKEN_ENV ?? dxpAddr;
@@ -93,7 +114,8 @@ async function main() {
     dxpAddr,
     Number(FALLBACK_BONUS_RATIO), // fallbackRatio (%)
     Number(PROTOCOL_FEE_RATE),    // protocolFeeRate (%)
-    Number(RESERVE_RATIO)         // reserveRatio (%)
+    Number(RESERVE_RATIO),        // reserveRatio (%)
+    await nextTxOpts()
   );
   await core.waitForDeployment();
   const coreAddr = await core.getAddress();
@@ -108,13 +130,8 @@ async function main() {
       || process.env.BASE_MAINNET_PRIVATE_KEY;
     if (signerPk) {
       const signerAddrForApproval = new ethers.Wallet(signerPk).address;
-      const already = await (core as any).approvedFarmOwners(signerAddrForApproval);
-      if (!already) {
-        console.log("Approving signer as farm owner in ProtocolCore...", signerAddrForApproval);
-        await (await (core as any).setApprovedFarmOwner(signerAddrForApproval, true)).wait();
-      } else {
-        console.log("Signer already approved as farm owner:", signerAddrForApproval);
-      }
+      console.log("Approving signer as farm owner in ProtocolCore...", signerAddrForApproval);
+      await (await (core as any).setApprovedFarmOwner(signerAddrForApproval, true, await nextTxOpts())).wait();
     } else {
       console.log("No env signer private key found to auto-approve as farm owner.");
     }
@@ -124,7 +141,7 @@ async function main() {
 
   // Transfer DXPToken ownership to ProtocolCore so it can call emitTokens/recycle
   console.log("Transferring DXPToken ownership to ProtocolCore...");
-  await (await dxp.transferOwnership(coreAddr)).wait();
+  await (await dxp.transferOwnership(coreAddr, await nextTxOpts())).wait();
 
   // 4) Deploy MockLiquidityManager(dxp, usdc)
   console.log("Deploying MockLiquidityManager...");
@@ -132,6 +149,7 @@ async function main() {
   const mockLm = await MockLiquidityManager.deploy(
     dxpAddr,
     USDC_TOKEN,
+    await nextTxOpts()
   );
   await mockLm.waitForDeployment();
   const mockLmAddr = await mockLm.getAddress();
@@ -139,7 +157,7 @@ async function main() {
 
   // Wire LiquidityManager into ProtocolCore
   console.log("Wiring LiquidityManager in ProtocolCore...");
-  await (await core.setLiquidityManager(mockLmAddr)).wait();
+  await (await core.setLiquidityManager(mockLmAddr, await nextTxOpts())).wait();
 
   // 4.1) Deploy BridgingAdapter (owner = deployer; external bridge addresses set to zero for now)
   console.log("Deploying BridgingAdapter...");
@@ -151,7 +169,8 @@ async function main() {
     ethers.ZeroAddress,
     ethers.ZeroAddress,
     ethers.ZeroAddress,
-    ethers.ZeroAddress
+    ethers.ZeroAddress,
+    await nextTxOpts()
   );
   await bridgingAdapter.waitForDeployment();
   const bridgingAdapterAddr = await bridgingAdapter.getAddress();
@@ -160,12 +179,12 @@ async function main() {
   // 5) Deploy FarmFactory (v3) and wire into ProtocolCore
   console.log("Deploying v3 FarmFactory...");
   const FarmFactory = await ethers.getContractFactory("contracts/v3/factories/FarmFactory.sol:FarmFactory");
-  const farmFactory = await FarmFactory.deploy(coreAddr);
+  const farmFactory = await FarmFactory.deploy(coreAddr, await nextTxOpts());
   await farmFactory.waitForDeployment();
   const farmFactoryAddr = await farmFactory.getAddress();
   console.log("FarmFactory:", farmFactoryAddr);
   console.log("Wiring FarmFactory in ProtocolCore...");
-  await (await core.setFarmFactory(farmFactoryAddr)).wait();
+  await (await core.setFarmFactory(farmFactoryAddr, await nextTxOpts())).wait();
 
   // 5.1) Deploy implementation contracts for clone-based modules and set them in the factory
   console.log("Deploying v3 module implementations (BaseFarm, StrategyRouter, PayoutPolicy, LockupPolicy, StakeholderRegistry)...");
@@ -175,23 +194,23 @@ async function main() {
   const LockupImplF = await ethers.getContractFactory("contracts/v3/modules/LockupPolicy.sol:LockupPolicy");
   const RegistryImplF = await ethers.getContractFactory("contracts/v3/modules/StakeholderRegistry.sol:StakeholderRegistry");
 
-  const baseFarmImpl = await BaseFarmImplF.deploy();
+  const baseFarmImpl = await BaseFarmImplF.deploy(await nextTxOpts());
   await baseFarmImpl.waitForDeployment();
   const baseFarmImplAddr = await baseFarmImpl.getAddress();
 
-  const routerImpl = await RouterImplF.deploy();
+  const routerImpl = await RouterImplF.deploy(await nextTxOpts());
   await routerImpl.waitForDeployment();
   const routerImplAddr = await routerImpl.getAddress();
 
-  const payoutImpl = await PayoutImplF.deploy();
+  const payoutImpl = await PayoutImplF.deploy(await nextTxOpts());
   await payoutImpl.waitForDeployment();
   const payoutImplAddr = await payoutImpl.getAddress();
 
-  const lockupImpl = await LockupImplF.deploy();
+  const lockupImpl = await LockupImplF.deploy(await nextTxOpts());
   await lockupImpl.waitForDeployment();
   const lockupImplAddr = await lockupImpl.getAddress();
 
-  const registryImpl = await RegistryImplF.deploy();
+  const registryImpl = await RegistryImplF.deploy(await nextTxOpts());
   await registryImpl.waitForDeployment();
   const registryImplAddr = await registryImpl.getAddress();
 
@@ -210,13 +229,14 @@ async function main() {
       routerImplAddr,
       payoutImplAddr,
       lockupImplAddr,
-      registryImplAddr
+      registryImplAddr,
+      await nextTxOpts()
     )
   ).wait();
 
   // Optionally approve deployer as farm owner in core (useful for tests)
   console.log("Approving deployer as farm owner in ProtocolCore...");
-  await (await core.setApprovedFarmOwner(deployerAddress, true)).wait();
+  await (await core.setApprovedFarmOwner(deployerAddress, true, await nextTxOpts())).wait();
 
   // 5-9) Create two farms via ProtocolCore + FarmFactory (ensures registration & fee reporting wiring)
   // Common staking splits (LP/Owner/Verifier)
@@ -275,7 +295,8 @@ async function main() {
     stakeShareCfg,
     [],
     [],
-    []
+    [],
+    await nextTxOpts()
   )).wait();
   const stakeMods = await core.farmsById(stakeFarmId);
   console.log("Staking Farm created:", { id: stakeFarmId.toString(), baseFarm: stakeBaseFarm });
@@ -332,7 +353,8 @@ async function main() {
     lendShareCfg,
     [],
     [],
-    []
+    [],
+    await nextTxOpts()
   )).wait();
   const lendMods = await core.farmsById(lendFarmId);
   console.log("Lending Farm created:", { id: lendFarmId.toString(), baseFarm: lendBaseFarm });

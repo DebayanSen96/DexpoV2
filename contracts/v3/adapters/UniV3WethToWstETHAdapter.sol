@@ -160,12 +160,17 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
     // Admin
     // ---------------------------------------------------------------------
 
-    /// @notice One-time router setter restricted to ProtocolCore or its owner.
+    /// @notice One-time router setter restricted to ProtocolCore, its owner, or the owner of the router being set (factory during wiring).
     function setRouterOnce(address r) external {
         require(!routerSet, "RouterSet");
         require(r != address(0), "Zero");
         address coreOwner = IOwnable(protocolCore).owner();
-        require(msg.sender == protocolCore || msg.sender == coreOwner, "Unauthorized");
+        require(
+            msg.sender == protocolCore ||
+            msg.sender == coreOwner ||
+            msg.sender == IOwnable(r).owner(),
+            "Unauthorized"
+        );
         router = r;
         routerSet = true;
         emit RouterSet(r);
@@ -186,7 +191,7 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
     function setDeadlineWindow(uint32 s) external onlyOwner { require(s > 0 && s <= 3600, "BadDeadline"); deadlineWindow = s; emit DeadlineWindowSet(s); }
 
     /// @notice Manually refresh cached price using Quoter (wstETH -> WETH for 1e18 units).
-    function updatePrice() external onlyOwner notPaused {
+    function updatePrice() external onlyOwnerOrRouterOwner notPaused {
         // Quote how much WETH out for 1 wstETH (1e18)
         (uint256 wethOut,,,) = IQuoterV2(quoter).quoteExactInputSingle(wstETH, asset, poolFee, 1e18, 0);
         wethPerWstEthX1e18 = wethOut;
@@ -199,6 +204,11 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
 
     modifier onlyRouter() { if (msg.sender != router) revert NotRouter(); _; }
     modifier notPaused() { if (paused) revert Paused(); _; }
+    modifier onlyOwnerOrRouterOwner() {
+        address routerOwner = router != address(0) ? IOwnable(router).owner() : address(0);
+        require(msg.sender == owner() || msg.sender == routerOwner, "Unauthorized");
+        _;
+    }
 
     // ---------------------------------------------------------------------
     // Internal quote helpers

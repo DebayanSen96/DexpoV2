@@ -89,7 +89,12 @@ contract LayerZeroStargateBridgeAdapter is IStrategyAdapter, Ownable {
         require(!routerSet, "RouterSet");
         require(r != address(0), "Zero");
         address coreOwner = IOwnable(protocolCore).owner();
-        require(msg.sender == protocolCore || msg.sender == coreOwner, "Unauthorized");
+        require(
+            msg.sender == protocolCore ||
+            msg.sender == coreOwner ||
+            msg.sender == IOwnable(r).owner(),
+            "Unauthorized"
+        );
         router = r; routerSet = true; emit RouterSet(r);
     }
     function setBridge(address s, address lz, uint16 p, uint16 dst) external onlyOwner {

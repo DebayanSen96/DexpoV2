@@ -172,7 +172,13 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable {
         require(!routerSet, "RouterSet");
         require(r != address(0), "Zero");
         address coreOwner = IOwnable(protocolCore).owner();
-        require(msg.sender == protocolCore || msg.sender == coreOwner, "Unauthorized");
+        // Allow: ProtocolCore, ProtocolCore owner, or the current owner of the router being set (factory during wiring)
+        require(
+            msg.sender == protocolCore ||
+            msg.sender == coreOwner ||
+            msg.sender == IOwnable(r).owner(),
+            "Unauthorized"
+        );
         router = r; routerSet = true; emit RouterSet(r);
     }
 
@@ -227,7 +233,7 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable {
     }
 
     // Manual swaps for owner-driven rebalancing
-    function swapBaseToToken(address token, uint256 baseIn, uint256 minTokenOut) external onlyOwner notPaused returns (uint256 outAmt) {
+    function swapBaseToToken(address token, uint256 baseIn, uint256 minTokenOut) external onlyOwnerOrRouterOwner notPaused returns (uint256 outAmt) {
         require(isWhitelisted[token], "NotListed");
         require(baseIn > 0, "Amt");
         uint24 fee = poolFeeForToken[token];
@@ -253,7 +259,7 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable {
         }
     }
 
-    function swapTokenToBase(address token, uint256 tokenIn, uint256 minBaseOut) external onlyOwner notPaused returns (uint256 outAmt) {
+    function swapTokenToBase(address token, uint256 tokenIn, uint256 minBaseOut) external onlyOwnerOrRouterOwner notPaused returns (uint256 outAmt) {
         require(isWhitelisted[token], "NotListed");
         require(tokenIn > 0, "Amt");
         uint24 fee = poolFeeForToken[token];
@@ -285,6 +291,11 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable {
 
     modifier onlyRouter() { if (msg.sender != router) revert NotRouter(); _; }
     modifier notPaused() { if (paused) revert Paused(); _; }
+    modifier onlyOwnerOrRouterOwner() {
+        address routerOwner = router != address(0) ? IOwnable(router).owner() : address(0);
+        require(msg.sender == owner() || msg.sender == routerOwner, "Unauthorized");
+        _;
+    }
 
     // ---------------------------------------------------------------------
     // Internal helpers
@@ -432,7 +443,7 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable {
     // Owner helpers: auto-rebalance to targets (best-effort, simple pass)
     // ---------------------------------------------------------------------
 
-    function rebalanceToTargets() external onlyOwner notPaused {
+    function rebalanceToTargets() external onlyOwnerOrRouterOwner notPaused {
         _rebalanceToTargets();
     }
 

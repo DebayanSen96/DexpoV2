@@ -111,7 +111,12 @@ contract NodeSsvStakingAdapter is IStrategyAdapter, Ownable {
         require(!routerSet, "RouterSet");
         require(r != address(0), "Zero");
         address coreOwner = IOwnable(protocolCore).owner();
-        require(msg.sender == protocolCore || msg.sender == coreOwner, "Unauthorized");
+        require(
+            msg.sender == protocolCore ||
+            msg.sender == coreOwner ||
+            msg.sender == IOwnable(r).owner(),
+            "Unauthorized"
+        );
         router = r; routerSet = true; emit RouterSet(r);
     }
     function setSsvConfig(address network, address token, bytes32 wc) external onlyOwner {
