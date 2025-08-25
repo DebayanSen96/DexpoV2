@@ -2,51 +2,51 @@
   "network": "localhost",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "contracts": {
-    "DXPToken": "0x09635F643e140090A9A8Dcd712eD6285858ceBef",
-    "ProtocolCore": "0xc5a5C42992dECbae36851359345FE25997F5C42d",
-    "FarmFactory": "0xa82fF9aFd8f496c3d6ac40E2a0F282E47488CFc9",
+    "DXPToken": "0x4C4a2f8c81640e47606d3fd77B353E87Ba015584",
+    "ProtocolCore": "0x21dF544947ba3E8b3c32561399E88B52Dc8b2823",
+    "FarmFactory": "0x8198f5d8F8CfFE8f9C413d98a0A55aEB8ab9FbB7",
     "implementations": {
-      "BaseFarm": "0x851356ae760d987E095750cCeb3bC6014560891C",
-      "StrategyRouter": "0xf5059a5D33d5853360D16C683c16e67980206f36",
-      "PayoutPolicy": "0x95401dc811bb5740090279Ba06cfA8fcF6113778",
-      "LockupPolicy": "0x998abeb3E57409262aE5b751f60747921B33613E",
-      "StakeholderRegistry": "0x70e0bA845a1A0F2DA3359C97E0285013525FFC49"
+      "BaseFarm": "0x202CCe504e04bEd6fC0521238dDf04Bc9E8E15aB",
+      "StrategyRouter": "0xf4B146FbA71F41E0592668ffbF264F1D186b2Ca8",
+      "PayoutPolicy": "0x172076E0166D1F9Cc711C77Adf8488051744980C",
+      "LockupPolicy": "0x4EE6eCAD1c2Dae9f525404De8555724e3c35d07B",
+      "StakeholderRegistry": "0xBEc49fA140aCaA83533fB00A2BB19bDdd0290f25"
     },
-    "MockLiquidityManager": "0xc3e53F4d16Ae77Db1c982e75a937B9f60FE63690",
-    "BridgingAdapter": "0x9E545E3C0baAB3E08CdfD552C960A1050f373042",
+    "MockLiquidityManager": "0xDC11f7E700A4c898AE5CAddB1082cFfa76512aDD",
+    "BridgingAdapter": "0x36b58F5C1969B7b6591D752ea6F5486D069010AB",
     "vaults": {
       "staking": {
-        "StrategyRouter": "0x6A358FD7B7700887b0cd974202CdF93208F793E2",
-        "LockupPolicy": "0x5821Aa342bd011E0E77aC5eb8663B052592363a5",
-        "PayoutPolicy": "0xE1F431731306950Ebe34C256DD381913cc71b8d5",
-        "StakeholderRegistry": "0xfF33dAF08339Ab237EB75598bf65843FBF25047D",
-        "BaseFarm": "0xb42f6411e055C9907E0101e76a6aE74B612b08bd",
+        "StrategyRouter": "0x5971B98C0066517Bae7D44021f42e50B77cfe1F9",
+        "LockupPolicy": "0xeF8653ffb270961153fC955063ABc1AeAe0Cc37b",
+        "PayoutPolicy": "0x94957cF90d605065402aF5e218BeCc5bCB70ECc2",
+        "StakeholderRegistry": "0x2845001e21Bb3FC70d1560C23669A96d90aAfA7f",
+        "BaseFarm": "0x8a896F40c89F1C89F5091650a0F11bd76b1cD5Bf",
         "FarmId": "1",
         "Adapters": {
           "keys": [
-            "0x0000000000000000000000000e801d84fa97b50751dbf25036d067dcf18858bf"
+            "0x00000000000000000000000046b142dd1e924fab83ecc3c08e4d46e82f005e0e"
           ],
           "addrs": [
-            "0x0E801D84Fa97b50751Dbf25036d067dCf18858bF"
+            "0x46b142DD1E924FAb83eCc3c08e4D46E82f005e0E"
           ],
           "bps": [
             10000
           ]
         }
       },
-      "lending": {
-        "StrategyRouter": "0xEdA2d1c94d787Ee7bff50D2b43b5D3bC635Ff6B6",
-        "LockupPolicy": "0x76342265F1231CD72530aA6DADC23708b8c04A22",
-        "PayoutPolicy": "0x6A1879F209DE1E2E09dA78163b1E75ADF15E3b4c",
-        "StakeholderRegistry": "0x037b69A7cA6B327DdF843c9Ac4Ff784E08B5eB6d",
-        "BaseFarm": "0x68239D32305cC1B5e6Da7E83B532e3D85A3015E0",
+      "bluechip": {
+        "StrategyRouter": "0xE2dFC3f6E374266B9a7C147F14F3Bf73b088CAc0",
+        "LockupPolicy": "0x1ba58d2aF369a467b962dD3B019E1859257d5289",
+        "PayoutPolicy": "0xA69aa264d15aE2e5fc29E6E2a779Ea8241Db93c7",
+        "StakeholderRegistry": "0xfa9ae20B483c5a4fFEC271e69cC7bb3b8b3B5034",
+        "BaseFarm": "0xfA34aAE5aBBCD7C37332912B3734bB6198c8DFbf",
         "FarmId": "2",
         "Adapters": {
           "keys": [
-            "0x0000000000000000000000008f86403a4de0bb5791fa46b8e795c547942fe4cf"
+            "0x000000000000000000000000fbc22278a96299d91d41c453234d97b4f5eb9b2d"
           ],
           "addrs": [
-            "0x8f86403A4DE0BB5791fa46B8e795C547942fE4Cf"
+            "0xfbC22278A96299D91d41C453234d97b4F5Eb9B2d"
           ],
           "bps": [
             10000
@@ -56,31 +56,15 @@
     }
   },
   "params": {
-    "ASSET_TOKEN": "0x09635F643e140090A9A8Dcd712eD6285858ceBef",
-    "USDC_TOKEN": "0x09635F643e140090A9A8Dcd712eD6285858ceBef",
+    "ASSET_TOKEN": "0x4C4a2f8c81640e47606d3fd77B353E87Ba015584",
+    "USDC_TOKEN": "0x4C4a2f8c81640e47606d3fd77B353E87Ba015584",
     "FALLBACK_BONUS_RATIO": "70",
     "PROTOCOL_FEE_RATE": "10",
     "RESERVE_RATIO": "50",
     "STAKE": {
-      "VAULT_NAME": "Dexponent Bluechip Vault",
-      "VAULT_SYMBOL": "dBLUE",
-      "FARM_ID": "1",
-      "LOCK_ENABLED": false,
-      "LOCK_ALLOW_EARLY": true,
-      "LOCK_EARLY_BPS": 200,
-      "LOCK_SECONDS": 0,
-      "LOCK_POST_MODE": 0,
-      "PAYOUT_MODE": 0,
-      "PAYOUT_STREAM_BPS": 3000,
-      "PAYOUT_COMPOUND_BPS": 7000,
-      "PAYOUT_EPOCH": "86400",
-      "PAYOUT_MIN_HARVEST": "300",
-      "PAYOUT_COMPOUND_ON_LOCK": true
-    },
-    "LEND": {
       "VAULT_NAME": "Dexponent NodeSSV Vault",
       "VAULT_SYMBOL": "dSSV",
-      "FARM_ID": "2",
+      "FARM_ID": "1",
       "LOCK_ENABLED": true,
       "LOCK_ALLOW_EARLY": true,
       "LOCK_EARLY_BPS": 500,
@@ -89,6 +73,22 @@
       "PAYOUT_MODE": 1,
       "PAYOUT_STREAM_BPS": 0,
       "PAYOUT_COMPOUND_BPS": 10000,
+      "PAYOUT_EPOCH": "86400",
+      "PAYOUT_MIN_HARVEST": "300",
+      "PAYOUT_COMPOUND_ON_LOCK": true
+    },
+    "BLUECHIP": {
+      "VAULT_NAME": "Dexponent Bluechip Vault",
+      "VAULT_SYMBOL": "dBLUE",
+      "FARM_ID": "2",
+      "LOCK_ENABLED": false,
+      "LOCK_ALLOW_EARLY": true,
+      "LOCK_EARLY_BPS": 200,
+      "LOCK_SECONDS": 0,
+      "LOCK_POST_MODE": 0,
+      "PAYOUT_MODE": 0,
+      "PAYOUT_STREAM_BPS": 3000,
+      "PAYOUT_COMPOUND_BPS": 7000,
       "PAYOUT_EPOCH": "86400",
       "PAYOUT_MIN_HARVEST": "300",
       "PAYOUT_COMPOUND_ON_LOCK": true

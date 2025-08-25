@@ -132,7 +132,17 @@ function resolveSignerKey(network: string, fallback?: string): string | undefine
 
 async function readLatestDeploymentFor(network: string): Promise<any | undefined> {
   try {
-    const dir = path.join(process.cwd(), 'deployments', network);
+    // Map known aliases to actual deployment folder names
+    const dirNetwork = (() => {
+      switch (network) {
+        case 'basesepolia':
+          return 'base-sepolia';
+        default:
+          return network;
+      }
+    })();
+
+    const dir = path.join(process.cwd(), 'deployments', dirNetwork);
     const files = await fs.readdir(dir);
     const jsons = files.filter(f => f.endsWith('.json'));
     if (jsons.length === 0) return undefined;
@@ -145,7 +155,8 @@ async function readLatestDeploymentFor(network: string): Promise<any | undefined
     const latest = withTimes[withTimes.length - 1].file;
     const raw = await fs.readFile(path.join(dir, latest), 'utf8');
     return JSON.parse(raw);
-  } catch {
+  } catch (e) {
+    dbg('readLatestDeploymentFor error', network, e instanceof Error ? e.message : String(e));
     return undefined;
   }
 }
@@ -315,6 +326,30 @@ async function main() {
       }
 
       const routerAddr: string = modules.router;
+      dbg('routerAddr', routerAddr);
+
+      // Validate router address: must be a deployed contract and expose expected views
+      const code = await provider.getCode(routerAddr);
+      if (!code || code === '0x') {
+        return res.status(500).json({ error: `Resolved router ${routerAddr} has no code (not a contract)` });
+      }
+      try {
+        const RouterProbeAbi = [
+          'function asset() view returns (address)',
+          'function protocolCore() view returns (address)'
+        ];
+        const routerProbe = new ethers.Contract(routerAddr, RouterProbeAbi, provider);
+        const [probeAsset, probeCore] = await Promise.all([
+          routerProbe.asset().catch(() => ethers.ZeroAddress),
+          routerProbe.protocolCore().catch(() => ethers.ZeroAddress),
+        ]);
+        if (probeAsset === ethers.ZeroAddress || probeCore === ethers.ZeroAddress) {
+          dbg('router probe failed', { probeAsset, probeCore });
+          return res.status(500).json({ error: `Router at ${routerAddr} does not implement expected interface` });
+        }
+      } catch (e) {
+        return res.status(500).json({ error: `Router interface check failed at ${routerAddr}` });
+      }
 
       // Deploy adapters for this router (deployOnly=true to defer allocation)
       const perItem: Array<{
@@ -325,12 +360,18 @@ async function main() {
         bps: number;
       }> = [];
       for (const it of parsed.items) {
+        // Ensure constructor-critical params are provided to avoid static calls on router
+        const mergedOverrides = {
+          baseAsset: payload.asset,
+          protocolCore: protocolCore,
+          ...(it.overrides || {}),
+        };
         const r = await deployAdapterFromTemplateAndWire(network, {
           provider,
           signer,
           router: routerAddr,
           templateId: it.templateId,
-          overrides: it.overrides,
+          overrides: mergedOverrides,
           bps: 0,
           deployOnly: true,
         });
