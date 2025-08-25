@@ -328,12 +328,10 @@ async function main() {
       const routerAddr: string = modules.router;
       dbg('routerAddr', routerAddr);
 
-      // Validate router address: must be a deployed contract and expose expected views
-      const code = await provider.getCode(routerAddr);
-      if (!code || code === '0x') {
-        return res.status(500).json({ error: `Resolved router ${routerAddr} has no code (not a contract)` });
-      }
+      // Validate router by probing expected views (works with proxies too)
       try {
+        const net = await provider.getNetwork().catch(() => undefined);
+        if (net) dbg('network', { chainId: Number(net.chainId), name: net.name });
         const RouterProbeAbi = [
           'function asset() view returns (address)',
           'function protocolCore() view returns (address)'
@@ -345,7 +343,7 @@ async function main() {
         ]);
         if (probeAsset === ethers.ZeroAddress || probeCore === ethers.ZeroAddress) {
           dbg('router probe failed', { probeAsset, probeCore });
-          return res.status(500).json({ error: `Router at ${routerAddr} does not implement expected interface` });
+          return res.status(500).json({ error: `Router at ${routerAddr} does not implement expected interface (asset/protocolCore)` });
         }
       } catch (e) {
         return res.status(500).json({ error: `Router interface check failed at ${routerAddr}` });
