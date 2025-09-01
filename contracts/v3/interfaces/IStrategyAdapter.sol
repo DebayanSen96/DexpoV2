@@ -15,7 +15,7 @@ interface IStrategyAdapter {
      * @param params Optional adapter-specific calldata.
      * @return sharesOrAmt Adapter-defined units minted or amount effectively deployed.
      */
-    function deposit(uint256 amount, bytes calldata params) external returns (uint256 sharesOrAmt);
+    function deposit(uint256 amount, bytes calldata params) external payable returns (uint256 sharesOrAmt);
 
     /**
      * @notice Withdraw base asset back to the router.

@@ -266,16 +266,12 @@ async function main() {
   // Deploy two standalone adapters (TEST ONLY: dummy external addresses)
   // 1) BluechipIndexAdapter (uses Uniswap V3 router/quoter) — dummy router/quoter addrs
   const BluechipF = await ethers.getContractFactory("contracts/v3/adapters/BluechipIndexAdapter.sol:BluechipIndexAdapter");
-  const dummyRouter = deployerAddress; // non-zero placeholder
-  const dummyQuoter = deployerAddress; // non-zero placeholder
+  const swapTarget = deployerAddress; // non-zero placeholder target (e.g., 0x proxy in real usage)
   const bluechip = await BluechipF.deploy(
     ASSET_TOKEN,
     coreAddr,
-    dummyRouter,
-    dummyQuoter,
+    swapTarget,
     [], // initial tokens
-    [], // weights
-    [], // pool fees
     await nextTxOpts()
   );
   await bluechip.waitForDeployment();
@@ -285,7 +281,7 @@ async function main() {
   // Whitelist the Bluechip adapter and DEX endpoints for tests
   console.log("Whitelisting adapter and DEX endpoints in WhitelistRegistry (TEST ONLY)...");
   await (await whitelist.setAdapterWhitelist(bluechipAddr, true, await nextTxOpts())).wait();
-  await (await whitelist.setDexApproved(dummyRouter, dummyQuoter, true, await nextTxOpts())).wait();
+  // Note: simplified adapter uses a generic swapTarget; DEX approval not required here.
 
   // 2) NodeSsvStakingAdapter — dummy SSV network and token addrs, empty operators
   const NodeSsvF = await ethers.getContractFactory("contracts/v3/adapters/NodeSsvStakingAdapter.sol:NodeSsvStakingAdapter");

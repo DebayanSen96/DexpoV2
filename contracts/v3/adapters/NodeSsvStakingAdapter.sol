@@ -146,7 +146,7 @@ contract NodeSsvStakingAdapter is IStrategyAdapter, Ownable {
     // IStrategyAdapter
     // ---------------------------------------------------------------------
 
-    function deposit(uint256 amount, bytes calldata params) external override onlyRouter notPaused returns (uint256 sharesOrAmt) {
+    function deposit(uint256 amount, bytes calldata params) external payable override onlyRouter notPaused returns (uint256 sharesOrAmt) {
         if (amount == 0 || amount < minDeposit) revert AmountTooSmall();
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
 

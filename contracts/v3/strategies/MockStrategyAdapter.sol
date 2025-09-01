@@ -23,7 +23,7 @@ contract MockStrategyAdapter is IStrategyAdapter {
         asset = asset_;
     }
 
-    function deposit(uint256 amount, bytes calldata) external override returns (uint256 sharesOrAmt) {
+    function deposit(uint256 amount, bytes calldata) external payable override returns (uint256 sharesOrAmt) {
         require(amount > 0, "zero");
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
         principal += amount;

@@ -263,7 +263,7 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
      * @param amount Amount of base asset to deposit.
      * @return sharesOrAmt Amount of wstETH acquired (adapter units).
      */
-    function deposit(uint256 amount, bytes calldata /*params*/) external override onlyRouter notPaused returns (uint256 sharesOrAmt) {
+    function deposit(uint256 amount, bytes calldata /*params*/) external payable override onlyRouter notPaused returns (uint256 sharesOrAmt) {
         if (amount == 0 || amount < minDeposit) revert AmountTooSmall();
 
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
