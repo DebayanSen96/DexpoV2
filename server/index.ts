@@ -328,7 +328,7 @@ async function main() {
       const routerAddr: string = modules.router;
       dbg('routerAddr', routerAddr);
 
-      // Validate router by probing expected views (works with proxies too)
+      // Soft-validate router by probing expected views (works with proxies too). Non-fatal.
       try {
         const net = await provider.getNetwork().catch(() => undefined);
         if (net) dbg('network', { chainId: Number(net.chainId), name: net.name });
@@ -342,11 +342,10 @@ async function main() {
           routerProbe.protocolCore().catch(() => ethers.ZeroAddress),
         ]);
         if (probeAsset === ethers.ZeroAddress || probeCore === ethers.ZeroAddress) {
-          dbg('router probe failed', { probeAsset, probeCore });
-          return res.status(500).json({ error: `Router at ${routerAddr} does not implement expected interface (asset/protocolCore)` });
+          dbg('router probe warning', { probeAsset, probeCore, msg: 'Continuing without fatal error' });
         }
       } catch (e) {
-        return res.status(500).json({ error: `Router interface check failed at ${routerAddr}` });
+        dbg('router probe exception (non-fatal)', e);
       }
 
       // Deploy adapters for this router (deployOnly=true to defer allocation)

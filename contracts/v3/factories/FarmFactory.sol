@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/proxy/Clones.sol";
 import "../interfaces/IFarmFactory.sol";
 import "../interfaces/IProtocolCore.sol";
 import "../strategies/StrategyRouter.sol";
+import "../interfaces/IWhitelistRegistry.sol";
 import "../modules/LockupPolicy.sol";
 import "../modules/PayoutPolicy.sol";
 import "../modules/StakeholderRegistry.sol";
@@ -31,6 +32,7 @@ contract FarmFactory is IFarmFactory, Ownable {
     address public registryImpl;
 
     event ImplementationsSet(address baseFarm, address router, address payout, address lockup, address registry);
+    event WhitelistRegistrySet(address indexed registry);
 
     // Lightweight registry for discovery: which farms were deployed for which owner
     mapping(address => address[]) public farmsByOwner; // owner => list of baseFarm addresses
@@ -42,6 +44,9 @@ contract FarmFactory is IFarmFactory, Ownable {
         if (msg.sender != protocolCore) revert NotCore();
         _;
     }
+
+    // Optional protocol-wide whitelist registry used to configure routers/adapters at clone time
+    address public whitelistRegistry;
 
     /// @notice Initialize the factory bound to a specific `ProtocolCore`.
     /// @param core Address of the ProtocolCore that is authorized to call this factory.
@@ -65,6 +70,14 @@ contract FarmFactory is IFarmFactory, Ownable {
         lockupImpl = lockup_;
         registryImpl = registry_;
         emit ImplementationsSet(baseFarm_, router_, payout_, lockup_, registry_);
+    }
+
+    /// @notice Sets the whitelist registry that will be wired into routers/adapters during creation.
+    /// @dev Owner (protocol operator) sets this once; setting to zero disables wiring.
+    function setWhitelistRegistry(address r) external onlyOwner {
+        require(r != address(0), "ZeroRegistry");
+        whitelistRegistry = r;
+        emit WhitelistRegistrySet(r);
     }
 
     /**
@@ -131,6 +144,10 @@ contract FarmFactory is IFarmFactory, Ownable {
 
         StrategyRouter router = StrategyRouter(Clones.clone(routerImpl));
         router.initialize(asset, core, address(this));
+        // Wire whitelist registry into router if configured
+        if (whitelistRegistry != address(0)) {
+            router.setWhitelistRegistry(whitelistRegistry);
+        }
 
         LockupPolicy lockup = LockupPolicy(Clones.clone(lockupImpl));
         lockup.initialize(
@@ -190,6 +207,15 @@ contract FarmFactory is IFarmFactory, Ownable {
             for (uint256 i = 0; i < adapterAddrs.length; i++) {
                 require(adapterAddrs[i] != address(0), "BadAdapter");
                 IAdapterRouterSettable(adapterAddrs[i]).setRouterOnce(address(router));
+                // If adapter supports whitelist wiring, attempt to set it (best-effort)
+                if (whitelistRegistry != address(0)) {
+                    // Low-level call to avoid hard dependency; ignore failure for adapters that don't implement it
+                    (bool ok, ) = adapterAddrs[i].call(abi.encodeWithSelector(
+                        bytes4(keccak256("setWhitelistRegistry(address)")),
+                        whitelistRegistry
+                    ));
+                    ok; // silence unused var warning
+                }
             }
             // Now set allocations on the router
             router.setAllocations(adapterKeys, adapterAddrs, adapterBps);

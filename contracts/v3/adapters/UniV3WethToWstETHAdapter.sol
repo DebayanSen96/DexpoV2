@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../interfaces/IStrategyAdapter.sol";
 import "../interfaces/IOwnable.sol";
+import "../interfaces/IWhitelistRegistry.sol";
 
 interface ISwapRouterV3 {
     struct ExactInputSingleParams {
@@ -85,6 +86,9 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
     address public router;
     bool public routerSet;
 
+    // Protocol-controlled whitelist registry
+    address public whitelistRegistry;
+
     // DEX endpoints
     address public swapRouter; // Uniswap V3 SwapRouter
     address public quoter;     // Uniswap V3 QuoterV2
@@ -107,6 +111,7 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
     // ---------------------------------------------------------------------
 
     event RouterSet(address indexed router);
+    event WhitelistRegistrySet(address indexed registry);
     event DexSet(address indexed swapRouter, address indexed quoter, uint24 poolFee);
     event TokensSet(address indexed asset, address indexed wstETH);
     event PausedSet(bool paused);
@@ -175,10 +180,37 @@ contract UniV3WethToWstETHAdapter is IStrategyAdapter, Ownable {
         routerSet = true;
         emit RouterSet(r);
     }
+    /// @notice Set whitelist registry (protocol-controlled)
+    function setWhitelistRegistry(address r) external {
+        require(r != address(0), "Zero");
+        address coreOwner = IOwnable(protocolCore).owner();
+        require(msg.sender == protocolCore || msg.sender == coreOwner, "Unauthorized");
+        whitelistRegistry = r;
+        emit WhitelistRegistrySet(r);
+    }
     /// @notice Update DEX endpoints and pool fee.
-    function setDex(address s, address q, uint24 f) external onlyOwner { require(s!=address(0)&&q!=address(0), "Zero"); swapRouter=s; quoter=q; poolFee=f; emit DexSet(s,q,f); }
+    function setDex(address s, address q, uint24 f) external onlyOwner {
+        require(s!=address(0)&&q!=address(0), "Zero");
+        if (whitelistRegistry != address(0)) {
+            require(IWhitelistRegistryV3(whitelistRegistry).isDexApproved(s, q), "DexNotWhitelisted");
+            // If wstETH set, validate pool
+            if (wstETH != address(0)) {
+                require(IWhitelistRegistryV3(whitelistRegistry).isPoolAllowed(asset, wstETH, f, s), "PoolNotAllowed");
+            }
+        }
+        swapRouter=s; quoter=q; poolFee=f; emit DexSet(s,q,f);
+    }
     /// @notice Update the target token address.
-    function setTokens(address wstETH_) external onlyOwner { require(wstETH_!=address(0),"Zero"); wstETH=wstETH_; emit TokensSet(asset, wstETH_); }
+    function setTokens(address wstETH_) external onlyOwner {
+        require(wstETH_!=address(0),"Zero");
+        if (whitelistRegistry != address(0)) {
+            require(IWhitelistRegistryV3(whitelistRegistry).isTokenWhitelisted(wstETH_), "TokenNotWhitelisted");
+            if (swapRouter != address(0) && poolFee != 0) {
+                require(IWhitelistRegistryV3(whitelistRegistry).isPoolAllowed(asset, wstETH_, poolFee, swapRouter), "PoolNotAllowed");
+            }
+        }
+        wstETH=wstETH_; emit TokensSet(asset, wstETH_);
+    }
     /// @notice Pause/unpause adapter operations.
     function setPaused(bool p) external onlyOwner { paused = p; emit PausedSet(p); }
     /// @notice Set max slippage in bps used for swaps.

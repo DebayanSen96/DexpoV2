@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "../interfaces/IStrategyRouter.sol";
 import "../interfaces/IStrategyAdapter.sol";
+import "../interfaces/IWhitelistRegistry.sol";
 
 interface IOwnable {
     function owner() external view returns (address);
@@ -25,6 +26,9 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
 
     address public override asset;
     address public protocolCore;
+
+    // Protocol-controlled whitelist registry (tokens/adapters/DEX)
+    address public whitelistRegistry;
 
     // Farm authorized to operate allocate/deallocate/harvest
     address public farm;
@@ -65,6 +69,7 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
     }
 
     event FarmSet(address indexed farm);
+    event WhitelistRegistrySet(address indexed registry);
 
     /**
      * @notice Current adapter allocations and weights.
@@ -116,6 +121,10 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         }
         for (uint256 j = 0; j < ids.length; j++) {
             require(adapters[j] != address(0), "BadAdapter");
+            // Enforce adapter whitelist if registry configured
+            if (whitelistRegistry != address(0)) {
+                require(IWhitelistRegistryV3(whitelistRegistry).isAdapterWhitelisted(adapters[j]), "AdapterNotWhitelisted");
+            }
             _ids.add(ids[j]);
             alloc[ids[j]] = Allocation({ adapter: adapters[j], bps: bps[j] });
             sum += bps[j];
@@ -123,6 +132,13 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         require(sum == 10_000, "SumBps");
         // Seal addresses to prevent further changes; only bps can change via rebalance()
         allocationsSealed = true;
+    }
+
+    /// @notice Set or update the whitelist registry. Restricted to owner or protocol owner.
+    function setWhitelistRegistry(address r) external onlyOwnerOrProtocolOwner {
+        require(r != address(0), "ZeroRegistry");
+        whitelistRegistry = r;
+        emit WhitelistRegistrySet(r);
     }
 
     /// @notice One-time farm setter used during initial wiring by the factory/owner.

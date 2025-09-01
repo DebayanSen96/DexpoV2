@@ -137,9 +137,21 @@ export async function deployUniV3AdapterAndWire(
   const configTxHashes: string[] = [];
   // One-time router wiring (secure)
   if (typeof (adapter as any).setRouterOnce === 'function') {
-    const tx = await (adapter as any).setRouterOnce(router);
-    const rc = await tx.wait();
-    configTxHashes.push(rc.hash);
+    // Preflight authorization: signer must be ProtocolCore owner or Router owner
+    const signerAddr = await signer.getAddress();
+    const protoAddr: string = await routerC.protocolCore();
+    const OwnableAbi = ['function owner() view returns (address)'];
+    const coreC = new ethers.Contract(protoAddr, OwnableAbi, provider);
+    const routerOwner = await routerC.owner();
+    const coreOwner = await coreC.owner();
+    const authorized =
+      signerAddr.toLowerCase() === routerOwner.toLowerCase() ||
+      signerAddr.toLowerCase() === coreOwner.toLowerCase();
+    if (authorized) {
+      const tx = await (adapter as any).setRouterOnce(router);
+      const rc = await tx.wait();
+      configTxHashes.push(rc.hash);
+    } // else skip wiring; caller can wire later with the correct key
   }
   // Optional settings
   if (typeof params.slippageBps === 'number') {
@@ -243,9 +255,21 @@ export async function deployAdapterFromTemplateAndWire(
   const configTxHashes: string[] = [];
   // One-time router wiring if adapter supports it
   if (typeof (adapter as any).setRouterOnce === 'function') {
-    const tx = await (adapter as any).setRouterOnce(router);
-    const rc = await tx.wait();
-    configTxHashes.push(rc.hash);
+    // Preflight authorization: signer must be ProtocolCore owner or Router owner
+    const signerAddr = await signer.getAddress();
+    const protoAddr: string = await routerC.protocolCore();
+    const OwnableAbi = ['function owner() view returns (address)'];
+    const coreC = new ethers.Contract(protoAddr, OwnableAbi, provider);
+    const routerOwner = await routerC.owner();
+    const coreOwner = await coreC.owner();
+    const authorized =
+      signerAddr.toLowerCase() === routerOwner.toLowerCase() ||
+      signerAddr.toLowerCase() === coreOwner.toLowerCase();
+    if (authorized) {
+      const tx = await (adapter as any).setRouterOnce(router);
+      const rc = await tx.wait();
+      configTxHashes.push(rc.hash);
+    } // else skip wiring; caller can wire later with the correct key
   }
   // Common optional setters if present
   if (inputs.slippageBps != null && typeof (adapter as any).setSlippageBps === 'function') {

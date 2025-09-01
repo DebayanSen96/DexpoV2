@@ -123,6 +123,14 @@ async function main() {
   const coreAddr = await core.getAddress();
   console.log("ProtocolCore:", coreAddr);
 
+  // 3.1) Deploy WhitelistRegistry (owned by deployer/protocol owner for now)
+  console.log("Deploying WhitelistRegistry...");
+  const WhitelistRegistryF = await ethers.getContractFactory("contracts/v3/modules/WhitelistRegistry.sol:WhitelistRegistry");
+  const whitelist = await WhitelistRegistryF.deploy(deployerAddress, await nextTxOpts());
+  await whitelist.waitForDeployment();
+  const whitelistAddr = await whitelist.getAddress();
+  console.log("WhitelistRegistry:", whitelistAddr);
+
   // Approve server/deployment signer (from env) as an approved farm owner
   // This helps the API/server create farms without requiring manual approval.
   try {
@@ -187,6 +195,8 @@ async function main() {
   console.log("FarmFactory:", farmFactoryAddr);
   console.log("Wiring FarmFactory in ProtocolCore...");
   await (await core.setFarmFactory(farmFactoryAddr, await nextTxOpts())).wait();
+  console.log("Setting whitelist registry on FarmFactory...");
+  await (await farmFactory.setWhitelistRegistry(whitelistAddr, await nextTxOpts())).wait();
 
   // 5.1) Deploy implementation contracts for clone-based modules and set them in the factory
   console.log("Deploying v3 module implementations (BaseFarm, StrategyRouter, PayoutPolicy, LockupPolicy, StakeholderRegistry)...");
@@ -272,6 +282,11 @@ async function main() {
   const bluechipAddr = await bluechip.getAddress();
   console.log("BluechipIndexAdapter (TEST):", bluechipAddr);
 
+  // Whitelist the Bluechip adapter and DEX endpoints for tests
+  console.log("Whitelisting adapter and DEX endpoints in WhitelistRegistry (TEST ONLY)...");
+  await (await whitelist.setAdapterWhitelist(bluechipAddr, true, await nextTxOpts())).wait();
+  await (await whitelist.setDexApproved(dummyRouter, dummyQuoter, true, await nextTxOpts())).wait();
+
   // 2) NodeSsvStakingAdapter — dummy SSV network and token addrs, empty operators
   const NodeSsvF = await ethers.getContractFactory("contracts/v3/adapters/NodeSsvStakingAdapter.sol:NodeSsvStakingAdapter");
   const dummySsvNetwork = deployerAddress; // non-zero placeholder
@@ -288,6 +303,8 @@ async function main() {
   await nodeSsv.waitForDeployment();
   const nodeSsvAddr = await nodeSsv.getAddress();
   console.log("NodeSsvStakingAdapter (TEST):", nodeSsvAddr);
+  // Whitelist NodeSsv adapter for staking farm allocations
+  await (await whitelist.setAdapterWhitelist(nodeSsvAddr, true, await nextTxOpts())).wait();
 
   // Staking farm uses NodeSsvStakingAdapter (test)
   const stakeAdapterKeys = [toBytes32FromAddress(nodeSsvAddr)];
@@ -352,6 +369,8 @@ async function main() {
   const stakeMods = await core.farmsById(stakeFarmId);
   console.log("Staking Farm created:", { id: String(stakeFarmId), baseFarm: stakeBaseFarm });
 
+  // Whitelist registry is wired by FarmFactory; no direct router wiring required here
+
   // --- Lending Farm ---
   // Adapter arrays already built above (NodeSsvStakingAdapter)
   console.log("Creating Bluechip Index farm via ProtocolCore.createApprovedFarm...");
@@ -403,6 +422,8 @@ async function main() {
   const lendMods = await core.farmsById(lendFarmId);
   console.log("Bluechip Index Farm created:", { id: String(lendFarmId), baseFarm: lendBaseFarm });
 
+  // Whitelist registry is wired by FarmFactory; no direct adapter wiring required here
+
   // Save addresses
   const addresses = {
     network,
@@ -420,6 +441,7 @@ async function main() {
       },
       MockLiquidityManager: mockLmAddr,
       BridgingAdapter: bridgingAdapterAddr,
+      WhitelistRegistry: whitelistAddr,
       vaults: {
         staking: {
           StrategyRouter: stakeMods.router,

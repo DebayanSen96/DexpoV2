@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../interfaces/IStrategyAdapter.sol";
 import "../interfaces/IOwnable.sol";
+import "../interfaces/IWhitelistRegistry.sol";
 
 interface ISwapRouterV3 {
     struct ExactInputSingleParams {
@@ -82,6 +83,9 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable {
     address public router;
     bool public routerSet;
 
+    // Whitelist registry set by protocol (not farm owner)
+    address public whitelistRegistry;
+
     // DEX endpoints
     address public swapRouter; // Uniswap V3 SwapRouter
     address public quoter;     // Uniswap V3 QuoterV2
@@ -106,6 +110,7 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable {
     // ---------------------------------------------------------------------
 
     event RouterSet(address indexed router);
+    event WhitelistRegistrySet(address indexed registry);
     event DexSet(address indexed swapRouter, address indexed quoter);
     event PausedSet(bool paused);
     event SlippageSet(uint16 slippageBps);
@@ -182,7 +187,30 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable {
         router = r; routerSet = true; emit RouterSet(r);
     }
 
-    function setDex(address s, address q) external onlyOwner { require(s!=address(0)&&q!=address(0), "Zero"); swapRouter=s; quoter=q; emit DexSet(s,q); }
+    /// @notice Set whitelist registry (protocol-controlled)
+    function setWhitelistRegistry(address r) external {
+        require(r != address(0), "Zero");
+        address coreOwner = IOwnable(protocolCore).owner();
+        require(msg.sender == protocolCore || msg.sender == coreOwner, "Unauthorized");
+        whitelistRegistry = r;
+        emit WhitelistRegistrySet(r);
+    }
+
+    function setDex(address s, address q) external onlyOwner {
+        require(s!=address(0)&&q!=address(0), "Zero");
+        if (whitelistRegistry != address(0)) {
+            require(IWhitelistRegistryV3(whitelistRegistry).isDexApproved(s, q), "DexNotWhitelisted");
+            // If tokens and fees exist, ensure pools are allowed
+            for (uint256 i = 0; i < indexTokens.length; i++) {
+                address t = indexTokens[i];
+                uint24 fee = poolFeeForToken[t];
+                if (fee != 0) {
+                    require(IWhitelistRegistryV3(whitelistRegistry).isPoolAllowed(asset, t, fee, s), "PoolNotAllowed");
+                }
+            }
+        }
+        swapRouter=s; quoter=q; emit DexSet(s,q);
+    }
 
     function setPaused(bool p) external onlyOwner { paused = p; emit PausedSet(p); }
     function setSlippageBps(uint16 bps) external onlyOwner { slippageBps = bps; emit SlippageSet(bps); }
@@ -227,6 +255,10 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable {
         require(tokens_.length == fees_.length, "Len");
         for (uint256 i = 0; i < tokens_.length; i++) {
             require(isWhitelisted[tokens_[i]], "NotListed");
+            // If registry configured and dex set, ensure (asset, token, fee, swapRouter) is allowed
+            if (whitelistRegistry != address(0) && swapRouter != address(0)) {
+                require(IWhitelistRegistryV3(whitelistRegistry).isPoolAllowed(asset, tokens_[i], fees_[i], swapRouter), "PoolNotAllowed");
+            }
             poolFeeForToken[tokens_[i]] = fees_[i];
         }
         emit PoolFeesUpdated(tokens_, fees_);
@@ -308,6 +340,12 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable {
             address t = tokens_[i];
             require(t != address(0), "Zero");
             require(!isWhitelisted[t], "Exists");
+            if (whitelistRegistry != address(0)) {
+                require(IWhitelistRegistryV3(whitelistRegistry).isTokenWhitelisted(t), "TokenNotWhitelisted");
+                if (swapRouter != address(0)) {
+                    require(IWhitelistRegistryV3(whitelistRegistry).isPoolAllowed(asset, t, poolFees_[i], swapRouter), "PoolNotAllowed");
+                }
+            }
             isWhitelisted[t] = true;
             indexTokens.push(t);
             targetWeightBps[t] = weightsBps_[i];
