@@ -111,6 +111,12 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         return IHasOwner(protocolCore).owner() == msg.sender;
     }
 
+    /// @dev Allows calls from either the farm owner or the ProtocolCore owner
+    modifier onlyOwnerOrProtocolOwner() {
+        require(msg.sender == owner() || _isProtocolOwner(), "NotOwnerOrProtocol");
+        _;
+    }
+
     /**
      * @notice Sets or updates the strategy router.
      * @dev First set allowed by farm owner or ProtocolCore owner; subsequent updates only by ProtocolCore owner.
@@ -446,7 +452,7 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
     /// @notice Allocate idle assets to strategies via router according to target bps.
     /// @param amount Asset amount to allocate.
     /// @return deployed Amount deployed by router.
-    function allocateToStrategies(uint256 amount) external onlyOwner whenNotPaused returns (uint256 deployed) {
+    function allocateToStrategies(uint256 amount) external whenNotPaused onlyOwnerOrProtocolOwner returns (uint256 deployed) {
         require(address(router) != address(0), "RouterMissing");
         require(amount > 0, "ZeroAmount");
         IERC20(asset).forceApprove(address(router), 0);

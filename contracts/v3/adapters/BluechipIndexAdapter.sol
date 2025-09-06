@@ -8,6 +8,7 @@ import "../interfaces/IStrategyAdapter.sol";
 import "../interfaces/IOwnable.sol";
 import "../interfaces/IWhitelistRegistry.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 /**
  * @title BluechipIndexAdapter (Simplified)
@@ -33,6 +34,10 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
     bytes32 private constant SWAP_TYPEHASH = keccak256(
         "Swap(address sellToken,address buyToken,uint256 sellAmount,uint256 minBuyAmount,bytes data,uint256 deadline,uint256 nonce)"
     );
+    // EIP-712 approval struct for dual-signature token approvals (simplified: no deadline/nonce)
+    bytes32 private constant APPROVAL_TYPEHASH = keccak256(
+        "Approval(address token,address spender,uint256 amount)"
+    );
     mapping(uint256 => bool) public usedNonces;
     uint256 public nonce;
 
@@ -44,6 +49,7 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
     event TokenRemoved(address indexed token);
     event SwapExecuted(address indexed sellToken, uint256 sellAmount, address indexed buyToken, uint256 buyAmount);
     event WithdrawSellExecuted(address indexed token, uint256 tokenIn, uint256 baseOut);
+    event ApprovalGranted(address indexed token, address indexed spender, uint256 amount, address indexed caller);
 
     error NotRouter();
     error NotWhitelisted();
@@ -51,9 +57,33 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
     error Expired();
     error InvalidTarget();
     error InvalidToken();
+    error NotOwnerOrRouterOwner();
+    error NotFarmOrProtocolOwner();
+    error NotProtocolOwner();
 
     modifier onlyRouter() {
         if (msg.sender != router) revert NotRouter();
+        _;
+    }
+
+    modifier onlyProtocolOwner() {
+        if (msg.sender != IOwnable(protocolCore).owner()) revert NotProtocolOwner();
+        _;
+    }
+
+    modifier onlyOwnerOrRouterOwner() {
+        address routerOwner = IOwnable(router).owner();
+        if (msg.sender != owner() && msg.sender != routerOwner) revert NotOwnerOrRouterOwner();
+        _;
+    }
+
+    modifier onlyFarmOrProtocolOwner() {
+        address farmOwner = address(0);
+        if (router != address(0)) {
+            farmOwner = IOwnable(router).owner();
+        }
+        address protocolOwner = IOwnable(protocolCore).owner();
+        if (msg.sender != farmOwner && msg.sender != protocolOwner) revert NotFarmOrProtocolOwner();
         _;
     }
 
@@ -271,6 +301,22 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
 
     function harvest() external override onlyRouter returns (uint256, address[] memory, uint256[] memory) {
         return (0, new address[](0), new uint256[](0));
+    }
+
+   
+
+  
+
+    function approveTokenSpenderSimple(
+        address token,
+        address spender,
+        uint256 amount
+    ) external onlyProtocolOwner {
+        require(token != address(0), "TokenZero");
+        require(spender != address(0), "SpenderZero");
+        IERC20(token).forceApprove(spender, 0);
+        IERC20(token).forceApprove(spender, amount);
+        emit ApprovalGranted(token, spender, amount, msg.sender);
     }
 
     function totalAssets() external view override returns (uint256) {

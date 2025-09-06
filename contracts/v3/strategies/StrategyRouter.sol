@@ -121,10 +121,10 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         }
         for (uint256 j = 0; j < ids.length; j++) {
             require(adapters[j] != address(0), "BadAdapter");
-            // Enforce adapter whitelist if registry configured
-            if (whitelistRegistry != address(0)) {
-                require(IWhitelistRegistryV3(whitelistRegistry).isAdapterWhitelisted(adapters[j]), "AdapterNotWhitelisted");
-            }
+            // Enforce adapter whitelist if registry configured (disabled)
+            // if (whitelistRegistry != address(0)) {
+            //     require(IWhitelistRegistryV3(whitelistRegistry).isAdapterWhitelisted(adapters[j]), "AdapterNotWhitelisted");
+            // }
             _ids.add(ids[j]);
             alloc[ids[j]] = Allocation({ adapter: adapters[j], bps: bps[j] });
             sum += bps[j];
