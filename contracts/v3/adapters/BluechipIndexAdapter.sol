@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../interfaces/IStrategyAdapter.sol";
 import "../interfaces/IOwnable.sol";
 import "../interfaces/IWhitelistRegistry.sol";
+import "../interfaces/IPriceOracle.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
@@ -16,6 +17,10 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
  *         Swaps require dual signatures: farm owner + protocol owner (EIP-712).
  *         Withdrawals sell to base via whitelisted 0x target.
  */
+interface IMockSwapRouter {
+    function swapFrom(address tokenIn, address tokenOut, uint256 amountIn, address from, address recipient) external returns (uint256);
+}
+
 contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
     using SafeERC20 for IERC20;
 
@@ -26,6 +31,7 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
 
     address public whitelistRegistry;
     address public swapTarget; // 0x Exchange Proxy or other whitelisted target
+    address public priceOracle; // optional price oracle for NAV valuation
 
     address[] public indexTokens;
     mapping(address => bool) public isWhitelisted;
@@ -50,6 +56,7 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
     event SwapExecuted(address indexed sellToken, uint256 sellAmount, address indexed buyToken, uint256 buyAmount);
     event WithdrawSellExecuted(address indexed token, uint256 tokenIn, uint256 baseOut);
     event ApprovalGranted(address indexed token, address indexed spender, uint256 amount, address indexed caller);
+    event PriceOracleSet(address indexed oracle);
 
     error NotRouter();
     error NotWhitelisted();
@@ -99,7 +106,10 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
         asset = asset_;
         protocolCore = protocolCore_;
         swapTarget = swapTarget_;
+        // Default oracle to the swap target (mock router exposes quote())
+        priceOracle = swapTarget_;
         emit SwapTargetSet(swapTarget_);
+        emit PriceOracleSet(priceOracle);
         if (tokens_.length > 0) {
             _addTokens(tokens_);
         }
@@ -129,10 +139,19 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
         emit WhitelistRegistrySet(r);
     }
 
+    function setPriceOracle(address o) external onlyOwner {
+        require(o != address(0), "Zero");
+        priceOracle = o;
+        emit PriceOracleSet(o);
+    }
+
     function setSwapTarget(address t) external onlyOwner {
         require(t != address(0), "Zero");
         swapTarget = t;
+        // Keep oracle aligned with swap target unless explicitly changed via setPriceOracle
+        priceOracle = t;
         emit SwapTargetSet(t);
+        emit PriceOracleSet(t);
     }
 
     function addTokens(address[] calldata tokens_) external onlyOwner {
@@ -287,6 +306,45 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
             }
         }
 
+        // Auto-sell path (MVP): if no calldatas provided, attempt to sell index tokens to raise base via mock router API
+        if (remaining > 0 && data.length == 0 && swapTarget != address(0)) {
+            IMockSwapRouter router_ = IMockSwapRouter(swapTarget);
+
+            uint256 n = indexTokens.length;
+            for (uint256 i = 0; i < n && remaining > 0; i++) {
+                address t = indexTokens[i];
+                if (t == address(0) || t == asset) { continue; }
+                uint256 bal = IERC20(t).balanceOf(address(this));
+                if (bal == 0) { continue; }
+
+                uint256 sellAmount = bal;
+                if (priceOracle != address(0)) {
+                    // aim to sell just enough to cover remaining
+                    uint256 estBase = IPriceOracle(priceOracle).quote(t, asset, bal);
+                    if (estBase > remaining && estBase > 0) {
+                        // proportional sell: sellAmount ~= bal * remaining / estBase
+                        sellAmount = (bal * remaining) / estBase;
+                        if (sellAmount == 0) sellAmount = bal; // fallback
+                    }
+                }
+
+                IERC20(t).forceApprove(swapTarget, 0);
+                IERC20(t).forceApprove(swapTarget, sellAmount);
+
+                uint256 baseBefore2 = IERC20(asset).balanceOf(address(this));
+                try router_.swapFrom(t, asset, sellAmount, address(this), address(this)) returns (uint256 /*got*/) {
+                    uint256 baseAfter2 = IERC20(asset).balanceOf(address(this));
+                    uint256 gotBase = baseAfter2 - baseBefore2;
+                    if (gotBase >= remaining) {
+                        remaining = 0;
+                    } else {
+                        remaining -= gotBase;
+                    }
+                    emit WithdrawSellExecuted(t, sellAmount, gotBase);
+                } catch {}
+            }
+        }
+
         uint256 sendAmount = amount - remaining;
         if (sendAmount > 0) {
             if (asset == address(0)) {
@@ -300,7 +358,43 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
     }
 
     function harvest() external override onlyRouter returns (uint256, address[] memory, uint256[] memory) {
-        return (0, new address[](0), new uint256[](0));
+        // Auto-sell all non-base index tokens into base asset using swapTarget
+        uint256 baseBefore = asset == address(0)
+            ? address(this).balance
+            : IERC20(asset).balanceOf(address(this));
+
+        if (swapTarget != address(0)) {
+            uint256 n = indexTokens.length;
+            for (uint256 i = 0; i < n; i++) {
+                address t = indexTokens[i];
+                if (t == address(0) || t == asset) { continue; }
+                uint256 bal = IERC20(t).balanceOf(address(this));
+                if (bal == 0) { continue; }
+                IERC20(t).forceApprove(swapTarget, 0);
+                IERC20(t).forceApprove(swapTarget, bal);
+                try IMockSwapRouter(swapTarget).swapFrom(t, asset, bal, address(this), address(this)) returns (uint256 /*got*/) {
+                    // ignore
+                } catch {
+                    // ignore failures per token to continue others
+                }
+            }
+        }
+
+        uint256 baseAfter = asset == address(0)
+            ? address(this).balance
+            : IERC20(asset).balanceOf(address(this));
+        uint256 delta = baseAfter - baseBefore;
+
+        // Transfer realized base to router (msg.sender)
+        if (delta > 0) {
+            if (asset == address(0)) {
+                (bool s,) = payable(msg.sender).call{value: delta}("");
+                require(s, "ETHSendFail");
+            } else {
+                IERC20(asset).safeTransfer(msg.sender, delta);
+            }
+        }
+        return (delta, new address[](0), new uint256[](0));
     }
 
    
@@ -325,10 +419,18 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
             : IERC20(asset).balanceOf(address(this));
         for (uint256 i = 0; i < indexTokens.length; i++) {
             address t = indexTokens[i];
-            if (t == address(0)) {
-                total += address(this).balance;
+            // Skip counting the base asset token itself to avoid double-counting
+            if (t == asset) { continue; }
+            // Skip native pseudo-token; if you plan to hold native, handle via oracle separately
+            if (t == address(0)) { continue; }
+
+            uint256 bal = IERC20(t).balanceOf(address(this));
+            if (bal == 0) continue;
+            if (priceOracle != address(0)) {
+                total += IPriceOracle(priceOracle).quote(t, asset, bal);
             } else {
-                total += IERC20(t).balanceOf(address(this));
+                // Fallback: add raw balance (not value-adjusted)
+                total += bal;
             }
         }
         return total;

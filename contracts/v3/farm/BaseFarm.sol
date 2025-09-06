@@ -440,6 +440,27 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         return (true, netAssets);
     }
 
+    // --- Claims ---
+    /**
+     * @notice View the amount of streamed rewards currently claimable for `account`.
+     * @dev Denominated in the farm's base asset. Returns 0 if no payout policy configured.
+     */
+    function claimable(address account) external view returns (uint256) {
+        if (address(payoutPolicy) == address(0)) return 0;
+        return payoutPolicy.claimable(account);
+    }
+
+    /**
+     * @notice Claim streamed rewards for msg.sender and send them to `to`.
+     * @dev Pulls from the payout policy contract which holds the streamed funds in base asset.
+     * @return amount Amount claimed in base asset units.
+     */
+    function claimRewards(address to) external whenNotPaused returns (uint256 amount) {
+        require(address(payoutPolicy) != address(0), "PayoutMissing");
+        require(to != address(0), "ZeroTo");
+        amount = payoutPolicy.claim(to);
+    }
+
     /**
      * @notice Rebalance strategy target allocations via router.
      * @param targetBps Target basis points per adapter id order.
