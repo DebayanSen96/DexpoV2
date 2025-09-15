@@ -206,9 +206,10 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
     function convertToShares(uint256 assets) public view override returns (uint256 shares) {
         uint256 supply = IERC20(address(shareToken)).totalSupply();
         uint256 ta = totalAssets();
-        if (supply == 0 || ta == 0) {
-            return assets; // 1:1 on first mint
+        if (supply == 0) {
+            return assets; // 1:1 on first mint only
         }
+        require(ta > 0, "NAVZero");
         return (assets * supply) / ta;
     }
 
@@ -376,7 +377,10 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         // Compute streamed vs compounded portions per policy
         (uint256 streamed, /*uint256 compounded*/ ) = payoutPolicy.onHarvest(netAssets);
         if (streamed == 0) {
-            return netAssets; // everything compounded/retained -> PPS increases
+            // 100% compound case: stakeholders should still accrue their fee split
+            _accrueStakeholderFees(netAssets);
+            // Remaining yield stays in farm (idle/strategies), benefiting LPs via PPS
+            return netAssets;
         }
 
         // Split streamed portion among stakeholders
@@ -438,6 +442,57 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         }
         netAssets = this.harvest();
         return (true, netAssets);
+    }
+
+    /// @dev Accrue stakeholder fees (owner, verifiers, protocol rake) from a gross harvested amount.
+    ///      Transfers the fee tokens to the payout policy and schedules streams for beneficiaries.
+    function _accrueStakeholderFees(uint256 gross) internal {
+        if (gross == 0) return;
+        require(address(stakeholderRegistry) != address(0), "RegistryMissing");
+
+        IStakeholderRegistry.Splits memory s = stakeholderRegistry.getSplits();
+        uint256 ownerAmt_ = (gross * s.ownerBps) / 10_000;
+        uint256 verifierAmt_ = (gross * s.verifierBps) / 10_000;
+
+        // Protocol rake from the owner portion
+        address protocolReceiver_ = shareToken.protocolFeeReceiver();
+        uint16 protocolRakeBps_ = shareToken.protocolRakeBps();
+        uint256 protocolCut_ = protocolReceiver_ == address(0) ? 0 : (ownerAmt_ * protocolRakeBps_) / 10_000;
+        uint256 ownerNet_ = ownerAmt_ - protocolCut_;
+
+        // Transfer fee funds to policy custody
+        uint256 transferAmt = ownerNet_ + protocolCut_ + verifierAmt_;
+        if (transferAmt > 0) {
+            IERC20(asset).safeTransfer(address(payoutPolicy), transferAmt);
+        }
+
+        // Accrue for owner
+        address ownerRecipient_ = stakeholderRegistry.ownerRecipient();
+        if (ownerNet_ > 0 && ownerRecipient_ != address(0)) {
+            payoutPolicy.accrueFor(ownerRecipient_, ownerNet_);
+        }
+
+        // Accrue protocol fee and report
+        if (protocolCut_ > 0) {
+            IProtocolCoreV3(protocolCore).reportProtocolFee(farmId, protocolCut_);
+            payoutPolicy.accrueFor(protocolReceiver_, protocolCut_);
+        }
+
+        // Accrue for verifiers
+        if (verifierAmt_ > 0) {
+            address[] memory verifiers_ = stakeholderRegistry.activeVerifiers();
+            uint256 n = verifiers_.length;
+            if (n > 0) {
+                uint256 each_ = verifierAmt_ / n;
+                uint256 remainder_ = verifierAmt_ - (each_ * n);
+                for (uint256 i = 0; i < n; i++) {
+                    if (each_ > 0) payoutPolicy.accrueFor(verifiers_[i], each_);
+                }
+                if (remainder_ > 0 && ownerRecipient_ != address(0)) {
+                    payoutPolicy.accrueFor(ownerRecipient_, remainder_);
+                }
+            }
+        }
     }
 
     // --- Claims ---

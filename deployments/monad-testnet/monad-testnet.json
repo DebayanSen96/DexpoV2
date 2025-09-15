@@ -1,0 +1,63 @@
+{
+  "network": "monad-testnet",
+  "deployer": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+  "contracts": {
+    "DXPToken": "0xB8D2D57f316f28094e6419641F620A197AA1e92F",
+    "ProtocolCore": "0x2fFC7d23882fbD88C1286B93D16F4fA732CE5317",
+    "FarmFactory": "0x894e346a4899eE3E2afDE08Df47234BCae9bF1Ae",
+    "implementations": {
+      "BaseFarm": "0xb6130090C0bbBc55A716694e5c62da4dEc889761",
+      "StrategyRouter": "0xd7B270812b7ea5C35Eb0D3f9EB2451866f6c3985",
+      "PayoutPolicy": "0x4cC2136259f5871D89d4BdfcEc76036cccEe6463",
+      "LockupPolicy": "0x8E36023Efc8a4d1563319297e3fF7AeA7a03033b",
+      "StakeholderRegistry": "0x6B63ac8Ed0986a471dB74C5D9152b9F1F01E9576"
+    },
+    "MockLiquidityManager": "0xca27135F754D8d3404694dD5cF722e6650C61b72",
+    "BridgingAdapter": "0xb76D5a54DC8ff02fE55359b96779dB9ad36C2f0a",
+    "WhitelistRegistry": "0x3551174cFF1B029043E2f2848e12e073c4f2eE8A",
+    "vaults": {
+      "bluechip": {
+        "StrategyRouter": "0x5e2cec1fDdaCe0BE23D9276d35589DabD927275b",
+        "LockupPolicy": "0xBd854fbFc3631999b79307b18b671Ff46F16C185",
+        "PayoutPolicy": "0x2547cbD4774EBD108479F270e37F925bAd86dB3B",
+        "StakeholderRegistry": "0x38e0679FF2c0A254286283Bdd92ec0f435DfB5E6",
+        "BaseFarm": "0x893082BC7694c1662750Ca9bBCb235fFd03307fd",
+        "FarmId": "1",
+        "Adapters": {
+          "keys": [
+            "0x0000000000000000000000001d12ede98db93c8ac61eed1fa1963bdd25753e23"
+          ],
+          "addrs": [
+            "0x1D12Ede98dB93c8Ac61eeD1Fa1963bDD25753E23"
+          ],
+          "bps": [
+            10000
+          ]
+        }
+      }
+    }
+  },
+  "params": {
+    "ASSET_TOKEN": "0xB8D2D57f316f28094e6419641F620A197AA1e92F",
+    "USDC_TOKEN": "0xB8D2D57f316f28094e6419641F620A197AA1e92F",
+    "FALLBACK_BONUS_RATIO": "70",
+    "PROTOCOL_FEE_RATE": "10",
+    "RESERVE_RATIO": "50",
+    "BLUECHIP": {
+      "VAULT_NAME": "Dexponent Bluechip Vault",
+      "VAULT_SYMBOL": "dBLUE",
+      "FARM_ID": "1",
+      "LOCK_ENABLED": false,
+      "LOCK_ALLOW_EARLY": true,
+      "LOCK_EARLY_BPS": 200,
+      "LOCK_SECONDS": 0,
+      "LOCK_POST_MODE": 0,
+      "PAYOUT_MODE": 0,
+      "PAYOUT_STREAM_BPS": 3000,
+      "PAYOUT_COMPOUND_BPS": 7000,
+      "PAYOUT_EPOCH": "86400",
+      "PAYOUT_MIN_HARVEST": "300",
+      "PAYOUT_COMPOUND_ON_LOCK": true
+    }
+  }
+}

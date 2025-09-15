@@ -16,32 +16,13 @@
     "BridgingAdapter": "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853",
     "WhitelistRegistry": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
     "vaults": {
-      "staking": {
+      "bluechip": {
         "StrategyRouter": "0x94099942864EA81cCF197E9D71ac53310b1468D8",
         "LockupPolicy": "0x06B1D212B8da92b83AF328De5eef4E211Da02097",
         "PayoutPolicy": "0xED179b78D5781f93eb169730D8ad1bE7313123F4",
         "StakeholderRegistry": "0x1016b5AAA3270a65C315C664ecB238B6db270b64",
         "BaseFarm": "0x12D18787688944475C280A121c31Ed9F1c318351",
         "FarmId": "1",
-        "Adapters": {
-          "keys": [
-            "0x000000000000000000000000c6e7df5e7b4f2a278906862b61205850344d4e7d"
-          ],
-          "addrs": [
-            "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d"
-          ],
-          "bps": [
-            10000
-          ]
-        }
-      },
-      "bluechip": {
-        "StrategyRouter": "0x8796e5187fDAe37EFE827cd0a68cA73584011cE8",
-        "LockupPolicy": "0x4cBD79D2EEF2f1b36D07b57844CdF773C0F2926b",
-        "PayoutPolicy": "0x67913A0F4F407BdBA24EBf89421A519b525a235f",
-        "StakeholderRegistry": "0xAAA925501562Ce6518b75D973C43217cC559a2e3",
-        "BaseFarm": "0x62003B9CA0C4bb79FdD1CfD951CF5e15D8830641",
-        "FarmId": "2",
         "Adapters": {
           "keys": [
             "0x00000000000000000000000068b1d87f95878fe05b998f19b66f4baba5de1aed"
@@ -62,26 +43,10 @@
     "FALLBACK_BONUS_RATIO": "70",
     "PROTOCOL_FEE_RATE": "10",
     "RESERVE_RATIO": "50",
-    "STAKE": {
-      "VAULT_NAME": "Dexponent NodeSSV Vault",
-      "VAULT_SYMBOL": "dSSV",
-      "FARM_ID": "1",
-      "LOCK_ENABLED": true,
-      "LOCK_ALLOW_EARLY": true,
-      "LOCK_EARLY_BPS": 500,
-      "LOCK_SECONDS": 1209600,
-      "LOCK_POST_MODE": 1,
-      "PAYOUT_MODE": 1,
-      "PAYOUT_STREAM_BPS": 0,
-      "PAYOUT_COMPOUND_BPS": 10000,
-      "PAYOUT_EPOCH": "86400",
-      "PAYOUT_MIN_HARVEST": "300",
-      "PAYOUT_COMPOUND_ON_LOCK": true
-    },
     "BLUECHIP": {
       "VAULT_NAME": "Dexponent Bluechip Vault",
       "VAULT_SYMBOL": "dBLUE",
-      "FARM_ID": "2",
+      "FARM_ID": "1",
       "LOCK_ENABLED": false,
       "LOCK_ALLOW_EARLY": true,
       "LOCK_EARLY_BPS": 200,

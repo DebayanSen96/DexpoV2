@@ -45,22 +45,7 @@ async function main() {
   const PAYOUT_MIN_HARVEST = BigInt(env("PAYOUT_MIN_HARVEST", "300")!); // 5 min
   const PAYOUT_COMPOUND_ON_LOCK = env("PAYOUT_COMPOUND_ON_LOCK", "true") === "true";
 
-  // Per-vault overrides (staking vs lending)
-  // Staking (NodeSSV) — lockup focus
-  const STAKE_VAULT_NAME = env("STAKE_VAULT_NAME", "Dexponent NodeSSV Vault")!; // uses NodeSsvStakingAdapter
-  const STAKE_VAULT_SYMBOL = env("STAKE_VAULT_SYMBOL", "dSSV")!;
-  const STAKE_FARM_ID = BigInt(env("STAKE_FARM_ID", "1")!);
-  const STAKE_LOCK_ENABLED = env("STAKE_LOCK_ENABLED", "true") === "true";
-  const STAKE_LOCK_ALLOW_EARLY = env("STAKE_LOCK_ALLOW_EARLY", "true") === "true";
-  const STAKE_LOCK_EARLY_BPS = Number(env("STAKE_LOCK_EARLY_BPS", "500")); // 5%
-  const STAKE_LOCK_SECONDS = Number(env("STAKE_LOCK_SECONDS", "1209600")); // 14 days
-  const STAKE_LOCK_POST_MODE = Number(env("STAKE_LOCK_POST_MODE", "1"));
-  const STAKE_PAYOUT_MODE = Number(env("STAKE_PAYOUT_MODE", "1")); // Lockup
-  const STAKE_PAYOUT_STREAM_BPS = Number(env("STAKE_PAYOUT_STREAM_BPS", "0"));
-  const STAKE_PAYOUT_COMPOUND_BPS = Number(env("STAKE_PAYOUT_COMPOUND_BPS", "10000"));
-  const STAKE_PAYOUT_EPOCH = BigInt(env("STAKE_PAYOUT_EPOCH", String(PAYOUT_EPOCH))!);
-  const STAKE_PAYOUT_MIN_HARVEST = BigInt(env("STAKE_PAYOUT_MIN_HARVEST", String(PAYOUT_MIN_HARVEST))!);
-  const STAKE_PAYOUT_COMPOUND_ON_LOCK = env("STAKE_PAYOUT_COMPOUND_ON_LOCK", "true") === "true";
+  // Per-vault overrides (Bluechip Index only)
 
   // Bluechip Index (streaming focus) — uses BluechipIndexAdapter
   const LEND_VAULT_NAME = env("LEND_VAULT_NAME", "Dexponent Bluechip Vault")!; // test: BluechipIndexAdapter
@@ -250,9 +235,8 @@ async function main() {
   console.log("Approving deployer as farm owner in ProtocolCore...");
   await (await core.setApprovedFarmOwner(deployerAddress, true, await nextTxOpts())).wait();
 
-  // 5-9) Create two farms via ProtocolCore + FarmFactory (ensures registration & fee reporting wiring)
-  // Common staking splits (LP/Owner/Verifier)
-  const STAKE_SPLITS = { lpBps: 7000, ownerBps: 2500, verifierBps: 500 } as const;
+  // 5-9) Create single Bluechip farm via ProtocolCore + FarmFactory (ensures registration & fee reporting wiring)
+  // Common splits (LP/Owner/Verifier)
   const LEND_SPLITS = { lpBps: 7000, ownerBps: 2500, verifierBps: 500 } as const;
 
   // Helper for adapter key encoding
@@ -263,8 +247,8 @@ async function main() {
   // NOTE: This deployment script intentionally uses dummy addresses for external endpoints.
   // These are ONLY for test farms and not meant for production routing.
 
-  // Deploy two standalone adapters (TEST ONLY: dummy external addresses)
-  // 1) BluechipIndexAdapter (uses Uniswap V3 router/quoter) — dummy router/quoter addrs
+  // Deploy Bluechip adapter (TEST ONLY: dummy external addresses)
+  // BluechipIndexAdapter (uses a generic swapTarget)
   const BluechipF = await ethers.getContractFactory("contracts/v3/adapters/BluechipIndexAdapter.sol:BluechipIndexAdapter");
   const swapTarget = deployerAddress; // non-zero placeholder target (e.g., 0x proxy in real usage)
   const bluechip = await BluechipF.deploy(
@@ -283,92 +267,13 @@ async function main() {
   await (await whitelist.setAdapterWhitelist(bluechipAddr, true, await nextTxOpts())).wait();
   // Note: simplified adapter uses a generic swapTarget; DEX approval not required here.
 
-  // 2) NodeSsvStakingAdapter — dummy SSV network and token addrs, empty operators
-  const NodeSsvF = await ethers.getContractFactory("contracts/v3/adapters/NodeSsvStakingAdapter.sol:NodeSsvStakingAdapter");
-  const dummySsvNetwork = deployerAddress; // non-zero placeholder
-  const dummySsvToken = deployerAddress;   // non-zero placeholder
-  const nodeSsv = await NodeSsvF.deploy(
-    ASSET_TOKEN,
-    coreAddr,
-    dummySsvNetwork,
-    "0x0000000000000000000000000000000000000000000000000000000000000000", // withdrawal credentials
-    [], // operatorIds
-    dummySsvToken,
-    await nextTxOpts()
-  );
-  await nodeSsv.waitForDeployment();
-  const nodeSsvAddr = await nodeSsv.getAddress();
-  console.log("NodeSsvStakingAdapter (TEST):", nodeSsvAddr);
-  // Whitelist NodeSsv adapter for staking farm allocations
-  await (await whitelist.setAdapterWhitelist(nodeSsvAddr, true, await nextTxOpts())).wait();
-
-  // Staking farm uses NodeSsvStakingAdapter (test)
-  const stakeAdapterKeys = [toBytes32FromAddress(nodeSsvAddr)];
-  const stakeAdapterAddrs = [nodeSsvAddr];
-  const stakeAdapterBps = [10000];
-
   // Bluechip index farm uses BluechipIndexAdapter (test)
   const lendAdapterKeys = [toBytes32FromAddress(bluechipAddr)];
   const lendAdapterAddrs = [bluechipAddr];
   const lendAdapterBps = [10000];
 
-  // --- Staking Farm ---
-  console.log("Creating Staking farm via ProtocolCore.createApprovedFarm...");
-  const stakeLockCfg = {
-    enabled: STAKE_LOCK_ENABLED,
-    allowEarlyExit: STAKE_LOCK_ALLOW_EARLY,
-    earlyExitBps: STAKE_LOCK_EARLY_BPS,
-    lockupSeconds: BigInt(STAKE_LOCK_SECONDS),
-    postLockMode: STAKE_LOCK_POST_MODE,
-  };
-  const stakePayoutCfg = {
-    mode: STAKE_PAYOUT_MODE,
-    streamBps: STAKE_PAYOUT_STREAM_BPS,
-    compoundBps: STAKE_PAYOUT_COMPOUND_BPS,
-    epoch: STAKE_PAYOUT_EPOCH,
-    minHarvestInterval: STAKE_PAYOUT_MIN_HARVEST,
-    compoundLpOnLock: STAKE_PAYOUT_COMPOUND_ON_LOCK,
-  };
-  const stakeShareCfg = {
-    transferable: true,
-    transferFeeBps: 0,
-    feeReceiver: ethers.ZeroAddress,
-    protocolFeeReceiver: deployerAddress,
-    protocolRakeBps: 1000, // 10% of owner share as protocol rake
-  };
-  const stakeTx = await core.createApprovedFarm(
-    ASSET_TOKEN,
-    STAKE_VAULT_NAME,
-    STAKE_VAULT_SYMBOL,
-    deployerAddress,
-    STAKE_SPLITS.lpBps,
-    STAKE_SPLITS.ownerBps,
-    STAKE_SPLITS.verifierBps,
-    stakeLockCfg,
-    stakePayoutCfg,
-    stakeShareCfg,
-    stakeAdapterKeys,
-    stakeAdapterAddrs,
-    stakeAdapterBps,
-    await nextTxOpts()
-  );
-  const stakeRcpt = await stakeTx.wait();
-  // Parse FarmCreated to get actual farmId and baseFarm
-  const stakeEvent = stakeRcpt.logs
-    .filter((l: any) => l.address.toLowerCase() === coreAddr.toLowerCase())
-    .map((l: any) => {
-      try { return (core.interface as any).parseLog(l); } catch { return undefined; }
-    })
-    .find((ev: any) => ev && ev.name === "FarmCreated");
-  const stakeFarmId = stakeEvent?.args?.farmId as bigint;
-  const stakeBaseFarm = stakeEvent?.args?.baseFarm as string;
-  const stakeMods = await core.farmsById(stakeFarmId);
-  console.log("Staking Farm created:", { id: String(stakeFarmId), baseFarm: stakeBaseFarm });
-
-  // Whitelist registry is wired by FarmFactory; no direct router wiring required here
-
   // --- Lending Farm ---
-  // Adapter arrays already built above (NodeSsvStakingAdapter)
+  // Adapter arrays already built above (BluechipIndexAdapter)
   console.log("Creating Bluechip Index farm via ProtocolCore.createApprovedFarm...");
   const lendLockCfg = {
     enabled: LEND_LOCK_ENABLED,
@@ -439,19 +344,6 @@ async function main() {
       BridgingAdapter: bridgingAdapterAddr,
       WhitelistRegistry: whitelistAddr,
       vaults: {
-        staking: {
-          StrategyRouter: stakeMods.router,
-          LockupPolicy: stakeMods.lockupPolicy,
-          PayoutPolicy: stakeMods.payoutPolicy,
-          StakeholderRegistry: stakeMods.stakeholderRegistry,
-          BaseFarm: stakeMods.baseFarm,
-          FarmId: stakeFarmId.toString(),
-          Adapters: {
-            keys: stakeAdapterKeys,
-            addrs: stakeAdapterAddrs,
-            bps: stakeAdapterBps,
-          },
-        },
         bluechip: {
           StrategyRouter: lendMods.router,
           LockupPolicy: lendMods.lockupPolicy,
@@ -473,23 +365,6 @@ async function main() {
     FALLBACK_BONUS_RATIO: FALLBACK_BONUS_RATIO.toString(),
     PROTOCOL_FEE_RATE: PROTOCOL_FEE_RATE.toString(),
     RESERVE_RATIO: RESERVE_RATIO.toString(),
-    // Staking (NodeSSV) config snapshot
-    STAKE: {
-      VAULT_NAME: STAKE_VAULT_NAME,
-      VAULT_SYMBOL: STAKE_VAULT_SYMBOL,
-      FARM_ID: stakeFarmId.toString(),
-      LOCK_ENABLED: STAKE_LOCK_ENABLED,
-      LOCK_ALLOW_EARLY: STAKE_LOCK_ALLOW_EARLY,
-      LOCK_EARLY_BPS: STAKE_LOCK_EARLY_BPS,
-      LOCK_SECONDS: STAKE_LOCK_SECONDS,
-      LOCK_POST_MODE: STAKE_LOCK_POST_MODE,
-      PAYOUT_MODE: STAKE_PAYOUT_MODE,
-      PAYOUT_STREAM_BPS: STAKE_PAYOUT_STREAM_BPS,
-      PAYOUT_COMPOUND_BPS: STAKE_PAYOUT_COMPOUND_BPS,
-      PAYOUT_EPOCH: STAKE_PAYOUT_EPOCH.toString(),
-      PAYOUT_MIN_HARVEST: STAKE_PAYOUT_MIN_HARVEST.toString(),
-      PAYOUT_COMPOUND_ON_LOCK: STAKE_PAYOUT_COMPOUND_ON_LOCK,
-    },
     // Bluechip Index config snapshot
     BLUECHIP: {
       VAULT_NAME: LEND_VAULT_NAME,
