@@ -17,6 +17,13 @@ const networks: HardhatUserConfig["networks"] = {
     accounts: ["8c94cd0dba51e5ebe7a4bb7efc3a5a577ff8e66d9c3e28e1448d468e8055402c"],
     chainId: 10143,
   },
+  "hyperliquid-testnet": {
+    url: process.env.HYPERLIQUID_TESTNET_RPC_URL || "https://rpc.hyperliquid-testnet.xyz/evm",
+    accounts: process.env.HYPERLIQUID_PRIVATE_KEY
+      ? [process.env.HYPERLIQUID_PRIVATE_KEY]
+      : (process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : []),
+    chainId: 998,
+  },
 };
 
 const config: HardhatUserConfig = {
@@ -24,17 +31,40 @@ const config: HardhatUserConfig = {
     compilers: [
       {
         version: "0.8.28",
-        settings: { viaIR: true, optimizer: { enabled: true, runs: 200 } },
+        settings: {
+          viaIR: true,
+          optimizer: { enabled: true, runs: 50 },
+          metadata: { bytecodeHash: "none" },
+        },
       },
       {
         version: "0.8.24",
-        settings: { viaIR: true, optimizer: { enabled: true, runs: 200 } },
+        settings: {
+          viaIR: true,
+          optimizer: { enabled: true, runs: 1 },
+          metadata: { bytecodeHash: "none" },
+        },
       },
       {
         version: "0.8.17",
-        settings: { viaIR: true, optimizer: { enabled: true, runs: 200 } },
+        settings: {
+          viaIR: true,
+          optimizer: { enabled: true, runs: 50 },
+          metadata: { bytecodeHash: "none" },
+        },
       },
     ],
+    overrides: {
+      "contracts/ProtocolCore.sol": {
+        version: "0.8.24",
+        settings: {
+          viaIR: true,
+          optimizer: { enabled: true, runs: 1 },
+          metadata: { bytecodeHash: "none" },
+          debug: { revertStrings: "strip" },
+        },
+      },
+    },
   },
   networks,
 };

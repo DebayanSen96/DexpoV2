@@ -23,6 +23,11 @@ interface IAdapterRouterSettable { function setRouterOnce(address r) external; }
  */
 contract FarmFactory is IFarmFactory, Ownable {
     address public immutable protocolCore;
+    /// @notice Default swap/Oracle contract used for adapters' swapTarget/priceOracle and farm USD pricer.
+    address public defaultSwapOracle;
+
+    /// @notice Optional factory-wide default minimum subscription (base units). Default 0 disables.
+    uint256 public override defaultMinSubscription;
 
     // Implementation addresses for minimal proxy clones
     address public baseFarmImpl;
@@ -40,19 +45,33 @@ contract FarmFactory is IFarmFactory, Ownable {
 
     error NotCore();
 
-    modifier onlyCore() {
-        if (msg.sender != protocolCore) revert NotCore();
+    address public coreModule; // optional module allowed to act as core (e.g., FarmCreationModule)
+
+    modifier onlyCoreOrModule() {
+        if (msg.sender != protocolCore && msg.sender != coreModule) revert NotCore();
         _;
     }
 
     // Optional protocol-wide whitelist registry used to configure routers/adapters at clone time
     address public whitelistRegistry;
 
-    /// @notice Initialize the factory bound to a specific `ProtocolCore`.
+    /// @notice Initialize the factory bound to a specific `ProtocolCore` and default swap/oracle.
     /// @param core Address of the ProtocolCore that is authorized to call this factory.
-    constructor(address core) Ownable(msg.sender) {
+    /// @param swapOracle Address of the default swap/oracle (e.g., MockSwapRouter). Can be zero to disable.
+    constructor(address core, address swapOracle) Ownable(msg.sender) {
         require(core != address(0), "CoreZero");
         protocolCore = core;
+        defaultSwapOracle = swapOracle;
+    }
+
+    /// @notice Update the default swap/oracle used for future farms/adapters. Zero disables wiring.
+    function setDefaultSwapOracle(address swapOracle) external onlyOwner {
+        defaultSwapOracle = swapOracle;
+    }
+
+    /// @notice Set factory-wide default minimum subscription (base units). 0 disables.
+    function setDefaultMinSubscription(uint256 minSubBaseUnits) external override onlyOwner {
+        defaultMinSubscription = minSubBaseUnits;
     }
 
     /// @notice Set implementation addresses used for clones.
@@ -78,6 +97,11 @@ contract FarmFactory is IFarmFactory, Ownable {
         require(r != address(0), "ZeroRegistry");
         whitelistRegistry = r;
         emit WhitelistRegistrySet(r);
+    }
+
+    /// @notice Set an auxiliary module that can call factory functions as core (e.g., FarmCreationModule).
+    function setCoreModule(address module) external onlyOwner {
+        coreModule = module;
     }
 
     /**
@@ -118,7 +142,45 @@ contract FarmFactory is IFarmFactory, Ownable {
         bytes32[] calldata adapterKeys,
         address[] calldata adapterAddrs,
         uint16[] calldata adapterBps
-    ) external onlyCore returns (FarmAddresses memory addrs) {
+    ) external onlyCoreOrModule returns (FarmAddresses memory addrs) {
+        addrs = _createFarmStack(
+            asset,
+            farmName,
+            farmSymbol,
+            core,
+            farmId,
+            owner,
+            ownerRecipient,
+            lpBps,
+            ownerBps,
+            verifierBps,
+            lockCfg,
+            payoutCfg,
+            stCfg,
+            adapterKeys,
+            adapterAddrs,
+            adapterBps
+        );
+    }
+
+    function _createFarmStack(
+        address asset,
+        string calldata farmName,
+        string calldata farmSymbol,
+        address core,
+        uint256 farmId,
+        address owner,
+        address ownerRecipient,
+        uint16 lpBps,
+        uint16 ownerBps,
+        uint16 verifierBps,
+        LockConfig calldata lockCfg,
+        PayoutConfig calldata payoutCfg,
+        ShareTokenConfig calldata stCfg,
+        bytes32[] calldata adapterKeys,
+        address[] calldata adapterAddrs,
+        uint16[] calldata adapterBps
+    ) internal returns (FarmAddresses memory addrs) {
         // Enforce ProtocolCore farm rules prior to any deployment work
         IProtocolCoreV3(core).assertFarmConfigValid(
             lpBps,
@@ -188,6 +250,15 @@ contract FarmFactory is IFarmFactory, Ownable {
         payout.setFarm(address(farm));
         farm.setLockupPolicy(address(lockup));
         farm.setStakeholderRegistry(address(registry));
+        // If default oracle provided, wire it into farm for USD TVL/PPS
+        if (defaultSwapOracle != address(0)) {
+            // Best-effort: ignore failure on older farm impls without setUsdPricer
+            (bool okFarm, ) = address(farm).call(abi.encodeWithSelector(
+                bytes4(keccak256("setUsdPricer(address)")),
+                defaultSwapOracle
+            ));
+            okFarm;
+        }
         // Authorize farm on router for ops
         router.setFarm(address(farm));
 
@@ -215,6 +286,21 @@ contract FarmFactory is IFarmFactory, Ownable {
                         whitelistRegistry
                     ));
                     ok; // silence unused var warning
+                }
+                // If default oracle provided, best-effort set swap target and price oracle on adapter
+                if (defaultSwapOracle != address(0)) {
+                    // setSwapTarget(address)
+                    (bool ok1, ) = adapterAddrs[i].call(abi.encodeWithSelector(
+                        bytes4(keccak256("setSwapTarget(address)")),
+                        defaultSwapOracle
+                    ));
+                    ok1;
+                    // setPriceOracle(address)
+                    (bool ok2, ) = adapterAddrs[i].call(abi.encodeWithSelector(
+                        bytes4(keccak256("setPriceOracle(address)")),
+                        defaultSwapOracle
+                    ));
+                    ok2;
                 }
             }
             // Now set allocations on the router
@@ -253,5 +339,53 @@ contract FarmFactory is IFarmFactory, Ownable {
             lockupPolicy: address(lockup),
             stakeholderRegistry: address(registry)
         });
+    }
+
+    /// @notice Overload that optionally applies a per-farm minimum subscription (base units). If 0, the factory default is used. If both 0, no minimum is set.
+    function createFarmStackWithMin(
+        address asset,
+        string calldata farmName,
+        string calldata farmSymbol,
+        address core,
+        uint256 farmId,
+        address owner,
+        address ownerRecipient,
+        uint16 lpBps,
+        uint16 ownerBps,
+        uint16 verifierBps,
+        LockConfig calldata lockCfg,
+        PayoutConfig calldata payoutCfg,
+        ShareTokenConfig calldata stCfg,
+        bytes32[] calldata adapterKeys,
+        address[] calldata adapterAddrs,
+        uint16[] calldata adapterBps,
+        uint256 minSubscriptionBaseUnits
+    ) external onlyCoreOrModule returns (FarmAddresses memory addrs) {
+        addrs = _createFarmStack(
+            asset,
+            farmName,
+            farmSymbol,
+            core,
+            farmId,
+            owner,
+            ownerRecipient,
+            lpBps,
+            ownerBps,
+            verifierBps,
+            lockCfg,
+            payoutCfg,
+            stCfg,
+            adapterKeys,
+            adapterAddrs,
+            adapterBps
+        );
+        uint256 minToApply = minSubscriptionBaseUnits == 0 ? defaultMinSubscription : minSubscriptionBaseUnits;
+        if (minToApply > 0) {
+            (bool okMin, ) = addrs.baseFarm.call(abi.encodeWithSelector(
+                bytes4(keccak256("setMinSubscription(uint256)")),
+                minToApply
+            ));
+            okMin;
+        }
     }
 }

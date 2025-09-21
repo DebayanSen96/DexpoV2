@@ -37,6 +37,10 @@ interface IFarmFactory {
         address stakeholderRegistry;
     }
 
+    /// Optional factory-wide default minimum subscription (base units) applied at farm creation if per-call value is zero
+    function defaultMinSubscription() external view returns (uint256);
+    function setDefaultMinSubscription(uint256 minSubBaseUnits) external;
+
     /**
      * @notice Deploys a complete v3 farm stack and wires all modules.
      * @param asset           The base asset (ERC20) for the farm
@@ -72,5 +76,26 @@ interface IFarmFactory {
         bytes32[] calldata adapterKeys,
         address[] calldata adapterAddrs,
         uint16[] calldata adapterBps
+    ) external returns (FarmAddresses memory addrs);
+
+    /// Overload that accepts a per-farm minimum subscription in base units. If 0, factory default is used. If both 0, no minimum.
+    function createFarmStackWithMin(
+        address asset,
+        string calldata farmName,
+        string calldata farmSymbol,
+        address core,
+        uint256 farmId,
+        address owner,
+        address ownerRecipient,
+        uint16 lpBps,
+        uint16 ownerBps,
+        uint16 verifierBps,
+        LockConfig calldata lockCfg,
+        PayoutConfig calldata payoutCfg,
+        ShareTokenConfig calldata stCfg,
+        bytes32[] calldata adapterKeys,
+        address[] calldata adapterAddrs,
+        uint16[] calldata adapterBps,
+        uint256 minSubscriptionBaseUnits
     ) external returns (FarmAddresses memory addrs);
 }

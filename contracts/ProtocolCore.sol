@@ -45,6 +45,7 @@ import "./interfaces/IRootFarm.sol";
 import "./interfaces/IConsensus.sol";
 import "./v3/interfaces/IFarmFactory.sol";
 import "./interfaces/ILiquidityManager.sol";
+import "./v3/core/FarmCreationModule.sol";
 import "./interfaces/IBridgeAdapter.sol";
 
 // local farm interface (only the fns we actually call)
@@ -150,9 +151,9 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     // ───────────────────────────────────────────────────────────
     //              PROTOCOL-WIDE FINANCIAL STATE
     // ───────────────────────────────────────────────────────────
-    uint256 internal protocolFeeRate; // % of farmOwner share
+    uint256 internal protocolFeeRate; // % of farm-owner slice of revenue
     uint256 internal transferFeeRate;
-    uint256 internal reserveRatio; // % of fee retained in reserves
+    uint256 internal reserveRatio; // % of fee kept in reserves
 
     // Lightweight fee accounting for v3 farms
     mapping(uint256 => uint256) public totalProtocolFeesByFarm; // farmId => cumulative protocol fee reported
@@ -169,6 +170,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     IFarmFactory public farmFactory; // v3 farm stack factory
     IBridgeAdapter public bridgeAdapter;
     IConsensus public consensus; // pulls verifier rounds
+    FarmCreationModule public farmCreationModule; // external thin module to create farms
 
     // immutable tokens
     IDXPToken public immutable dxpToken;
@@ -181,7 +183,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     uint256 public timeScaleDenominator = 1;
 
     // ───────────────────────────────────────────────────────────
-    //                        FARM RULES
+    //                        FARM RULES 
     // ───────────────────────────────────────────────────────────
     struct FarmRules {
         uint16 minLpBps;              // minimum LP share
@@ -341,6 +343,12 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     function setFarmFactory(address f) external onlyOwner {
         require(f != address(0), "zero address");
         farmFactory = IFarmFactory(f);
+    }
+
+    /// @notice Set the external FarmCreationModule used to create farms (reduces core bytecode/stack usage)
+    function setFarmCreationModule(address m) external onlyOwner {
+        require(m != address(0), "zero address");
+        farmCreationModule = FarmCreationModule(m);
     }
 
     // ───────────────────────────────────────────────────────────
@@ -559,11 +567,11 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         require(address(farmFactory) != address(0), "No FarmFactory");
         require(uint256(lpBps) + ownerBps + verifierBps == 10_000, "Split!=100%");
 
-        // Assign new farmId (reserve 0 for RootFarm)
         unchecked { nextFarmId += 1; }
         farmIdOut = nextFarmId;
 
-        IFarmFactory.FarmAddresses memory addrs = farmFactory.createFarmStack(
+        IFarmFactory.FarmAddresses memory addrs = farmCreationModule.createFarmWithMin(
+            farmFactory,
             asset,
             farmName,
             farmSymbol,
@@ -579,10 +587,87 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
             stCfg,
             adapterKeys,
             adapterAddrs,
-            adapterBps
+            adapterBps,
+            0
         );
 
-        // Registry entries for backwards compatibility & v3 tracking
+        farmAddressOf[farmIdOut] = addrs.baseFarm;
+        farms[addrs.baseFarm] = FarmDetails({
+            farmAddress: addrs.baseFarm,
+            owner: msg.sender,
+            asset: asset,
+            farmId: farmIdOut
+        });
+
+        farmsById[farmIdOut] = FarmDetails_V3({
+            baseFarm: addrs.baseFarm,
+            owner: msg.sender,
+            asset: asset,
+            farmId: farmIdOut,
+            router: addrs.router,
+            payoutPolicy: addrs.payoutPolicy,
+            lockupPolicy: addrs.lockupPolicy,
+            stakeholderRegistry: addrs.stakeholderRegistry
+        });
+        farmIdOf[addrs.baseFarm] = farmIdOut;
+
+        emit FarmCreated(
+            farmIdOut,
+            addrs.baseFarm,
+            msg.sender,
+            addrs.router,
+            addrs.payoutPolicy,
+            addrs.lockupPolicy,
+            addrs.stakeholderRegistry
+        );
+
+        return (farmIdOut, addrs.baseFarm);
+    }
+
+    function createApprovedFarmWithMin(
+        address asset,
+        string memory farmName,
+        string memory farmSymbol,
+        address ownerRecipient,
+        uint16 lpBps,
+        uint16 ownerBps,
+        uint16 verifierBps,
+        IFarmFactory.LockConfig calldata lockCfg,
+        IFarmFactory.PayoutConfig calldata payoutCfg,
+        IFarmFactory.ShareTokenConfig calldata stCfg,
+        bytes32[] calldata adapterKeys,
+        address[] calldata adapterAddrs,
+        uint16[] calldata adapterBps,
+        uint256 minSubscriptionBaseUnits
+    ) public nonReentrant returns (uint256 farmIdOut, address baseFarm) {
+        require(approvedFarmOwners[msg.sender], "Not an approved farm owner");
+        require(address(farmFactory) != address(0), "No FarmFactory");
+        require(uint256(lpBps) + ownerBps + verifierBps == 10_000, "Split!=100%");
+
+        unchecked { nextFarmId += 1; }
+        farmIdOut = nextFarmId;
+
+        IFarmFactory.FarmAddresses memory addrs = farmCreationModule.createFarmWithMin(
+            farmFactory,
+            asset,
+            farmName,
+            farmSymbol,
+            address(this),
+            farmIdOut,
+            msg.sender,
+            ownerRecipient,
+            lpBps,
+            ownerBps,
+            verifierBps,
+            lockCfg,
+            payoutCfg,
+            stCfg,
+            adapterKeys,
+            adapterAddrs,
+            adapterBps,
+            minSubscriptionBaseUnits
+        );
+
         farmAddressOf[farmIdOut] = addrs.baseFarm;
         farms[addrs.baseFarm] = FarmDetails({
             farmAddress: addrs.baseFarm,
@@ -651,7 +736,8 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         unchecked { nextFarmId += 1; }
         farmIdOut = nextFarmId;
 
-        IFarmFactory.FarmAddresses memory addrs = farmFactory.createFarmStack(
+        IFarmFactory.FarmAddresses memory addrs = farmCreationModule.createFarmWithMin(
+            farmFactory,
             asset,
             farmName,
             farmSymbol,
@@ -667,7 +753,93 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
             stCfg,
             adapterKeys,
             adapterAddrs,
-            adapterBps
+            adapterBps,
+            0
+        );
+
+        farmAddressOf[farmIdOut] = addrs.baseFarm;
+        farms[addrs.baseFarm] = FarmDetails({
+            farmAddress: addrs.baseFarm,
+            owner: creator,
+            asset: asset,
+            farmId: farmIdOut
+        });
+
+        farmsById[farmIdOut] = FarmDetails_V3({
+            baseFarm: addrs.baseFarm,
+            owner: creator,
+            asset: asset,
+            farmId: farmIdOut,
+            router: addrs.router,
+            payoutPolicy: addrs.payoutPolicy,
+            lockupPolicy: addrs.lockupPolicy,
+            stakeholderRegistry: addrs.stakeholderRegistry
+        });
+        farmIdOf[addrs.baseFarm] = farmIdOut;
+
+        emit FarmCreated(
+            farmIdOut,
+            addrs.baseFarm,
+            creator,
+            addrs.router,
+            addrs.payoutPolicy,
+            addrs.lockupPolicy,
+            addrs.stakeholderRegistry
+        );
+
+        return (farmIdOut, addrs.baseFarm);
+    }
+
+    function createApprovedFarmForWithMin(
+        address creator,
+        address asset,
+        string memory farmName,
+        string memory farmSymbol,
+        address ownerRecipient,
+        uint16 lpBps,
+        uint16 ownerBps,
+        uint16 verifierBps,
+        IFarmFactory.LockConfig calldata lockCfg,
+        IFarmFactory.PayoutConfig calldata payoutCfg,
+        IFarmFactory.ShareTokenConfig calldata stCfg,
+        bytes32[] calldata adapterKeys,
+        address[] calldata adapterAddrs,
+        uint16[] calldata adapterBps,
+        uint256 minSubscriptionBaseUnits
+    ) public nonReentrant returns (uint256 farmIdOut, address baseFarm) {
+        require(address(farmFactory) != address(0), "No FarmFactory");
+        require(uint256(lpBps) + ownerBps + verifierBps == 10_000, "Split!=100%");
+
+        bool isProtocolOwner = (msg.sender == owner());
+        if (isProtocolOwner) {
+            require(approvedFarmOwners[creator], "Creator not approved");
+        } else {
+            require(approvedFarmOwners[msg.sender], "Not an approved farm owner");
+            require(msg.sender == creator, "Sender!=creator");
+        }
+
+        unchecked { nextFarmId += 1; }
+        farmIdOut = nextFarmId;
+
+        IFarmFactory.FarmAddresses memory addrs = farmCreationModule.createFarmWithMin(
+            farmFactory,
+            asset,
+            farmName,
+            farmSymbol,
+            address(this),
+            farmIdOut,
+            creator,
+            ownerRecipient,
+            lpBps,
+            ownerBps,
+            verifierBps,
+            lockCfg,
+            payoutCfg,
+            stCfg,
+            adapterKeys,
+            adapterAddrs,
+            adapterBps,
+            minSubscriptionBaseUnits
         );
 
         farmAddressOf[farmIdOut] = addrs.baseFarm;
@@ -859,16 +1031,14 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
      * @dev Emission can only be triggered if at least 20 seconds have passed since the last call.
      *      The newly minted tokens are added to both the emission reserve and protocol reserves.
      */
-    function triggerEmission() external onlyOwner nonReentrant {
+    function triggerEmission(uint256 amount) external onlyOwner nonReentrant {
         require(block.timestamp >= lastEmissionCall + 20, "Wait 20s");
-        uint256 balanceBefore = dxpToken.balanceOf(address(this));
+        require(amount > 0, "amount=0");
         lastEmissionCall = block.timestamp;
-        dxpToken.emitTokens();
-        uint256 balanceAfter = dxpToken.balanceOf(address(this));
-        uint256 minted = balanceAfter - balanceBefore;
-        emissionReserve += minted;
-        protocolReserves += minted;
-        emit EmissionTriggered(minted);
+        dxpToken.mint(address(this), amount);
+        emissionReserve += amount;
+        protocolReserves += amount;
+        emit EmissionTriggered(amount);
         emit EmissionReserveUpdated(emissionReserve);
     }
 
@@ -1015,7 +1185,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
 
     /**
      * @notice Recycles bonus tokens from the cooldown queue once the cooldown period has expired.
-     *         The recycled tokens are credited back to protocol reserves via dxpToken.recycleTokens().
+     *         The recycled tokens are credited back to protocol reserves accounting.
      */
     function recycleCooldownTokens() external nonReentrant {
         uint256 totalRecycled = 0;
@@ -1031,7 +1201,8 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
             }
         }
         if (totalRecycled > 0) {
-            dxpToken.recycleTokens(totalRecycled);
+            // Tokens were already transferred to this contract on reversal; just update accounting.
+            protocolReserves += totalRecycled;
             emit CooldownTokensRecycled(totalRecycled);
         }
     }
