@@ -1,6 +1,6 @@
 import hre from "hardhat";
 import "dotenv/config";
-import { writeFile, mkdir } from "fs/promises";
+import { writeFile, mkdir, readFile } from "fs/promises";
 import { join } from "path";
 
 // Helper to read env with defaults
@@ -18,11 +18,85 @@ async function getGasOverrides(ethers: any) {
   return { maxFeePerGas, maxPriorityFeePerGas };
 }
 
+// Deployment manifest interface
+interface DeploymentManifest {
+  network: string;
+  deployer: string;
+  lastUpdated: string;
+  steps: {
+    [key: string]: {
+      deployed: boolean;
+      address?: string | null;
+      txHash?: string | null;
+      farmId?: string | null;
+      baseFarm?: string | null;
+      addresses?: { [key: string]: string };
+      txHashes?: string[];
+    };
+  };
+}
+
+// Load deployment manifest
+async function loadManifest(network: string): Promise<DeploymentManifest> {
+  try {
+    const manifestPath = join("scripts", "deploy-manifest.json");
+    const manifestContent = await readFile(manifestPath, "utf-8");
+    const manifest = JSON.parse(manifestContent);
+
+    // Return existing manifest for the network or create a new one
+    if (manifest.network === network) {
+      return manifest;
+    }
+  } catch (error) {
+    console.log("No existing manifest found, creating new one...");
+  }
+
+  // Create new manifest
+  return {
+    network,
+    deployer: "0x0000000000000000000000000000000000000000",
+    lastUpdated: new Date().toISOString(),
+    steps: {
+      DXPToken: { deployed: false, address: null, txHash: null },
+      ProtocolCore: { deployed: false, address: null, txHash: null },
+      WhitelistRegistry: { deployed: false, address: null, txHash: null },
+      signerApproved: { deployed: false, txHash: null },
+      DXPTokenOwnershipTransferred: { deployed: false, txHash: null },
+      MockLiquidityManager: { deployed: false, address: null, txHash: null },
+      LiquidityManagerWired: { deployed: false, txHash: null },
+      BridgingAdapter: { deployed: false, address: null, txHash: null },
+      FarmFactory: { deployed: false, address: null, txHash: null },
+      FarmFactoryWired: { deployed: false, txHash: null },
+      WhitelistRegistrySet: { deployed: false, txHash: null },
+      ModuleImplementations: { deployed: false, addresses: {}, txHashes: [] },
+      ImplementationsSet: { deployed: false, txHash: null },
+      FarmCreationModule: { deployed: false, address: null, txHash: null },
+      FarmCreationModuleWired: { deployed: false, txHash: null },
+      FarmCreationModuleAuthorized: { deployed: false, txHash: null },
+      DeployerApproved: { deployed: false, txHash: null },
+      BluechipIndexAdapter: { deployed: false, address: null, txHash: null },
+      AdapterWhitelisted: { deployed: false, txHash: null },
+      BluechipIndexFarm: { deployed: false, farmId: null, baseFarm: null, txHash: null }
+    }
+  };
+}
+
+// Save deployment manifest
+async function saveManifest(manifest: DeploymentManifest): Promise<void> {
+  const manifestPath = join("scripts", "deploy-manifest.json");
+  manifest.lastUpdated = new Date().toISOString();
+  await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+}
+
 async function main() {
   const network: string = ((hre as any).network?.name as string) || process.env.HARDHAT_NETWORK || "hardhat";
   const { ethers } = hre as any;
 
   console.log("Network:", network);
+
+  // Load deployment manifest
+  const manifest = await loadManifest(network);
+  console.log("Loaded deployment manifest, last updated:", manifest.lastUpdated);
 
   // Configurable params via env (ASSET_TOKEN may be set after DXP deploy)
   const ASSET_TOKEN_ENV = env("ASSET_TOKEN");
@@ -71,6 +145,10 @@ async function main() {
   let nextNonce = await ethers.provider.getTransactionCount(deployerAddress, "latest");
   console.log("Deployer:", deployerAddress);
 
+  // Update manifest with deployer
+  manifest.deployer = deployerAddress;
+  await saveManifest(manifest);
+
   // Helper to get tx options with incrementing nonce, always syncing from chain first
   const nextTxOpts = async () => {
     const chainNonce = await ethers.provider.getTransactionCount(deployerAddress, "latest");
@@ -81,12 +159,27 @@ async function main() {
   };
 
   // 1) Deploy DXPToken
-  console.log("Deploying DXPToken...");
-  const DXPFactory = await ethers.getContractFactory("DXPToken");
-  const dxp = await DXPFactory.deploy(await nextTxOpts());
-  await dxp.waitForDeployment();
-  const dxpAddr = await dxp.getAddress();
-  console.log("DXPToken:", dxpAddr);
+  let dxpAddr: string;
+  let dxp: any;
+  if (!manifest.steps.DXPToken.deployed) {
+    console.log("Deploying DXPToken...");
+    const DXPFactory = await ethers.getContractFactory("DXPToken");
+    dxp = await DXPFactory.deploy(await nextTxOpts());
+    await dxp.waitForDeployment();
+    dxpAddr = await dxp.getAddress();
+    console.log("DXPToken:", dxpAddr);
+
+    // Update manifest
+    manifest.steps.DXPToken.deployed = true;
+    manifest.steps.DXPToken.address = dxpAddr;
+    manifest.steps.DXPToken.txHash = dxp.deploymentTransaction()?.hash || null;
+    await saveManifest(manifest);
+  } else {
+    console.log("DXPToken already deployed, skipping...");
+    dxpAddr = manifest.steps.DXPToken.address!;
+    // Get the existing contract instance for later use
+    dxp = await ethers.getContractAt("DXPToken", dxpAddr);
+  }
 
   // Resolve base asset after DXP is available; default to DXP if not provided
   const ASSET_TOKEN = ASSET_TOKEN_ENV ?? dxpAddr;
@@ -95,26 +188,54 @@ async function main() {
   // 2) FarmFactory no longer needed (legacy farms deprecated)
 
   // 3) Deploy ProtocolCore(address dxp, uint256 fallbackRatio, uint256 protocolFeeRate, uint256 reserveRatio)
-  console.log("Deploying ProtocolCore...");
-  const ProtocolCore = await ethers.getContractFactory("ProtocolCore");
-  const core = await ProtocolCore.deploy(
-    dxpAddr,
-    Number(FALLBACK_BONUS_RATIO), // fallbackRatio (%)
-    Number(PROTOCOL_FEE_RATE),    // protocolFeeRate (%)
-    Number(RESERVE_RATIO),        // reserveRatio (%)
-    await nextTxOpts()
-  );
-  await core.waitForDeployment();
-  const coreAddr = await core.getAddress();
-  console.log("ProtocolCore:", coreAddr);
+  let coreAddr: string;
+  let core: any;
+  if (!manifest.steps.ProtocolCore.deployed) {
+    console.log("Deploying ProtocolCore...");
+    const ProtocolCore = await ethers.getContractFactory("ProtocolCore");
+    core = await ProtocolCore.deploy(
+      dxpAddr,
+      Number(FALLBACK_BONUS_RATIO), // fallbackRatio (%)
+      Number(PROTOCOL_FEE_RATE),    // protocolFeeRate (%)
+      Number(RESERVE_RATIO),        // reserveRatio (%)
+      await nextTxOpts()
+    );
+    await core.waitForDeployment();
+    coreAddr = await core.getAddress();
+    console.log("ProtocolCore:", coreAddr);
+
+    // Update manifest
+    manifest.steps.ProtocolCore.deployed = true;
+    manifest.steps.ProtocolCore.address = coreAddr;
+    manifest.steps.ProtocolCore.txHash = core.deploymentTransaction()?.hash || null;
+    await saveManifest(manifest);
+  } else {
+    console.log("ProtocolCore already deployed, skipping...");
+    coreAddr = manifest.steps.ProtocolCore.address!;
+    core = await ethers.getContractAt("ProtocolCore", coreAddr);
+  }
 
   // 3.1) Deploy WhitelistRegistry (owned by deployer/protocol owner for now)
-  console.log("Deploying WhitelistRegistry...");
-  const WhitelistRegistryF = await ethers.getContractFactory("contracts/v3/modules/WhitelistRegistry.sol:WhitelistRegistry");
-  const whitelist = await WhitelistRegistryF.deploy(deployerAddress, await nextTxOpts());
-  await whitelist.waitForDeployment();
-  const whitelistAddr = await whitelist.getAddress();
-  console.log("WhitelistRegistry:", whitelistAddr);
+  let whitelistAddr: string;
+  let whitelist: any;
+  if (!manifest.steps.WhitelistRegistry.deployed) {
+    console.log("Deploying WhitelistRegistry...");
+    const WhitelistRegistryF = await ethers.getContractFactory("contracts/v3/modules/WhitelistRegistry.sol:WhitelistRegistry");
+    whitelist = await WhitelistRegistryF.deploy(deployerAddress, await nextTxOpts());
+    await whitelist.waitForDeployment();
+    whitelistAddr = await whitelist.getAddress();
+    console.log("WhitelistRegistry:", whitelistAddr);
+
+    // Update manifest
+    manifest.steps.WhitelistRegistry.deployed = true;
+    manifest.steps.WhitelistRegistry.address = whitelistAddr;
+    manifest.steps.WhitelistRegistry.txHash = whitelist.deploymentTransaction()?.hash || null;
+    await saveManifest(manifest);
+  } else {
+    console.log("WhitelistRegistry already deployed, skipping...");
+    whitelistAddr = manifest.steps.WhitelistRegistry.address!;
+    whitelist = await ethers.getContractAt("WhitelistRegistry", whitelistAddr);
+  }
 
   // Approve server/deployment signer (from env) as an approved farm owner
   // This helps the API/server create farms without requiring manual approval.
@@ -172,80 +293,186 @@ async function main() {
   console.log("BridgingAdapter:", bridgingAdapterAddr);
 
   // 5) Deploy FarmFactory (v3) and wire into ProtocolCore
-  console.log("Deploying v3 FarmFactory...");
-  const FarmFactory = await ethers.getContractFactory("contracts/v3/factories/FarmFactory.sol:FarmFactory");
-  // FarmFactory constructor expects (address core, address swapOracle)
-  const DEFAULT_ORACLE = "0x8C82f93a99518f7381BBb29Cc29128e7C5249042"; //VERY IMPORTANT TO CONFIGURE
-  const farmFactory = await FarmFactory.deploy(coreAddr, DEFAULT_ORACLE, await nextTxOpts());
-  await farmFactory.waitForDeployment();
-  const farmFactoryAddr = await farmFactory.getAddress();
-  console.log("FarmFactory:", farmFactoryAddr);
-  console.log("Wiring FarmFactory in ProtocolCore...");
-  await (await core.setFarmFactory(farmFactoryAddr, await nextTxOpts())).wait();
-  console.log("Setting whitelist registry on FarmFactory...");
-  await (await farmFactory.setWhitelistRegistry(whitelistAddr, await nextTxOpts())).wait();
+  let farmFactoryAddr: string;
+  let farmFactory: any;
+  if (!manifest.steps.FarmFactory.deployed) {
+    console.log("Deploying v3 FarmFactory...");
+    const FarmFactory = await ethers.getContractFactory("contracts/v3/factories/FarmFactory.sol:FarmFactory");
+    // FarmFactory constructor expects (address core, address swapOracle)
+    const DEFAULT_ORACLE = "0x8C82f93a99518f7381BBb29Cc29128e7C5249042"; //VERY IMPORTANT TO CONFIGURE
+    farmFactory = await FarmFactory.deploy(coreAddr, DEFAULT_ORACLE, await nextTxOpts());
+    await farmFactory.waitForDeployment();
+    farmFactoryAddr = await farmFactory.getAddress();
+    console.log("FarmFactory:", farmFactoryAddr);
+
+    // Update manifest
+    manifest.steps.FarmFactory.deployed = true;
+    manifest.steps.FarmFactory.address = farmFactoryAddr;
+    manifest.steps.FarmFactory.txHash = farmFactory.deploymentTransaction()?.hash || null;
+    await saveManifest(manifest);
+  } else {
+    console.log("FarmFactory already deployed, skipping...");
+    farmFactoryAddr = manifest.steps.FarmFactory.address!;
+    farmFactory = await ethers.getContractAt("FarmFactory", farmFactoryAddr);
+  }
+
+  // Wire FarmFactory in ProtocolCore
+  if (!manifest.steps.FarmFactoryWired.deployed) {
+    console.log("Wiring FarmFactory in ProtocolCore...");
+    const tx = await core.setFarmFactory(farmFactoryAddr, await nextTxOpts());
+    await tx.wait();
+
+    // Update manifest
+    manifest.steps.FarmFactoryWired.deployed = true;
+    manifest.steps.FarmFactoryWired.txHash = tx.hash;
+    await saveManifest(manifest);
+  }
+
+  // Set whitelist registry on FarmFactory
+  if (!manifest.steps.WhitelistRegistrySet.deployed) {
+    console.log("Setting whitelist registry on FarmFactory...");
+    const tx = await farmFactory.setWhitelistRegistry(whitelistAddr, await nextTxOpts());
+    await tx.wait();
+
+    // Update manifest
+    manifest.steps.WhitelistRegistrySet.deployed = true;
+    manifest.steps.WhitelistRegistrySet.txHash = tx.hash;
+    await saveManifest(manifest);
+  }
 
   // 5.1) Deploy implementation contracts for clone-based modules and set them in the factory
-  console.log("Deploying v3 module implementations (BaseFarm, StrategyRouter, PayoutPolicy, LockupPolicy, StakeholderRegistry)...");
-  const BaseFarmImplF = await ethers.getContractFactory("contracts/v3/farm/BaseFarm.sol:BaseFarm");
-  const RouterImplF = await ethers.getContractFactory("contracts/v3/strategies/StrategyRouter.sol:StrategyRouter");
-  const PayoutImplF = await ethers.getContractFactory("contracts/v3/modules/PayoutPolicy.sol:PayoutPolicy");
-  const LockupImplF = await ethers.getContractFactory("contracts/v3/modules/LockupPolicy.sol:LockupPolicy");
-  const RegistryImplF = await ethers.getContractFactory("contracts/v3/modules/StakeholderRegistry.sol:StakeholderRegistry");
+  let baseFarmImplAddr: string, routerImplAddr: string, payoutImplAddr: string, lockupImplAddr: string, registryImplAddr: string;
 
-  const baseFarmImpl = await BaseFarmImplF.deploy(await nextTxOpts());
-  await baseFarmImpl.waitForDeployment();
-  const baseFarmImplAddr = await baseFarmImpl.getAddress();
+  if (!manifest.steps.ModuleImplementations.deployed) {
+    console.log("Deploying v3 module implementations (BaseFarm, StrategyRouter, PayoutPolicy, LockupPolicy, StakeholderRegistry)...");
+    const BaseFarmImplF = await ethers.getContractFactory("contracts/v3/farm/BaseFarm.sol:BaseFarm");
+    const RouterImplF = await ethers.getContractFactory("contracts/v3/strategies/StrategyRouter.sol:StrategyRouter");
+    const PayoutImplF = await ethers.getContractFactory("contracts/v3/modules/PayoutPolicy.sol:PayoutPolicy");
+    const LockupImplF = await ethers.getContractFactory("contracts/v3/modules/LockupPolicy.sol:LockupPolicy");
+    const RegistryImplF = await ethers.getContractFactory("contracts/v3/modules/StakeholderRegistry.sol:StakeholderRegistry");
 
-  const routerImpl = await RouterImplF.deploy(await nextTxOpts());
-  await routerImpl.waitForDeployment();
-  const routerImplAddr = await routerImpl.getAddress();
+    const baseFarmImpl = await BaseFarmImplF.deploy(await nextTxOpts());
+    await baseFarmImpl.waitForDeployment();
+    baseFarmImplAddr = await baseFarmImpl.getAddress();
 
-  const payoutImpl = await PayoutImplF.deploy(await nextTxOpts());
-  await payoutImpl.waitForDeployment();
-  const payoutImplAddr = await payoutImpl.getAddress();
+    const routerImpl = await RouterImplF.deploy(await nextTxOpts());
+    await routerImpl.waitForDeployment();
+    routerImplAddr = await routerImpl.getAddress();
 
-  const lockupImpl = await LockupImplF.deploy(await nextTxOpts());
-  await lockupImpl.waitForDeployment();
-  const lockupImplAddr = await lockupImpl.getAddress();
+    const payoutImpl = await PayoutImplF.deploy(await nextTxOpts());
+    await payoutImpl.waitForDeployment();
+    payoutImplAddr = await payoutImpl.getAddress();
 
-  const registryImpl = await RegistryImplF.deploy(await nextTxOpts());
-  await registryImpl.waitForDeployment();
-  const registryImplAddr = await registryImpl.getAddress();
+    const lockupImpl = await LockupImplF.deploy(await nextTxOpts());
+    await lockupImpl.waitForDeployment();
+    lockupImplAddr = await lockupImpl.getAddress();
 
-  console.log("Module Implementations:", {
-    BaseFarm: baseFarmImplAddr,
-    StrategyRouter: routerImplAddr,
-    PayoutPolicy: payoutImplAddr,
-    LockupPolicy: lockupImplAddr,
-    StakeholderRegistry: registryImplAddr,
-  });
+    const registryImpl = await RegistryImplF.deploy(await nextTxOpts());
+    await registryImpl.waitForDeployment();
+    registryImplAddr = await registryImpl.getAddress();
 
-  console.log("Setting implementations in FarmFactory...");
-  await (
-    await farmFactory.setImplementations(
+    console.log("Module Implementations:", {
+      BaseFarm: baseFarmImplAddr,
+      StrategyRouter: routerImplAddr,
+      PayoutPolicy: payoutImplAddr,
+      LockupPolicy: lockupImplAddr,
+      StakeholderRegistry: registryImplAddr,
+    });
+
+    // Update manifest
+    manifest.steps.ModuleImplementations.deployed = true;
+    manifest.steps.ModuleImplementations.addresses = {
+      BaseFarm: baseFarmImplAddr,
+      StrategyRouter: routerImplAddr,
+      PayoutPolicy: payoutImplAddr,
+      LockupPolicy: lockupImplAddr,
+      StakeholderRegistry: registryImplAddr,
+    };
+    await saveManifest(manifest);
+  } else {
+    console.log("Module implementations already deployed, skipping...");
+    baseFarmImplAddr = manifest.steps.ModuleImplementations.addresses!.BaseFarm;
+    routerImplAddr = manifest.steps.ModuleImplementations.addresses!.StrategyRouter;
+    payoutImplAddr = manifest.steps.ModuleImplementations.addresses!.PayoutPolicy;
+    lockupImplAddr = manifest.steps.ModuleImplementations.addresses!.LockupPolicy;
+    registryImplAddr = manifest.steps.ModuleImplementations.addresses!.StakeholderRegistry;
+  }
+
+  // Set implementations in FarmFactory
+  if (!manifest.steps.ImplementationsSet.deployed) {
+    console.log("Setting implementations in FarmFactory...");
+    const tx = await farmFactory.setImplementations(
       baseFarmImplAddr,
       routerImplAddr,
       payoutImplAddr,
       lockupImplAddr,
       registryImplAddr,
       await nextTxOpts()
-    )
-  ).wait();
+    );
+    await tx.wait();
+
+    // Update manifest
+    manifest.steps.ImplementationsSet.deployed = true;
+    manifest.steps.ImplementationsSet.txHash = tx.hash;
+    await saveManifest(manifest);
+  }
 
   // 5.2) Deploy FarmCreationModule and wire into ProtocolCore (required by createApprovedFarm)
-  console.log("Deploying FarmCreationModule and wiring into ProtocolCore...");
-  const FarmCreationModuleF = await ethers.getContractFactory("contracts/v3/core/FarmCreationModule.sol:FarmCreationModule");
-  const farmCreationModule = await FarmCreationModuleF.deploy(await nextTxOpts());
-  await farmCreationModule.waitForDeployment();
-  const farmCreationModuleAddr = await farmCreationModule.getAddress();
-  await (await core.setFarmCreationModule(farmCreationModuleAddr, await nextTxOpts())).wait();
-  console.log("Authorizing FarmCreationModule in FarmFactory (setCoreModule)...");
-  await (await farmFactory.setCoreModule(farmCreationModuleAddr, await nextTxOpts())).wait();
+  let farmCreationModuleAddr: string;
+  let farmCreationModule: any;
+  if (!manifest.steps.FarmCreationModule.deployed) {
+    console.log("Deploying FarmCreationModule and wiring into ProtocolCore...");
+    const FarmCreationModuleF = await ethers.getContractFactory("contracts/v3/core/FarmCreationModule.sol:FarmCreationModule");
+    farmCreationModule = await FarmCreationModuleF.deploy(await nextTxOpts());
+    await farmCreationModule.waitForDeployment();
+    farmCreationModuleAddr = await farmCreationModule.getAddress();
 
-  // Optionally approve deployer as farm owner in core (useful for tests)
-  console.log("Approving deployer as farm owner in ProtocolCore...");
-  await (await core.setApprovedFarmOwner(deployerAddress, true, await nextTxOpts())).wait();
+    // Update manifest
+    manifest.steps.FarmCreationModule.deployed = true;
+    manifest.steps.FarmCreationModule.address = farmCreationModuleAddr;
+    manifest.steps.FarmCreationModule.txHash = farmCreationModule.deploymentTransaction()?.hash || null;
+    await saveManifest(manifest);
+  } else {
+    console.log("FarmCreationModule already deployed, skipping...");
+    farmCreationModuleAddr = manifest.steps.FarmCreationModule.address!;
+    farmCreationModule = await ethers.getContractAt("FarmCreationModule", farmCreationModuleAddr);
+  }
+
+  // Wire FarmCreationModule in ProtocolCore
+  if (!manifest.steps.FarmCreationModuleWired.deployed) {
+    console.log("Wiring FarmCreationModule in ProtocolCore...");
+    const tx = await core.setFarmCreationModule(farmCreationModuleAddr, await nextTxOpts());
+    await tx.wait();
+
+    // Update manifest
+    manifest.steps.FarmCreationModuleWired.deployed = true;
+    manifest.steps.FarmCreationModuleWired.txHash = tx.hash;
+    await saveManifest(manifest);
+  }
+
+  // Authorize FarmCreationModule in FarmFactory
+  if (!manifest.steps.FarmCreationModuleAuthorized.deployed) {
+    console.log("Authorizing FarmCreationModule in FarmFactory (setCoreModule)...");
+    const tx = await farmFactory.setCoreModule(farmCreationModuleAddr, await nextTxOpts());
+    await tx.wait();
+
+    // Update manifest
+    manifest.steps.FarmCreationModuleAuthorized.deployed = true;
+    manifest.steps.FarmCreationModuleAuthorized.txHash = tx.hash;
+    await saveManifest(manifest);
+  }
+
+  // Approve deployer as farm owner in core (useful for tests)
+  if (!manifest.steps.DeployerApproved.deployed) {
+    console.log("Approving deployer as farm owner in ProtocolCore...");
+    const tx = await core.setApprovedFarmOwner(deployerAddress, true, await nextTxOpts());
+    await tx.wait();
+
+    // Update manifest
+    manifest.steps.DeployerApproved.deployed = true;
+    manifest.steps.DeployerApproved.txHash = tx.hash;
+    await saveManifest(manifest);
+  }
 
   // 5-9) Create single Bluechip farm via ProtocolCore + FarmFactory (ensures registration & fee reporting wiring)
   // Common splits (LP/Owner/Verifier)
@@ -261,22 +488,44 @@ async function main() {
 
   // Deploy Bluechip adapter (TEST ONLY: dummy external addresses)
   // BluechipIndexAdapter (uses a generic swapTarget)
-  const BluechipF = await ethers.getContractFactory("contracts/v3/adapters/BluechipIndexAdapter.sol:BluechipIndexAdapter");
-  const swapTarget = deployerAddress; // non-zero placeholder target (e.g., 0x proxy in real usage)
-  const bluechip = await BluechipF.deploy(
-    ASSET_TOKEN,
-    coreAddr,
-    swapTarget,
-    [], // initial tokens
-    await nextTxOpts()
-  );
-  await bluechip.waitForDeployment();
-  const bluechipAddr = await bluechip.getAddress();
-  console.log("BluechipIndexAdapter (TEST):", bluechipAddr);
+  let bluechipAddr: string;
+  let bluechip: any;
+  if (!manifest.steps.BluechipIndexAdapter.deployed) {
+    const BluechipF = await ethers.getContractFactory("contracts/v3/adapters/BluechipIndexAdapter.sol:BluechipIndexAdapter");
+    const swapTarget = deployerAddress; // non-zero placeholder target (e.g., 0x proxy in real usage)
+    bluechip = await BluechipF.deploy(
+      ASSET_TOKEN,
+      coreAddr,
+      swapTarget,
+      [], // initial tokens
+      await nextTxOpts()
+    );
+    await bluechip.waitForDeployment();
+    bluechipAddr = await bluechip.getAddress();
+    console.log("BluechipIndexAdapter (TEST):", bluechipAddr);
+
+    // Update manifest
+    manifest.steps.BluechipIndexAdapter.deployed = true;
+    manifest.steps.BluechipIndexAdapter.address = bluechipAddr;
+    manifest.steps.BluechipIndexAdapter.txHash = bluechip.deploymentTransaction()?.hash || null;
+    await saveManifest(manifest);
+  } else {
+    console.log("BluechipIndexAdapter already deployed, skipping...");
+    bluechipAddr = manifest.steps.BluechipIndexAdapter.address!;
+    bluechip = await ethers.getContractAt("BluechipIndexAdapter", bluechipAddr);
+  }
 
   // Whitelist the Bluechip adapter and DEX endpoints for tests
-  console.log("Whitelisting adapter and DEX endpoints in WhitelistRegistry (TEST ONLY)...");
-  await (await whitelist.setAdapterWhitelist(bluechipAddr, true, await nextTxOpts())).wait();
+  if (!manifest.steps.AdapterWhitelisted.deployed) {
+    console.log("Whitelisting adapter and DEX endpoints in WhitelistRegistry (TEST ONLY)...");
+    const tx = await whitelist.setAdapterWhitelist(bluechipAddr, true, await nextTxOpts());
+    await tx.wait();
+
+    // Update manifest
+    manifest.steps.AdapterWhitelisted.deployed = true;
+    manifest.steps.AdapterWhitelisted.txHash = tx.hash;
+    await saveManifest(manifest);
+  }
   // Note: simplified adapter uses a generic swapTarget; DEX approval not required here.
 
   // Bluechip index farm uses BluechipIndexAdapter (test)
@@ -286,54 +535,71 @@ async function main() {
 
   // --- Lending Farm ---
   // Adapter arrays already built above (BluechipIndexAdapter)
-  console.log("Creating Bluechip Index farm via ProtocolCore.createApprovedFarm...");
-  const lendLockCfg = {
-    enabled: LEND_LOCK_ENABLED,
-    allowEarlyExit: LEND_LOCK_ALLOW_EARLY,
-    earlyExitBps: LEND_LOCK_EARLY_BPS,
-    lockupSeconds: BigInt(LEND_LOCK_SECONDS),
-    postLockMode: LEND_LOCK_POST_MODE,
-  };
-  const lendPayoutCfg = {
-    mode: LEND_PAYOUT_MODE,
-    streamBps: LEND_PAYOUT_STREAM_BPS,
-    compoundBps: LEND_PAYOUT_COMPOUND_BPS,
-    epoch: LEND_PAYOUT_EPOCH,
-    minHarvestInterval: LEND_PAYOUT_MIN_HARVEST,
-    compoundLpOnLock: LEND_PAYOUT_COMPOUND_ON_LOCK,
-  };
-  const lendShareCfg = {
-    transferable: true,
-    transferFeeBps: 0,
-    feeReceiver: ethers.ZeroAddress,
-    protocolFeeReceiver: deployerAddress,
-    protocolRakeBps: 1000,
-  };
-  const lendTx = await core.createApprovedFarm(
-    ASSET_TOKEN,
-    LEND_VAULT_NAME,
-    LEND_VAULT_SYMBOL,
-    deployerAddress,
-    LEND_SPLITS.lpBps,
-    LEND_SPLITS.ownerBps,
-    LEND_SPLITS.verifierBps,
-    lendLockCfg,
-    lendPayoutCfg,
-    lendShareCfg,
-    lendAdapterKeys,
-    lendAdapterAddrs,
-    lendAdapterBps,
-    await nextTxOpts()
-  );
-  const lendRcpt = await lendTx.wait();
-  const lendEvent = lendRcpt.logs
-    .filter((l: any) => l.address.toLowerCase() === coreAddr.toLowerCase())
-    .map((l: any) => { try { return (core.interface as any).parseLog(l); } catch { return undefined; } })
-    .find((ev: any) => ev && ev.name === "FarmCreated");
-  const lendFarmId = lendEvent?.args?.farmId as bigint;
-  const lendBaseFarm = lendEvent?.args?.baseFarm as string;
-  const lendMods = await core.farmsById(lendFarmId);
-  console.log("Bluechip Index Farm created:", { id: String(lendFarmId), baseFarm: lendBaseFarm });
+  let lendFarmId: bigint;
+  let lendMods: any;
+
+  if (!manifest.steps.BluechipIndexFarm.deployed) {
+    console.log("Creating Bluechip Index farm via ProtocolCore.createApprovedFarm...");
+    const lendLockCfg = {
+      enabled: LEND_LOCK_ENABLED,
+      allowEarlyExit: LEND_LOCK_ALLOW_EARLY,
+      earlyExitBps: LEND_LOCK_EARLY_BPS,
+      lockupSeconds: BigInt(LEND_LOCK_SECONDS),
+      postLockMode: LEND_LOCK_POST_MODE,
+    };
+    const lendPayoutCfg = {
+      mode: LEND_PAYOUT_MODE,
+      streamBps: LEND_PAYOUT_STREAM_BPS,
+      compoundBps: LEND_PAYOUT_COMPOUND_BPS,
+      epoch: LEND_PAYOUT_EPOCH,
+      minHarvestInterval: LEND_PAYOUT_MIN_HARVEST,
+      compoundLpOnLock: LEND_PAYOUT_COMPOUND_ON_LOCK,
+    };
+    const lendShareCfg = {
+      transferable: true,
+      transferFeeBps: 0,
+      feeReceiver: ethers.ZeroAddress,
+      protocolFeeReceiver: deployerAddress,
+      protocolRakeBps: 1000,
+    };
+    const lendTx = await core.createApprovedFarm(
+      ASSET_TOKEN,
+      LEND_VAULT_NAME,
+      LEND_VAULT_SYMBOL,
+      deployerAddress,
+      LEND_SPLITS.lpBps,
+      LEND_SPLITS.ownerBps,
+      LEND_SPLITS.verifierBps,
+      lendLockCfg,
+      lendPayoutCfg,
+      lendShareCfg,
+      lendAdapterKeys,
+      lendAdapterAddrs,
+      lendAdapterBps,
+      await nextTxOpts()
+    );
+    const lendRcpt = await lendTx.wait();
+    const lendEvent = lendRcpt.logs
+      .filter((l: any) => l.address.toLowerCase() === coreAddr.toLowerCase())
+      .map((l: any) => { try { return (core.interface as any).parseLog(l); } catch { return undefined; } })
+      .find((ev: any) => ev && ev.name === "FarmCreated");
+    lendFarmId = lendEvent?.args?.farmId as bigint;
+    const lendBaseFarm = lendEvent?.args?.baseFarm as string;
+    lendMods = await core.farmsById(lendFarmId);
+    console.log("Bluechip Index Farm created:", { id: String(lendFarmId), baseFarm: lendBaseFarm });
+
+    // Update manifest
+    manifest.steps.BluechipIndexFarm.deployed = true;
+    manifest.steps.BluechipIndexFarm.farmId = String(lendFarmId);
+    manifest.steps.BluechipIndexFarm.baseFarm = lendBaseFarm;
+    manifest.steps.BluechipIndexFarm.txHash = lendTx.hash;
+    await saveManifest(manifest);
+  } else {
+    console.log("Bluechip Index Farm already created, skipping...");
+    // Load existing farm data from manifest
+    lendFarmId = BigInt(manifest.steps.BluechipIndexFarm.farmId!);
+    lendMods = await core.farmsById(lendFarmId);
+  }
 
   // Whitelist registry is wired by FarmFactory; no direct adapter wiring required here
 

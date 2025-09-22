@@ -1,0 +1,104 @@
+{
+  "network": "hyperliquid-testnet",
+  "deployer": "0xF9D676bec8210Ba4F5c080Fabd13ADD8c9d407F7",
+  "lastUpdated": "2025-09-22T09:16:03.761Z",
+  "steps": {
+    "DXPToken": {
+      "deployed": true,
+      "address": "0x46FB998aCdFcbC28426f5c3aEa53dB91A660Db09",
+      "txHash": "0x09c0702b579129b7553f99c4d0a69e896dc6234317caf8a9c7c575feced98a1d"
+    },
+    "ProtocolCore": {
+      "deployed": true,
+      "address": "0xc736a47Bd5685E5550602F4D98224197E4F86130",
+      "txHash": "0x0051fd3da129a9427b9a3faa24501e0e564c2d5c4149c22fef28cab3f23db600"
+    },
+    "WhitelistRegistry": {
+      "deployed": true,
+      "address": "0x7A89260DeCA62EBa18ca5EF001fbAf510E5E73db",
+      "txHash": "0x0c9d010071129416f75c3ae53a3fd742114fb0456f23ac0f84e94c1d486db13c"
+    },
+    "signerApproved": {
+      "deployed": false,
+      "txHash": null
+    },
+    "DXPTokenOwnershipTransferred": {
+      "deployed": false,
+      "txHash": null
+    },
+    "MockLiquidityManager": {
+      "deployed": false,
+      "address": null,
+      "txHash": null
+    },
+    "LiquidityManagerWired": {
+      "deployed": false,
+      "txHash": null
+    },
+    "BridgingAdapter": {
+      "deployed": false,
+      "address": null,
+      "txHash": null
+    },
+    "FarmFactory": {
+      "deployed": true,
+      "address": "0xfA3babC993C45e51E88f177F7112e349Aab39Aba",
+      "txHash": "0xff24ef09ce14a24eeb86e20895021c198050addb9f4f12ffb8f9e251c00f6814"
+    },
+    "FarmFactoryWired": {
+      "deployed": true,
+      "txHash": "0xf2b6560a516ba24284a38331d27550efc42eff9a388409d919a2bf29b36f5865"
+    },
+    "WhitelistRegistrySet": {
+      "deployed": true,
+      "txHash": "0x2b22794462e71c0d82b543ae05e4602c6288655d7561b439f257ffdbf6af5876"
+    },
+    "ModuleImplementations": {
+      "deployed": true,
+      "addresses": {
+        "BaseFarm": "0x60DAE8991a9d2078E9EEFae6B90f9e8b6B353A20",
+        "StrategyRouter": "0x6DB0A1bAB16FBc95A57Ef86FEAf4E300d8E049d2",
+        "PayoutPolicy": "0x7ef30BEE69Fc69BB54593A85E854ED8F2b8cC142",
+        "LockupPolicy": "0x05c00D0AE5a0e0Af25c28a30bB01e9E548F69C28",
+        "StakeholderRegistry": "0x81ab178161FF8D152E95Da37E62C107F73e41531"
+      },
+      "txHashes": []
+    },
+    "ImplementationsSet": {
+      "deployed": true,
+      "txHash": "0xb62f92ee54c641bbcd4058d78f6ef27b205c4701af13de57a7bc4c3d98822a6b"
+    },
+    "FarmCreationModule": {
+      "deployed": true,
+      "address": "0x7773Aa7E9b499a7F035D0BdAbC9BAE4eb0B9377f",
+      "txHash": "0x78270f5e5431149ad6a79621a8120576fcb6645734356d50c424ec6739c96d57"
+    },
+    "FarmCreationModuleWired": {
+      "deployed": true,
+      "txHash": "0x422989c0aa507392d92d250399304a27beee5a9653b4266516401deeb8aaa6e5"
+    },
+    "FarmCreationModuleAuthorized": {
+      "deployed": true,
+      "txHash": "0xcdca9b6a34214784e3eae92d7e7b081a51b9e7af35ea31f6e4ba85d4a4702ed1"
+    },
+    "DeployerApproved": {
+      "deployed": true,
+      "txHash": "0xbf3f62a7ff8055e7dc7aa69c7764eb09ac98a13baeb855edaade2788ed5d73a9"
+    },
+    "BluechipIndexAdapter": {
+      "deployed": true,
+      "address": "0x0823c32Ea9455906EC35C488893f088514D86fC4",
+      "txHash": "0x221c9711acc30cd34061c4ee8721cf6e4b678578e83d7607ed8d374fe9284678"
+    },
+    "AdapterWhitelisted": {
+      "deployed": true,
+      "txHash": "0xe018efc9bb563244b7c1e3473c050336e0b501579cbf7d43ea011740c12ef828"
+    },
+    "BluechipIndexFarm": {
+      "deployed": true,
+      "farmId": "1",
+      "baseFarm": "0x4715DDbeE64FE1A6a3b7aa0f00812cA14A9AC59b",
+      "txHash": "0x2d45d7e26fa9a6a9d3308c9e49998b16b5d1dd4e08d5d4efe087a02bea6c8d6e"
+    }
+  }
+}
