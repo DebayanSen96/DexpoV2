@@ -8,6 +8,22 @@ function env(name: string, def?: string): string | undefined {
   return process.env[name] ?? def;
 }
 
+// Attempt to enable Big Blocks for Hyperliquid via JSON-RPC (testnet/mainnet)
+// Note: Big blocks are enabled automatically when using appropriate gas prices
+// The evmUserModify action is not needed for RPC-based deployments
+async function tryEnableHyperliquidBigBlocks(ethers: any, address: string) {
+  try {
+    // Allow opt-out
+    if (env("HL_SKIP_BIG_BLOCK_TOGGLE", "false") === "true") return;
+
+    console.log("Hyperliquid big blocks: using high gas price to target big blocks automatically");
+    // Big blocks are automatically targeted when gasPrice is high enough
+    // No manual toggle needed for RPC deployments
+  } catch (e) {
+    console.warn("Warning: Unable to verify Hyperliquid Big Blocks status; continuing with deployment.");
+  }
+}
+
 // Helper: get EIP-1559 gas overrides with a safety bump
 async function getGasOverrides(ethers: any) {
   const feeData = await ethers.provider.getFeeData();
@@ -30,6 +46,7 @@ async function main() {
   const FALLBACK_BONUS_RATIO = BigInt(env("FALLBACK_BONUS_RATIO", "70")!); // %
   const PROTOCOL_FEE_RATE = BigInt(env("PROTOCOL_FEE_RATE", "10")!); // % of farm owner slice
   const RESERVE_RATIO = BigInt(env("RESERVE_RATIO", "50")!); // % of fee kept in reserves
+  const MIN_SUBSCRIPTION = env("MIN_SUBSCRIPTION", "0")!; // human units of base asset
 
   // Policy defaults
   const LOCK_ENABLED = env("LOCK_ENABLED", "false") === "true";
@@ -71,10 +88,42 @@ async function main() {
   let nextNonce = await ethers.provider.getTransactionCount(deployerAddress, "latest");
   console.log("Deployer:", deployerAddress);
 
+  // If Hyperliquid testnet, try to enable Big Blocks at the account level
+  if (network === "hyperliquid-testnet") {
+    await tryEnableHyperliquidBigBlocks(ethers, deployerAddress);
+  }
+
   // Helper to get tx options with incrementing nonce, always syncing from chain first
   const nextTxOpts = async () => {
     const chainNonce = await ethers.provider.getTransactionCount(deployerAddress, "latest");
     if (chainNonce > nextNonce) nextNonce = chainNonce; // sync forward
+    // Hyperliquid testnet sometimes rejects EIP-1559 estimation with "intrinsic gas too low" on deployments.
+    // Use explicit gasLimit and legacy gasPrice there.
+    if (network === "hyperliquid-testnet") {
+      // For Hyperliquid, use higher gas limit to target big blocks
+      // Big blocks have 30M gas limit vs 2M for small blocks
+      let baseGasPrice: bigint | undefined;
+      try {
+        const resp = await ethers.provider.send("bigBlockGasPrice", []);
+        if (typeof resp === "string") baseGasPrice = BigInt(resp);
+        else if (resp && typeof resp === "object" && typeof resp.gasPrice === "string") baseGasPrice = BigInt(resp.gasPrice);
+        else if (typeof resp === "number") baseGasPrice = BigInt(resp);
+      } catch {
+        // Fallback to regular gas price if bigBlockGasPrice fails
+        const fee = await ethers.provider.getFeeData();
+        baseGasPrice = fee.gasPrice ?? fee.maxFeePerGas ?? ethers.parseUnits("5", "gwei");
+      }
+      if (!baseGasPrice) {
+        const fee = await ethers.provider.getFeeData();
+        baseGasPrice = fee.gasPrice ?? fee.maxFeePerGas ?? ethers.parseUnits("5", "gwei");
+      }
+      const ensuredBase = baseGasPrice ?? ethers.parseUnits("5", "gwei");
+      const bumped = (ensuredBase * 15n) / 10n; // +50% to ensure targeting big blocks
+      const gasLimit = BigInt(env("HL_DEPLOY_GAS_LIMIT", "30000000")!); // 30M for big blocks
+      const opts = { nonce: nextNonce, gasLimit, gasPrice: bumped };
+      nextNonce += 1;
+      return opts;
+    }
     const opts = { ...(await getGasOverrides(ethers)), nonce: nextNonce };
     nextNonce += 1; // use nonce, then increment
     return opts;
@@ -87,6 +136,33 @@ async function main() {
   await dxp.waitForDeployment();
   const dxpAddr = await dxp.getAddress();
   console.log("DXPToken:", dxpAddr);
+
+  // Mint initial supply to deployer (50,000,000 DXP) before ownership transfer
+  // OnlyOwner on DXPToken is initially the deployer
+  const fiftyMillion = ethers.parseUnits("50000000", 18);
+  console.log("Minting 50,000,000 DXP to deployer...\n");
+  // Use the same gas settings as deployment for Hyperliquid compatibility
+  const mintTx = await (dxp as any).mint(deployerAddress, fiftyMillion, await nextTxOpts());
+  console.log("Mint tx:", mintTx.hash);
+  const mintRcpt = await mintTx.wait();
+  console.log("Mint receipt status:", (mintRcpt as any)?.status);
+  // Sanity checks
+  const currentOwner = await (dxp as any).owner();
+  console.log("DXPToken owner (pre-transfer):", currentOwner);
+  const balDeployer = await (dxp as any).balanceOf(deployerAddress);
+  const totalSupply = await (dxp as any).totalSupply();
+  console.log(
+    "Deployer balance:",
+    ethers.formatUnits(balDeployer, 18),
+    "DXP | Total supply:",
+    ethers.formatUnits(totalSupply, 18),
+    "DXP"
+  );
+  if (balDeployer < fiftyMillion) {
+    console.warn(
+      "Warning: deployer balance < 50,000,000 DXP after mint. Check gas/nonce and transaction status."
+    );
+  }
 
   // Resolve base asset after DXP is available; default to DXP if not provided
   const ASSET_TOKEN = ASSET_TOKEN_ENV ?? dxpAddr;
@@ -107,6 +183,16 @@ async function main() {
   await core.waitForDeployment();
   const coreAddr = await core.getAddress();
   console.log("ProtocolCore:", coreAddr);
+
+  // 3.0) Deploy FarmCreationModule and wire into ProtocolCore (shrinks Core bytecode & stack usage at create time)
+  console.log("Deploying FarmCreationModule...");
+  const FarmCreationModuleF = await ethers.getContractFactory("contracts/v3/core/FarmCreationModule.sol:FarmCreationModule");
+  const farmCreateMod = await FarmCreationModuleF.deploy(await nextTxOpts());
+  await farmCreateMod.waitForDeployment();
+  const farmCreateModAddr = await farmCreateMod.getAddress();
+  console.log("FarmCreationModule:", farmCreateModAddr);
+  console.log("Setting FarmCreationModule in ProtocolCore...");
+  await (await core.setFarmCreationModule(farmCreateModAddr, await nextTxOpts())).wait();
 
   // 3.1) Deploy WhitelistRegistry (owned by deployer/protocol owner for now)
   console.log("Deploying WhitelistRegistry...");
@@ -171,10 +257,23 @@ async function main() {
   const bridgingAdapterAddr = await bridgingAdapter.getAddress();
   console.log("BridgingAdapter:", bridgingAdapterAddr);
 
+  // 4.2) Deploy MockSwapRouter (testnet oracle+swap)
+  console.log("Deploying MockSwapRouter (testnet oracle+swap)...");
+  const MockSwapRouterF = await ethers.getContractFactory("contracts/libraries/testnet/MockSwapRouter.sol:MockSwapRouter");
+  const mockSwap = await MockSwapRouterF.deploy(
+    deployerAddress, // owner
+    [], // tokens
+    [], // prices
+    await nextTxOpts()
+  );
+  await mockSwap.waitForDeployment();
+  const mockSwapAddr = await mockSwap.getAddress();
+  console.log("MockSwapRouter:", mockSwapAddr);
+
   // 5) Deploy FarmFactory (v3) and wire into ProtocolCore
   console.log("Deploying v3 FarmFactory...");
   const FarmFactory = await ethers.getContractFactory("contracts/v3/factories/FarmFactory.sol:FarmFactory");
-  const farmFactory = await FarmFactory.deploy(coreAddr, await nextTxOpts());
+  const farmFactory = await FarmFactory.deploy(coreAddr, mockSwapAddr, await nextTxOpts());
   await farmFactory.waitForDeployment();
   const farmFactoryAddr = await farmFactory.getAddress();
   console.log("FarmFactory:", farmFactoryAddr);
@@ -182,6 +281,8 @@ async function main() {
   await (await core.setFarmFactory(farmFactoryAddr, await nextTxOpts())).wait();
   console.log("Setting whitelist registry on FarmFactory...");
   await (await farmFactory.setWhitelistRegistry(whitelistAddr, await nextTxOpts())).wait();
+  console.log("Authorizing FarmCreationModule on FarmFactory...");
+  await (await farmFactory.setCoreModule(farmCreateModAddr, await nextTxOpts())).wait();
 
   // 5.1) Deploy implementation contracts for clone-based modules and set them in the factory
   console.log("Deploying v3 module implementations (BaseFarm, StrategyRouter, PayoutPolicy, LockupPolicy, StakeholderRegistry)...");
@@ -250,7 +351,7 @@ async function main() {
   // Deploy Bluechip adapter (TEST ONLY: dummy external addresses)
   // BluechipIndexAdapter (uses a generic swapTarget)
   const BluechipF = await ethers.getContractFactory("contracts/v3/adapters/BluechipIndexAdapter.sol:BluechipIndexAdapter");
-  const swapTarget = deployerAddress; // non-zero placeholder target (e.g., 0x proxy in real usage)
+  const swapTarget = mockSwapAddr; // use MockSwapRouter as swap target and price oracle
   const bluechip = await BluechipF.deploy(
     ASSET_TOKEN,
     coreAddr,
@@ -274,7 +375,7 @@ async function main() {
 
   // --- Lending Farm ---
   // Adapter arrays already built above (BluechipIndexAdapter)
-  console.log("Creating Bluechip Index farm via ProtocolCore.createApprovedFarm...");
+  console.log("Creating Bluechip Index farm via ProtocolCore...");
   const lendLockCfg = {
     enabled: LEND_LOCK_ENABLED,
     allowEarlyExit: LEND_LOCK_ALLOW_EARLY,
@@ -297,22 +398,49 @@ async function main() {
     protocolFeeReceiver: deployerAddress,
     protocolRakeBps: 1000,
   };
-  const lendTx = await core.createApprovedFarm(
-    ASSET_TOKEN,
-    LEND_VAULT_NAME,
-    LEND_VAULT_SYMBOL,
-    deployerAddress,
-    LEND_SPLITS.lpBps,
-    LEND_SPLITS.ownerBps,
-    LEND_SPLITS.verifierBps,
-    lendLockCfg,
-    lendPayoutCfg,
-    lendShareCfg,
-    lendAdapterKeys,
-    lendAdapterAddrs,
-    lendAdapterBps,
-    await nextTxOpts()
-  );
+  // Choose creation path based on MIN_SUBSCRIPTION
+  let lendTx;
+  if (MIN_SUBSCRIPTION !== "0") {
+    const erc20 = new ethers.Contract(ASSET_TOKEN, ["function decimals() view returns (uint8)"], deployerSigner);
+    const decimals: number = await erc20.decimals();
+    const minSubUnits = ethers.parseUnits(MIN_SUBSCRIPTION, decimals);
+    // Use the WithMin overload
+    lendTx = await (core as any).createApprovedFarmWithMin(
+      ASSET_TOKEN,
+      LEND_VAULT_NAME,
+      LEND_VAULT_SYMBOL,
+      deployerAddress,
+      LEND_SPLITS.lpBps,
+      LEND_SPLITS.ownerBps,
+      LEND_SPLITS.verifierBps,
+      lendLockCfg,
+      lendPayoutCfg,
+      lendShareCfg,
+      lendAdapterKeys,
+      lendAdapterAddrs,
+      lendAdapterBps,
+      minSubUnits,
+      await nextTxOpts()
+    );
+  } else {
+    // Legacy path
+    lendTx = await core.createApprovedFarm(
+      ASSET_TOKEN,
+      LEND_VAULT_NAME,
+      LEND_VAULT_SYMBOL,
+      deployerAddress,
+      LEND_SPLITS.lpBps,
+      LEND_SPLITS.ownerBps,
+      LEND_SPLITS.verifierBps,
+      lendLockCfg,
+      lendPayoutCfg,
+      lendShareCfg,
+      lendAdapterKeys,
+      lendAdapterAddrs,
+      lendAdapterBps,
+      await nextTxOpts()
+    );
+  }
   const lendRcpt = await lendTx.wait();
   const lendEvent = lendRcpt.logs
     .filter((l: any) => l.address.toLowerCase() === coreAddr.toLowerCase())
@@ -323,10 +451,31 @@ async function main() {
   const lendMods = await core.farmsById(lendFarmId);
   console.log("Bluechip Index Farm created:", { id: String(lendFarmId), baseFarm: lendBaseFarm });
 
+  // Optionally set USD pricer on the farm (factory already attempts this; this is a fallback)
+  try {
+    const baseFarm = await ethers.getContractAt("contracts/v3/farm/BaseFarm.sol:BaseFarm", lendMods.baseFarm);
+    await (await (baseFarm as any).setUsdPricer(mockSwapAddr, await nextTxOpts())).wait();
+  } catch {}
+
+  // Apply minimum subscription size if configured (>0)
+  try {
+    if (MIN_SUBSCRIPTION !== "0") {
+      // Fetch asset decimals and parse units
+      const erc20 = new ethers.Contract(ASSET_TOKEN, ["function decimals() view returns (uint8)"], deployerSigner);
+      const decimals: number = await erc20.decimals();
+      const minSubUnits = ethers.parseUnits(MIN_SUBSCRIPTION, decimals);
+      const baseFarm = await ethers.getContractAt("contracts/v3/farm/BaseFarm.sol:BaseFarm", lendMods.baseFarm);
+      await (await (baseFarm as any).setMinSubscription(minSubUnits, await nextTxOpts())).wait();
+      console.log("Min subscription applied:", MIN_SUBSCRIPTION, "(units)");
+    }
+  } catch (e) {
+    console.warn("Warning: failed to set min subscription", e);
+  }
+
   // Whitelist registry is wired by FarmFactory; no direct adapter wiring required here
 
-  // Save addresses
-  const addresses = {
+  // Save addresses (mutable; will be extended for hyperliquid section below)
+  const addresses: any = {
     network,
     deployer: deployerAddress,
     contracts: {
@@ -343,6 +492,7 @@ async function main() {
       MockLiquidityManager: mockLmAddr,
       BridgingAdapter: bridgingAdapterAddr,
       WhitelistRegistry: whitelistAddr,
+      MockSwapRouter: mockSwapAddr,
       vaults: {
         bluechip: {
           StrategyRouter: lendMods.router,
@@ -359,31 +509,137 @@ async function main() {
         },
       },
     },
-  params: {
-    ASSET_TOKEN,
-    USDC_TOKEN,
-    FALLBACK_BONUS_RATIO: FALLBACK_BONUS_RATIO.toString(),
-    PROTOCOL_FEE_RATE: PROTOCOL_FEE_RATE.toString(),
-    RESERVE_RATIO: RESERVE_RATIO.toString(),
-    // Bluechip Index config snapshot
-    BLUECHIP: {
-      VAULT_NAME: LEND_VAULT_NAME,
-      VAULT_SYMBOL: LEND_VAULT_SYMBOL,
-      FARM_ID: lendFarmId.toString(),
-      LOCK_ENABLED: LEND_LOCK_ENABLED,
-      LOCK_ALLOW_EARLY: LEND_LOCK_ALLOW_EARLY,
-      LOCK_EARLY_BPS: LEND_LOCK_EARLY_BPS,
-      LOCK_SECONDS: LEND_LOCK_SECONDS,
-      LOCK_POST_MODE: LEND_LOCK_POST_MODE,
-      PAYOUT_MODE: LEND_PAYOUT_MODE,
-      PAYOUT_STREAM_BPS: LEND_PAYOUT_STREAM_BPS,
-      PAYOUT_COMPOUND_BPS: LEND_PAYOUT_COMPOUND_BPS,
-      PAYOUT_EPOCH: LEND_PAYOUT_EPOCH.toString(),
-      PAYOUT_MIN_HARVEST: LEND_PAYOUT_MIN_HARVEST.toString(),
-      PAYOUT_COMPOUND_ON_LOCK: LEND_PAYOUT_COMPOUND_ON_LOCK,
+    params: {
+      ASSET_TOKEN,
+      USDC_TOKEN,
+      MIN_SUBSCRIPTION,
+      FALLBACK_BONUS_RATIO: FALLBACK_BONUS_RATIO.toString(),
+      PROTOCOL_FEE_RATE: PROTOCOL_FEE_RATE.toString(),
+      RESERVE_RATIO: RESERVE_RATIO.toString(),
+      // Bluechip Index config snapshot
+      BLUECHIP: {
+        VAULT_NAME: LEND_VAULT_NAME,
+        VAULT_SYMBOL: LEND_VAULT_SYMBOL,
+        FARM_ID: lendFarmId.toString(),
+        LOCK_ENABLED: LEND_LOCK_ENABLED,
+        LOCK_ALLOW_EARLY: LEND_LOCK_ALLOW_EARLY,
+        LOCK_EARLY_BPS: LEND_LOCK_EARLY_BPS,
+        LOCK_SECONDS: LEND_LOCK_SECONDS,
+        LOCK_POST_MODE: LEND_LOCK_POST_MODE,
+        PAYOUT_MODE: LEND_PAYOUT_MODE,
+        PAYOUT_STREAM_BPS: LEND_PAYOUT_STREAM_BPS,
+        PAYOUT_COMPOUND_BPS: LEND_PAYOUT_COMPOUND_BPS,
+        PAYOUT_EPOCH: LEND_PAYOUT_EPOCH.toString(),
+        PAYOUT_MIN_HARVEST: LEND_PAYOUT_MIN_HARVEST.toString(),
+        PAYOUT_COMPOUND_ON_LOCK: LEND_PAYOUT_COMPOUND_ON_LOCK,
+      },
     },
-  },
-} as const;
+  };
+
+  // --- Hyperliquid Testnet: deploy Perp trading adapter + second farm ---
+  if (network === "hyperliquid-testnet") {
+    const USDC_TOKEN_ID = env("HL_USDC_TOKEN_ID"); // uint64 in decimal string
+    const USDC_SYSTEM_ADDR = env("HL_USDC_SYSTEM_ADDR"); // 0x20.. system address for USDC token index
+    if (!USDC_TOKEN || !USDC_TOKEN_ID || !USDC_SYSTEM_ADDR) {
+      throw new Error("On hyperliquid-testnet, set env: USDC_TOKEN, HL_USDC_TOKEN_ID, HL_USDC_SYSTEM_ADDR");
+    }
+
+    console.log("Deploying HyperPerpAdapter (Hyperliquid Testnet)...");
+    const HyperPerpF = await ethers.getContractFactory("contracts/v3/adapters/HyperPerpAdapter.sol:HyperPerpAdapter");
+    const hyperPerp = await HyperPerpF.deploy(
+      USDC_TOKEN,
+      coreAddr,
+      BigInt(USDC_TOKEN_ID),
+      USDC_SYSTEM_ADDR,
+      deployerAddress,
+      await nextTxOpts()
+    );
+    await hyperPerp.waitForDeployment();
+    const hyperPerpAddr = await hyperPerp.getAddress();
+    console.log("HyperPerpAdapter:", hyperPerpAddr);
+
+    // Whitelist adapter
+    console.log("Whitelisting HyperPerpAdapter in WhitelistRegistry...");
+    await (await whitelist.setAdapterWhitelist(hyperPerpAddr, true, await nextTxOpts())).wait();
+
+    // Create Perp farm (USDC base), 100% allocation to HyperPerpAdapter
+    const PERP_VAULT_NAME = env("PERP_VAULT_NAME", "Dexponent Hyper Perp Vault")!;
+    const PERP_VAULT_SYMBOL = env("PERP_VAULT_SYMBOL", "dPERP")!;
+    const perpAdapterKeys = [toBytes32FromAddress(hyperPerpAddr)];
+    const perpAdapterAddrs = [hyperPerpAddr];
+    const perpAdapterBps = [10000];
+
+    const perpLockCfg = {
+      enabled: false,
+      allowEarlyExit: true,
+      earlyExitBps: 0,
+      lockupSeconds: BigInt(0),
+      postLockMode: 0,
+    };
+    const perpPayoutCfg = {
+      mode: 0,
+      streamBps: 3000,
+      compoundBps: 7000,
+      epoch: BigInt(86400),
+      minHarvestInterval: BigInt(300),
+      compoundLpOnLock: true,
+    };
+    const perpShareCfg = {
+      transferable: true,
+      transferFeeBps: 0,
+      feeReceiver: ethers.ZeroAddress,
+      protocolFeeReceiver: deployerAddress,
+      protocolRakeBps: 1000,
+    };
+
+    console.log("Creating Hyper Perp farm via ProtocolCore...");
+    const perpTx = await core.createApprovedFarm(
+      USDC_TOKEN,
+      PERP_VAULT_NAME,
+      PERP_VAULT_SYMBOL,
+      deployerAddress,
+      LEND_SPLITS.lpBps,
+      LEND_SPLITS.ownerBps,
+      LEND_SPLITS.verifierBps,
+      perpLockCfg,
+      perpPayoutCfg,
+      perpShareCfg,
+      perpAdapterKeys,
+      perpAdapterAddrs,
+      perpAdapterBps,
+      await nextTxOpts()
+    );
+    const perpRcpt = await perpTx.wait();
+    const perpEvent = perpRcpt.logs
+      .filter((l: any) => l.address.toLowerCase() === coreAddr.toLowerCase())
+      .map((l: any) => { try { return (core.interface as any).parseLog(l); } catch { return undefined; } })
+      .find((ev: any) => ev && ev.name === "FarmCreated");
+    const perpFarmId = perpEvent?.args?.farmId as bigint;
+    const perpMods = await core.farmsById(perpFarmId);
+    console.log("Hyper Perp Farm created:", { id: String(perpFarmId), baseFarm: perpMods.baseFarm });
+
+    addresses.contracts.vaults.perp = {
+      StrategyRouter: perpMods.router,
+      LockupPolicy: perpMods.lockupPolicy,
+      PayoutPolicy: perpMods.payoutPolicy,
+      StakeholderRegistry: perpMods.stakeholderRegistry,
+      BaseFarm: perpMods.baseFarm,
+      FarmId: perpFarmId.toString(),
+      Adapters: {
+        keys: perpAdapterKeys,
+        addrs: perpAdapterAddrs,
+        bps: perpAdapterBps,
+      },
+    };
+
+    addresses.params.PERP = {
+      VAULT_NAME: PERP_VAULT_NAME,
+      VAULT_SYMBOL: PERP_VAULT_SYMBOL,
+      USDC_TOKEN_ID,
+      USDC_SYSTEM_ADDR,
+      ADAPTER: hyperPerpAddr,
+    };
+  }
 
 const outDir = join("deployments", network);
 const outFile = join(outDir, `${network}.json`);

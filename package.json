@@ -15,6 +15,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@layerzerolabs/hyperliquid-composer": "^1.0.2",
     "@nomicfoundation/hardhat-ethers": "^3.1.0",
     "@openzeppelin/contracts": "^5.4.0",
     "@types/chai": "^4.3.20",
@@ -26,6 +27,7 @@
     "ethers": "^6.13.4",
     "forge-std": "github:foundry-rs/forge-std#v1.9.4",
     "hardhat": "^2.26.0",
+    "hyperliquid": "^1.7.7",
     "ts-node": "^10.9.2",
     "typescript": "~5.8.0"
   }

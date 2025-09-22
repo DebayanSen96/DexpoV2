@@ -109,7 +109,7 @@ contract HyperPerpAdapter is IStrategyAdapter, Ownable {
         return toSend;
     }
 
-    function harvest() external override onlyRouter returns (uint256, address[] memory, uint256[] memory) {
+    function harvest() external view override onlyRouter returns (uint256, address[] memory, uint256[] memory) {
         // No separate rewards; funding PnL realized on position close. Return 0.
         address[] memory rTok = new address[](0);
         uint256[] memory rAmt = new uint256[](0);
