@@ -76,7 +76,11 @@ async function loadManifest(network: string): Promise<DeploymentManifest> {
       DeployerApproved: { deployed: false, txHash: null },
       BluechipIndexAdapter: { deployed: false, address: null, txHash: null },
       AdapterWhitelisted: { deployed: false, txHash: null },
-      BluechipIndexFarm: { deployed: false, farmId: null, baseFarm: null, txHash: null }
+      BluechipIndexFarm: { deployed: false, farmId: null, baseFarm: null, txHash: null },
+      // Hyperliquid testnet specific
+      HyperPerpAdapter: { deployed: false, address: null, txHash: null },
+      HyperPerpAdapterWhitelisted: { deployed: false, txHash: null },
+      HyperPerpFarm: { deployed: false, farmId: null, baseFarm: null, txHash: null }
     }
   };
 }
@@ -88,6 +92,41 @@ async function saveManifest(manifest: DeploymentManifest): Promise<void> {
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 }
 
+// Ensure a step key exists in manifest with a default shape
+function ensureStep(manifest: DeploymentManifest, key: string, def: any) {
+  if (!(manifest.steps as any)[key]) {
+    (manifest.steps as any)[key] = def;
+  }
+}
+
+// Try to hydrate manifest steps from deployments/{network}/{network}.json if present
+async function backfillFromDeployments(network: string, manifest: DeploymentManifest) {
+  try {
+    const depPath = join("deployments", network, `${network}.json`);
+    const raw = await readFile(depPath, "utf-8");
+    const dep = JSON.parse(raw);
+    const contracts = dep.contracts || {};
+
+    const assignIf = (stepKey: string, addr: string | undefined) => {
+      if (addr && !(manifest.steps as any)[stepKey]?.deployed) {
+        ensureStep(manifest, stepKey, { deployed: false, address: null, txHash: null });
+        (manifest.steps as any)[stepKey].deployed = true;
+        (manifest.steps as any)[stepKey].address = addr;
+      }
+    };
+
+    assignIf("DXPToken", contracts.DXPToken);
+    assignIf("ProtocolCore", contracts.ProtocolCore);
+    assignIf("WhitelistRegistry", contracts.WhitelistRegistry);
+    assignIf("MockLiquidityManager", contracts.MockLiquidityManager);
+    assignIf("BridgingAdapter", contracts.BridgingAdapter);
+    assignIf("FarmFactory", contracts.FarmFactory);
+
+    // Mark wiring steps as done if addresses exist and on-chain will be checked later
+    if (contracts.FarmFactory) ensureStep(manifest, "FarmFactoryWired", { deployed: true, txHash: null });
+  } catch {}
+}
+
 async function main() {
   const network: string = ((hre as any).network?.name as string) || process.env.HARDHAT_NETWORK || "hardhat";
   const { ethers } = hre as any;
@@ -97,6 +136,26 @@ async function main() {
   // Load deployment manifest
   const manifest = await loadManifest(network);
   console.log("Loaded deployment manifest, last updated:", manifest.lastUpdated);
+
+  // Hydrate manifest from deployments/{network}.json if present
+  await backfillFromDeployments(network, manifest);
+  // Ensure missing step keys exist (for manifests created before new steps were added)
+  ensureStep(manifest, "BridgingAdapter", { deployed: false, address: null, txHash: null });
+  ensureStep(manifest, "LiquidityManagerWired", { deployed: false, txHash: null });
+  ensureStep(manifest, "AdapterWhitelisted", { deployed: false, txHash: null });
+  ensureStep(manifest, "BluechipIndexFarm", { deployed: false, farmId: null, baseFarm: null, txHash: null });
+  // HyperPerp optional steps
+  ensureStep(manifest, "HyperPerpAdapter", { deployed: false, address: null, txHash: null });
+  ensureStep(manifest, "HyperPerpAdapterWhitelisted", { deployed: false, txHash: null });
+  ensureStep(manifest, "HyperPerpFarm", { deployed: false, farmId: null, baseFarm: null, txHash: null });
+  // Optionally force redeploy of HyperPerp stack on hyperliquid-testnet
+  if (network === "hyperliquid-testnet" && env("FORCE_REDEPLOY_HYPERPERP", "false") === "true") {
+    console.log("FORCE_REDEPLOY_HYPERPERP enabled: resetting HyperPerp steps in manifest...");
+    manifest.steps.HyperPerpAdapter = { deployed: false, address: null, txHash: null } as any;
+    manifest.steps.HyperPerpAdapterWhitelisted = { deployed: false, txHash: null } as any;
+    manifest.steps.HyperPerpFarm = { deployed: false, farmId: null, baseFarm: null, txHash: null } as any;
+  }
+  await saveManifest(manifest);
 
   // Configurable params via env (ASSET_TOKEN may be set after DXP deploy)
   const ASSET_TOKEN_ENV = env("ASSET_TOKEN");
@@ -169,6 +228,17 @@ async function main() {
     dxpAddr = await dxp.getAddress();
     console.log("DXPToken:", dxpAddr);
 
+    // Mint initial supply to deployer (100,000,000 DXP)
+    try {
+      const decimals = await dxp.decimals();
+      const mintAmt = ethers.parseUnits("100000000", decimals);
+      console.log("Minting 100,000,000 DXP to deployer...", deployerAddress);
+      const mintTx = await dxp.mint(deployerAddress, mintAmt, await nextTxOpts());
+      await mintTx.wait();
+    } catch (e) {
+      console.warn("Warning: initial DXP mint failed", e);
+    }
+
     // Update manifest
     manifest.steps.DXPToken.deployed = true;
     manifest.steps.DXPToken.address = dxpAddr;
@@ -234,63 +304,130 @@ async function main() {
   } else {
     console.log("WhitelistRegistry already deployed, skipping...");
     whitelistAddr = manifest.steps.WhitelistRegistry.address!;
-    whitelist = await ethers.getContractAt("WhitelistRegistry", whitelistAddr);
+    whitelist = await ethers.getContractAt("contracts/v3/modules/WhitelistRegistry.sol:WhitelistRegistry", whitelistAddr);
   }
 
-  // Approve server/deployment signer (from env) as an approved farm owner
-  // This helps the API/server create farms without requiring manual approval.
-  try {
-    const signerPk = process.env.PRIVATE_KEY
-      || process.env.LOCALHOST_PRIVATE_KEY
-      || process.env.BASE_SEPOLIA_PRIVATE_KEY
-      || process.env.BASE_MAINNET_PRIVATE_KEY;
-    if (signerPk) {
-      const signerAddrForApproval = new ethers.Wallet(signerPk).address;
-      console.log("Approving signer as farm owner in ProtocolCore...", signerAddrForApproval);
-      await (await (core as any).setApprovedFarmOwner(signerAddrForApproval, true, await nextTxOpts())).wait();
-    } else {
-      console.log("No env signer private key found to auto-approve as farm owner.");
+  // Approve server/deployment signer (from env) as an approved farm owner (idempotent)
+  if (!manifest.steps.signerApproved.deployed) {
+    try {
+      const signerPk = process.env.PRIVATE_KEY
+        || process.env.LOCALHOST_PRIVATE_KEY
+        || process.env.BASE_SEPOLIA_PRIVATE_KEY
+        || process.env.BASE_MAINNET_PRIVATE_KEY;
+      if (signerPk) {
+        const signerAddrForApproval = new ethers.Wallet(signerPk).address;
+        console.log("Approving signer as farm owner in ProtocolCore...", signerAddrForApproval);
+        const tx = await (core as any).setApprovedFarmOwner(signerAddrForApproval, true, await nextTxOpts());
+        await tx.wait();
+        manifest.steps.signerApproved.deployed = true;
+        manifest.steps.signerApproved.txHash = tx.hash;
+        await saveManifest(manifest);
+      } else {
+        console.log("No env signer private key found to auto-approve as farm owner.");
+        // Mark as done to avoid retrying every run
+        manifest.steps.signerApproved.deployed = true;
+        await saveManifest(manifest);
+      }
+    } catch (e) {
+      console.warn("Warning: failed to auto-approve signer as farm owner", e);
     }
-  } catch (e) {
-    console.warn("Warning: failed to auto-approve signer as farm owner", e);
+  } else {
+    console.log("Signer already approved, skipping...");
   }
 
-  // Transfer DXPToken ownership to ProtocolCore so it can call emitTokens/recycle
-  console.log("Transferring DXPToken ownership to ProtocolCore...");
-  await (await dxp.transferOwnership(coreAddr, await nextTxOpts())).wait();
+  // Transfer DXPToken ownership to ProtocolCore so it can call emitTokens/recycle (idempotent)
+  if (!manifest.steps.DXPTokenOwnershipTransferred.deployed) {
+    try {
+      // If already owned by core, skip
+      const currentOwner = await (dxp as any).owner();
+      if (currentOwner.toLowerCase() === coreAddr.toLowerCase()) {
+        console.log("DXPToken already owned by ProtocolCore, skipping ownership transfer.");
+        manifest.steps.DXPTokenOwnershipTransferred.deployed = true;
+        await saveManifest(manifest);
+      } else {
+        console.log("Transferring DXPToken ownership to ProtocolCore...");
+        const tx = await dxp.transferOwnership(coreAddr, await nextTxOpts());
+        await tx.wait();
+        manifest.steps.DXPTokenOwnershipTransferred.deployed = true;
+        manifest.steps.DXPTokenOwnershipTransferred.txHash = tx.hash;
+        await saveManifest(manifest);
+      }
+    } catch (e) {
+      console.warn("Warning: DXPToken ownership transfer failed (might not be owner anymore)", e);
+    }
+  } else {
+    console.log("DXPToken ownership already transferred, skipping...");
+  }
 
-  // 4) Deploy MockLiquidityManager(dxp, usdc)
-  console.log("Deploying MockLiquidityManager...");
-  const MockLiquidityManager = await ethers.getContractFactory("MockLiquidityManager");
-  const mockLm = await MockLiquidityManager.deploy(
-    dxpAddr,
-    USDC_TOKEN,
-    await nextTxOpts()
-  );
-  await mockLm.waitForDeployment();
-  const mockLmAddr = await mockLm.getAddress();
-  console.log("MockLiquidityManager:", mockLmAddr);
+  // 4) Deploy MockLiquidityManager(dxp, usdc) (idempotent)
+  let mockLmAddr: string;
+  let mockLm: any;
+  if (!manifest.steps.MockLiquidityManager.deployed) {
+    console.log("Deploying MockLiquidityManager...");
+    const MockLiquidityManager = await ethers.getContractFactory("MockLiquidityManager");
+    mockLm = await MockLiquidityManager.deploy(
+      dxpAddr,
+      USDC_TOKEN,
+      await nextTxOpts()
+    );
+    await mockLm.waitForDeployment();
+    mockLmAddr = await mockLm.getAddress();
+    console.log("MockLiquidityManager:", mockLmAddr);
+    manifest.steps.MockLiquidityManager.deployed = true;
+    manifest.steps.MockLiquidityManager.address = mockLmAddr;
+    manifest.steps.MockLiquidityManager.txHash = mockLm.deploymentTransaction()?.hash || null;
+    await saveManifest(manifest);
+  } else {
+    console.log("MockLiquidityManager already deployed, skipping...");
+    mockLmAddr = manifest.steps.MockLiquidityManager.address!;
+    mockLm = await ethers.getContractAt("MockLiquidityManager", mockLmAddr);
+  }
 
-  // Wire LiquidityManager into ProtocolCore
-  console.log("Wiring LiquidityManager in ProtocolCore...");
-  await (await core.setLiquidityManager(mockLmAddr, await nextTxOpts())).wait();
+  // Wire LiquidityManager into ProtocolCore (idempotent)
+  if (!manifest.steps.LiquidityManagerWired.deployed) {
+    const currentLm = await core.liquidityManager();
+    if (currentLm && currentLm.toLowerCase() === mockLmAddr.toLowerCase()) {
+      console.log("LiquidityManager already set on ProtocolCore, skipping wiring.");
+      manifest.steps.LiquidityManagerWired.deployed = true;
+      await saveManifest(manifest);
+    } else {
+      console.log("Wiring LiquidityManager in ProtocolCore...");
+      const tx = await core.setLiquidityManager(mockLmAddr, await nextTxOpts());
+      await tx.wait();
+      manifest.steps.LiquidityManagerWired.deployed = true;
+      manifest.steps.LiquidityManagerWired.txHash = tx.hash;
+      await saveManifest(manifest);
+    }
+  } else {
+    console.log("LiquidityManager already wired, skipping...");
+  }
 
-  // 4.1) Deploy BridgingAdapter (owner = deployer; external bridge addresses set to zero for now)
-  console.log("Deploying BridgingAdapter...");
-  const BridgingAdapterF = await ethers.getContractFactory("contracts/libraries/BridgeAdaptor.sol:BridgingAdapter");
-  const bridgingAdapter = await BridgingAdapterF.deploy(
-    deployerAddress,
-    ethers.ZeroAddress,
-    ethers.ZeroAddress,
-    ethers.ZeroAddress,
-    ethers.ZeroAddress,
-    ethers.ZeroAddress,
-    ethers.ZeroAddress,
-    await nextTxOpts()
-  );
-  await bridgingAdapter.waitForDeployment();
-  const bridgingAdapterAddr = await bridgingAdapter.getAddress();
-  console.log("BridgingAdapter:", bridgingAdapterAddr);
+  // 4.1) Deploy BridgingAdapter (owner = deployer; external bridge addresses set to zero for now) (idempotent)
+  let bridgingAdapterAddr: string;
+  if (!manifest.steps.BridgingAdapter.deployed) {
+    console.log("Deploying BridgingAdapter...");
+    const BridgingAdapterF = await ethers.getContractFactory("contracts/libraries/BridgeAdaptor.sol:BridgingAdapter");
+    const bridgingAdapter = await BridgingAdapterF.deploy(
+      deployerAddress,
+      ethers.ZeroAddress,
+      ethers.ZeroAddress,
+      ethers.ZeroAddress,
+      ethers.ZeroAddress,
+      ethers.ZeroAddress,
+      ethers.ZeroAddress,
+      await nextTxOpts()
+    );
+    await bridgingAdapter.waitForDeployment();
+    bridgingAdapterAddr = await bridgingAdapter.getAddress();
+    console.log("BridgingAdapter:", bridgingAdapterAddr);
+    manifest.steps.BridgingAdapter.deployed = true;
+    manifest.steps.BridgingAdapter.address = bridgingAdapterAddr;
+    manifest.steps.BridgingAdapter.txHash = bridgingAdapter.deploymentTransaction()?.hash || null;
+    await saveManifest(manifest);
+  } else {
+    console.log("BridgingAdapter already deployed, skipping...");
+    bridgingAdapterAddr = manifest.steps.BridgingAdapter.address!;
+  }
 
   // 5) Deploy FarmFactory (v3) and wire into ProtocolCore
   let farmFactoryAddr: string;
@@ -313,7 +450,7 @@ async function main() {
   } else {
     console.log("FarmFactory already deployed, skipping...");
     farmFactoryAddr = manifest.steps.FarmFactory.address!;
-    farmFactory = await ethers.getContractAt("FarmFactory", farmFactoryAddr);
+    farmFactory = await ethers.getContractAt("contracts/v3/factories/FarmFactory.sol:FarmFactory", farmFactoryAddr);
   }
 
   // Wire FarmFactory in ProtocolCore
@@ -435,7 +572,7 @@ async function main() {
   } else {
     console.log("FarmCreationModule already deployed, skipping...");
     farmCreationModuleAddr = manifest.steps.FarmCreationModule.address!;
-    farmCreationModule = await ethers.getContractAt("FarmCreationModule", farmCreationModuleAddr);
+    farmCreationModule = await ethers.getContractAt("contracts/v3/core/FarmCreationModule.sol:FarmCreationModule", farmCreationModuleAddr);
   }
 
   // Wire FarmCreationModule in ProtocolCore
@@ -512,7 +649,7 @@ async function main() {
   } else {
     console.log("BluechipIndexAdapter already deployed, skipping...");
     bluechipAddr = manifest.steps.BluechipIndexAdapter.address!;
-    bluechip = await ethers.getContractAt("BluechipIndexAdapter", bluechipAddr);
+    bluechip = await ethers.getContractAt("contracts/v3/adapters/BluechipIndexAdapter.sol:BluechipIndexAdapter", bluechipAddr);
   }
 
   // Whitelist the Bluechip adapter and DEX endpoints for tests
@@ -603,6 +740,118 @@ async function main() {
 
   // Whitelist registry is wired by FarmFactory; no direct adapter wiring required here
 
+  // Hyperliquid testnet: deploy HyperPerp adapter and create a second farm
+  if (network === "hyperliquid-testnet") {
+    // Required env vars:
+    // - HYPER_USDC_TOKEN_ID (uint64 as string)
+    // - HYPER_USDC_SYSTEM_ADDRESS (address)
+    const HYPER_USDC_TOKEN_ID = BigInt(env("HYPER_USDC_TOKEN_ID", "1")!); // default 1 for local tests
+    const HYPER_USDC_SYSTEM_ADDRESS = env("HYPER_USDC_SYSTEM_ADDRESS", deployerAddress)!; // placeholder
+    const HYPER_USDC_BASE_ASSET = env("HYPER_USDC_BASE_ASSET", "0xd9CBEC81df392A88AEff575E962d149d57F4d6bc")!; // allow env override, default to hardcoded
+    if (!ethers.isAddress(HYPER_USDC_BASE_ASSET)) {
+      throw new Error(`Invalid HYPER_USDC_BASE_ASSET address: ${HYPER_USDC_BASE_ASSET}. Expected a 20-byte hex address (0x + 40 hex chars).`);
+    }
+
+    // Deploy HyperPerpAdapter
+    let hyperPerpAddr: string;
+    if (!manifest.steps.HyperPerpAdapter.deployed) {
+      console.log("Deploying HyperPerpAdapter (Hyperliquid)...");
+      const HyperPerpF = await ethers.getContractFactory("contracts/v3/adapters/HyperPerpAdapter.sol:HyperPerpAdapter");
+      const hyperPerp = await HyperPerpF.deploy(
+        HYPER_USDC_BASE_ASSET,     // asset (USDC, hyperliquid testnet)
+        coreAddr,                  // protocolCore
+        Number(HYPER_USDC_TOKEN_ID), // uint64 token id (ethers will cast down)
+        HYPER_USDC_SYSTEM_ADDRESS, // system address on Core
+        deployerAddress,           // initial owner (farm owner later gets ownership of router, adapter remains owned by deployer)
+        await nextTxOpts()
+      );
+      await hyperPerp.waitForDeployment();
+      hyperPerpAddr = await hyperPerp.getAddress();
+      console.log("HyperPerpAdapter:", hyperPerpAddr);
+      manifest.steps.HyperPerpAdapter.deployed = true;
+      manifest.steps.HyperPerpAdapter.address = hyperPerpAddr;
+      manifest.steps.HyperPerpAdapter.txHash = hyperPerp.deploymentTransaction()?.hash || null;
+      await saveManifest(manifest);
+    } else {
+      console.log("HyperPerpAdapter already deployed, skipping...");
+      hyperPerpAddr = manifest.steps.HyperPerpAdapter.address!;
+    }
+
+    // Whitelist HyperPerp adapter
+    if (!manifest.steps.HyperPerpAdapterWhitelisted.deployed) {
+      console.log("Whitelisting HyperPerpAdapter in WhitelistRegistry...");
+      const tx = await whitelist.setAdapterWhitelist(hyperPerpAddr, true, await nextTxOpts());
+      await tx.wait();
+      manifest.steps.HyperPerpAdapterWhitelisted.deployed = true;
+      manifest.steps.HyperPerpAdapterWhitelisted.txHash = tx.hash;
+      await saveManifest(manifest);
+    }
+
+    // Create HyperPerp farm
+    if (!manifest.steps.HyperPerpFarm.deployed) {
+      console.log("Creating HyperPerp farm via ProtocolCore.createApprovedFarm...");
+      const hpAdapterKeys = [toBytes32FromAddress(hyperPerpAddr)];
+      const hpAdapterAddrs = [hyperPerpAddr];
+      const hpAdapterBps = [10000];
+
+      const hpLockCfg = {
+        enabled: false,
+        allowEarlyExit: true,
+        earlyExitBps: 0,
+        lockupSeconds: BigInt(0),
+        postLockMode: 0,
+      };
+      const hpPayoutCfg = {
+        mode: 0,
+        streamBps: 3000,
+        compoundBps: 7000,
+        epoch: BigInt(86400),
+        minHarvestInterval: BigInt(300),
+        compoundLpOnLock: true,
+      };
+      const hpShareCfg = {
+        transferable: true,
+        transferFeeBps: 0,
+        feeReceiver: ethers.ZeroAddress,
+        protocolFeeReceiver: deployerAddress,
+        protocolRakeBps: 1000,
+      };
+
+      const hpTx = await core.createApprovedFarm(
+        HYPER_USDC_BASE_ASSET,
+        "Dexponent HyperPerp Vault",
+        "dHYPER",
+        deployerAddress,
+        7000,
+        2500,
+        500,
+        hpLockCfg,
+        hpPayoutCfg,
+        hpShareCfg,
+        hpAdapterKeys,
+        hpAdapterAddrs,
+        hpAdapterBps,
+        await nextTxOpts()
+      );
+      const hpRcpt = await hpTx.wait();
+      const hpEvent = hpRcpt.logs
+        .filter((l: any) => l.address.toLowerCase() === coreAddr.toLowerCase())
+        .map((l: any) => { try { return (core.interface as any).parseLog(l); } catch { return undefined; } })
+        .find((ev: any) => ev && ev.name === "FarmCreated");
+      const hpFarmId = hpEvent?.args?.farmId as bigint;
+      const hpBaseFarm = hpEvent?.args?.baseFarm as string;
+      console.log("HyperPerp Farm created:", { id: String(hpFarmId), baseFarm: hpBaseFarm });
+
+      manifest.steps.HyperPerpFarm.deployed = true;
+      manifest.steps.HyperPerpFarm.farmId = String(hpFarmId);
+      manifest.steps.HyperPerpFarm.baseFarm = hpBaseFarm;
+      manifest.steps.HyperPerpFarm.txHash = hpTx.hash;
+      await saveManifest(manifest);
+    } else {
+      console.log("HyperPerp Farm already created, skipping...");
+    }
+  }
+
   // Save addresses
   const addresses = {
     network,
@@ -635,6 +884,16 @@ async function main() {
             bps: lendAdapterBps,
           },
         },
+        // Optional HyperPerp vault info if present in manifest
+        ...(manifest.steps.HyperPerpFarm.deployed ? {
+          hyperperp: {
+            FarmId: manifest.steps.HyperPerpFarm.farmId,
+            BaseFarm: manifest.steps.HyperPerpFarm.baseFarm,
+            Adapters: {
+              addrs: [manifest.steps.HyperPerpAdapter.address],
+            }
+          }
+        } : {}),
       },
     },
   params: {

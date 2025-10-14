@@ -50,12 +50,12 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
     bool private _initialized;
 
     /// @notice Initialize the router with base asset and protocol core references.
-    /// @param asset_ Base asset managed across adapters.
+    /// @param asset_ Base asset managed across adapters (address(0) for native ETH).
     /// @param protocolCore_ Protocol core used to authorize protocol owner.
     /// @param initialOwner Owner to set for admin controls.
     function initialize(address asset_, address protocolCore_, address initialOwner) external {
         require(!_initialized, "Init");
-        require(asset_ != address(0) && protocolCore_ != address(0) && initialOwner != address(0), "Zero");
+        require(protocolCore_ != address(0) && initialOwner != address(0), "Zero");
         asset = asset_;
         protocolCore = protocolCore_;
         initializer = initialOwner;

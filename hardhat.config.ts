@@ -8,7 +8,7 @@ const networks: HardhatUserConfig["networks"] = {
   },
   "base-sepolia": {
     url: "https://sepolia.base.org", // Replace with your actual RPC URL
-    accounts: ["0x6e748857c30404a686a96457624bffc3e3f06346a29c7d808671687dcdc7a34b"], // Replace with your actual private key
+    accounts: ["8c94cd0dba51e5ebe7a4bb7efc3a5a577ff8e66d9c3e28e1448d468e8055402c"], // Replace with your actual private key
     chainId: 84532
   },
   "monad-testnet": {
@@ -23,6 +23,11 @@ const networks: HardhatUserConfig["networks"] = {
       ? [process.env.HYPERLIQUID_PRIVATE_KEY]
       : (process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : []),
     chainId: 998,
+  },
+  "ethereum-hoodi": {
+    url: process.env.HOODI_RPC_URL || "https://ethereum-hoodi-rpc.publicnode.com",
+    accounts: ["2f9c39ab3295bc5d0efa10ab6a042a7486d25724f2bd35135088b402880e5eca"],
+    chainId: 560048,
   },
 };
 

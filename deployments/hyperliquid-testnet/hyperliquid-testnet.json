@@ -12,8 +12,8 @@
       "LockupPolicy": "0x05c00D0AE5a0e0Af25c28a30bB01e9E548F69C28",
       "StakeholderRegistry": "0x81ab178161FF8D152E95Da37E62C107F73e41531"
     },
-    "MockLiquidityManager": "0x5669B57c6d438D54fd44fd445615d07dfD8a9c0b",
-    "BridgingAdapter": "0xD6bCB231085C6fDe91CE240A7e22Eb1476fe684a",
+    "MockLiquidityManager": "0x5b49971EA841354bAf7E96F4C2cA1e1eCaebA108",
+    "BridgingAdapter": "0xF961B90476Aab7B508eb7D4908a0caF6eD3B7632",
     "WhitelistRegistry": "0x7A89260DeCA62EBa18ca5EF001fbAf510E5E73db",
     "vaults": {
       "bluechip": {
@@ -32,6 +32,15 @@
           ],
           "bps": [
             10000
+          ]
+        }
+      },
+      "hyperperp": {
+        "FarmId": "3",
+        "BaseFarm": "0x8c684c7457E0ACD121Fed45eC2CA7b125922D6F2",
+        "Adapters": {
+          "addrs": [
+            "0x11DF8bdE2A9D22C4b1211c3A0d3599956B96e070"
           ]
         }
       }
