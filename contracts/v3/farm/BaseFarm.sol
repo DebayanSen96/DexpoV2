@@ -111,7 +111,6 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         address initialOwner
     ) external {
         require(!_initialized, "Init");
-        require(asset_ != address(0), "InvalidAsset");
         require(protocolCore_ != address(0) && initialOwner != address(0), "InvalidCoreOrOwner");
         asset = asset_;
         protocolCore = protocolCore_;
@@ -240,7 +239,9 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
      * @notice Returns the total managed assets (idle + invested via router).
      */
     function totalAssets() public view override returns (uint256) {
-        uint256 idle = IERC20(asset).balanceOf(address(this));
+        uint256 idle = asset == address(0)
+            ? address(this).balance
+            : IERC20(asset).balanceOf(address(this));
         uint256 invested = address(router) == address(0) ? 0 : router.totalAssets();
         return idle + invested;
     }
@@ -255,7 +256,7 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         if (ta == 0) return 0;
         uint256 pUsd = IUsdPricer(usdPricer).priceUsdE18(asset);
         require(pUsd > 0, "PriceZero");
-        uint8 dec = IERC20Metadata(asset).decimals();
+        uint8 dec = asset == address(0) ? 18 : IERC20Metadata(asset).decimals();
         // USD value = ta * priceUsd / 10**dec(asset)
         return (ta * pUsd) / (10 ** dec);
     }
@@ -307,7 +308,7 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         uint256 ppsBaseE18 = (totalAssets() * 1e18) / supply;
         uint256 pUsd = IUsdPricer(usdPricer).priceUsdE18(asset);
         require(pUsd > 0, "PriceZero");
-        uint8 dec = IERC20Metadata(asset).decimals();
+        uint8 dec = asset == address(0) ? 18 : IERC20Metadata(asset).decimals();
         // Convert base-denominated PPS to USD: (ppsBase * priceUsd) / 10**dec(asset)
         return (ppsBaseE18 * pUsd) / (10 ** dec);
     }
@@ -401,14 +402,17 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
      * @param assets Asset amount to deposit.
      * @return shares Minted share amount.
      */
-    function deposit(uint256 assets) external override nonReentrant whenNotPaused returns (uint256 shares) {
+    function deposit(uint256 assets) external payable override nonReentrant whenNotPaused returns (uint256 shares) {
         require(assets > 0, "ZeroAssets");
         if (minSubscription > 0) require(assets >= minSubscription, "MinSub");
         shares = convertToShares(assets);
         require(shares > 0, "ZeroShares");
 
-        // pull assets
-        IERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
+        if (asset == address(0)) {
+            require(msg.value == assets, "BadEthValue");
+        } else {
+            IERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
+        }
 
         // lockup hook
         if (address(lockupPolicy) != address(0)) {
@@ -425,13 +429,17 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
      * @param shares Share amount to mint.
      * @return assets Required assets to deposit.
      */
-    function mint(uint256 shares) external override nonReentrant whenNotPaused returns (uint256 assets) {
+    function mint(uint256 shares) external payable override nonReentrant whenNotPaused returns (uint256 assets) {
         require(shares > 0, "ZeroShares");
         assets = convertToAssets(shares);
         require(assets > 0, "ZeroAssets");
         if (minSubscription > 0) require(assets >= minSubscription, "MinSub");
 
-        IERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
+        if (asset == address(0)) {
+            require(msg.value == assets, "BadEthValue");
+        } else {
+            IERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
+        }
         if (address(lockupPolicy) != address(0)) {
             lockupPolicy.onDeposit(msg.sender, assets);
         }
@@ -478,14 +486,14 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         }
 
         // Ensure liquidity: if idle < assetsNeeded, pull back from strategies via router
-        uint256 idle = IERC20(asset).balanceOf(address(this));
+        uint256 idle = asset == address(0) ? address(this).balance : IERC20(asset).balanceOf(address(this));
         if (idle < assetsNeeded) {
             require(address(router) != address(0), "RouterMissing");
             uint256 shortfall = assetsNeeded - idle;
             // Deallocate required amount back to this farm
             router.deallocate(shortfall);
             // refresh idle
-            idle = IERC20(asset).balanceOf(address(this));
+            idle = asset == address(0) ? address(this).balance : IERC20(asset).balanceOf(address(this));
         }
         require(idle >= assetsNeeded, "InsufficientLiquidity");
 
@@ -496,7 +504,12 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
             // Penalty remains in farm, effectively benefiting remaining LPs via PPS
         }
 
-        IERC20(asset).safeTransfer(msg.sender, payout);
+        if (asset == address(0)) {
+            (bool ok, ) = payable(msg.sender).call{value: payout}("");
+            require(ok, "EthSendFail");
+        } else {
+            IERC20(asset).safeTransfer(msg.sender, payout);
+        }
     }
 
     // --- User position view ---
@@ -567,7 +580,13 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         uint256 ownerNet = ownerAmt - protocolCut;
 
         // Move streamed funds into the payout policy for linear vesting
-        IERC20(asset).safeTransfer(address(payoutPolicy), ownerNet + protocolCut + verifierAmt);
+        uint256 transferAmt = ownerNet + protocolCut + verifierAmt;
+        if (asset == address(0)) {
+            (bool ok, ) = payable(address(payoutPolicy)).call{value: transferAmt}("");
+            require(ok, "EthTransferFail");
+        } else {
+            IERC20(asset).safeTransfer(address(payoutPolicy), transferAmt);
+        }
 
         // Accrue for owner recipient (net of protocol rake)
         address ownerRecipient = stakeholderRegistry.ownerRecipient();
@@ -633,7 +652,12 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         // Transfer fee funds to policy custody
         uint256 transferAmt = ownerNet_ + protocolCut_ + verifierAmt_;
         if (transferAmt > 0) {
-            IERC20(asset).safeTransfer(address(payoutPolicy), transferAmt);
+            if (asset == address(0)) {
+                (bool ok, ) = payable(address(payoutPolicy)).call{value: transferAmt}("");
+                require(ok, "EthTransferFail");
+            } else {
+                IERC20(asset).safeTransfer(address(payoutPolicy), transferAmt);
+            }
         }
 
         // Accrue for owner
@@ -701,9 +725,14 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
     function allocateToStrategies(uint256 amount) external whenNotPaused onlyOwnerOrProtocolOwner returns (uint256 deployed) {
         require(address(router) != address(0), "RouterMissing");
         require(amount > 0, "ZeroAmount");
-        IERC20(asset).forceApprove(address(router), 0);
-        IERC20(asset).forceApprove(address(router), amount);
-        deployed = router.allocate(amount);
+        if (asset == address(0)) {
+            require(address(this).balance >= amount, "InsufficientBalance");
+            deployed = router.allocate{value: amount}(amount);
+        } else {
+            IERC20(asset).forceApprove(address(router), 0);
+            IERC20(asset).forceApprove(address(router), amount);
+            deployed = router.allocate(amount);
+        }
     }
 
     /// @notice Pull assets back from strategies to this farm via router.
@@ -713,5 +742,10 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
         require(address(router) != address(0), "RouterMissing");
         require(amount > 0, "ZeroAmount");
         received = router.deallocate(amount);
+    }
+
+    /// @notice Accept ETH for native ETH farms (from router deallocate, harvest, etc.)
+    receive() external payable {
+        require(asset == address(0), "NotNativeETHFarm");
     }
 }

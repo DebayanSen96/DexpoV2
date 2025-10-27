@@ -38,7 +38,7 @@ interface IStrategyRouter {
      * @param amount Amount of base asset to deploy.
      * @return deployed Total units deployed across adapters.
      */
-    function allocate(uint256 amount) external returns (uint256 deployed);
+    function allocate(uint256 amount) external payable returns (uint256 deployed);
 
     /**
      * @notice Deallocate `amount` of base asset across adapters per target weights.

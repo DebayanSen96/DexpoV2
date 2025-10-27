@@ -50,13 +50,13 @@ contract PayoutPolicy is IPayoutPolicy, Ownable, ReentrancyGuard {
 
     bool private _initialized;
 
-    /// @notice Initialize payout policy with base asset and configuration.
-    /// @param asset_ Base asset used for streaming and payouts.
-    /// @param cfg_ Initial configuration for payout behavior.
+    /// @notice Initialize the policy with asset and configuration.
+    /// @param asset_ Base asset for payout accounting (address(0) for native ETH).
+    /// @param cfg_ Initial payout configuration.
     /// @param initialOwner Owner to assign for admin functions.
     function initialize(address asset_, Config memory cfg_, address initialOwner) external {
         require(!_initialized, "Init");
-        require(asset_ != address(0) && initialOwner != address(0), "Zero");
+        require(initialOwner != address(0), "Zero");
         require(uint64(cfg_.epoch) > 0, "EpochZero");
         asset = asset_;
         _cfg = cfg_;

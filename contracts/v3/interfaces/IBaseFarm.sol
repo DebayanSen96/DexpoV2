@@ -16,8 +16,8 @@ interface IBaseFarm {
     /// Price per share in USD (1e18 USD)
     function pricePerShareUsdE18() external view returns (uint256);
 
-    function deposit(uint256 assets) external returns (uint256 shares);
-    function mint(uint256 shares) external returns (uint256 assets);
+    function deposit(uint256 assets) external payable returns (uint256 shares);
+    function mint(uint256 shares) external payable returns (uint256 assets);
     function withdrawShares(uint256 shares) external returns (uint256 assets);
     function fullExit() external returns (uint256 assets);
 

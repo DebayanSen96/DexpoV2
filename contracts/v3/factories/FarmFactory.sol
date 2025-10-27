@@ -204,7 +204,8 @@ contract FarmFactory is IFarmFactory, Ownable {
         // 1) Deploy components as minimal proxies and initialize (factory temporarily owns them)
         require(baseFarmImpl != address(0) && routerImpl != address(0) && payoutImpl != address(0) && lockupImpl != address(0) && registryImpl != address(0), "ImplsUnset");
 
-        StrategyRouter router = StrategyRouter(Clones.clone(routerImpl));
+        address payable routerAddr = payable(Clones.clone(routerImpl));
+        StrategyRouter router = StrategyRouter(routerAddr);
         router.initialize(asset, core, address(this));
         // Wire whitelist registry into router if configured
         if (whitelistRegistry != address(0)) {
@@ -240,7 +241,7 @@ contract FarmFactory is IFarmFactory, Ownable {
         StakeholderRegistry registry = StakeholderRegistry(Clones.clone(registryImpl));
         registry.initialize(core, farmId, address(this));
 
-        BaseFarm farm = BaseFarm(Clones.clone(baseFarmImpl));
+        BaseFarm farm = BaseFarm(payable(Clones.clone(baseFarmImpl)));
         farm.initialize(asset, farmName, farmSymbol, core, farmId, address(this));
 
         // 2) Wire modules

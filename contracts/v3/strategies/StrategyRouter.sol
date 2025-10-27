@@ -160,26 +160,34 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
      * @param amount Amount of base asset to deploy.
      * @return deployed Total units deployed across adapters.
      */
-    function allocate(uint256 amount) external override onlyFarm nonReentrant whenNotPaused returns (uint256 deployed) {
+    function allocate(uint256 amount) external payable override onlyFarm nonReentrant whenNotPaused returns (uint256 deployed) {
         require(amount > 0, "ZeroAmount");
         uint256 n = _ids.length();
         require(n > 0, "NoAlloc");
 
-        // Pull assets from caller (expected to be the farm/owner) into the router once
-        IERC20 token = IERC20(asset);
-        token.safeTransferFrom(msg.sender, address(this), amount);
-
-        for (uint256 i = 0; i < n; i++) {
-            bytes32 id = _ids.at(i);
-            Allocation memory a = alloc[id];
-            if (a.adapter == address(0) || a.bps == 0) continue;
-            uint256 part = (amount * a.bps) / 10_000;
-            if (part == 0) continue;
-
-            // Approve adapter to pull and deposit
-            token.forceApprove(a.adapter, 0);
-            token.forceApprove(a.adapter, part);
-            deployed += IStrategyAdapter(a.adapter).deposit(part, bytes(""));
+        if (asset == address(0)) {
+            require(msg.value == amount, "BadEthValue");
+            for (uint256 i = 0; i < n; i++) {
+                bytes32 id = _ids.at(i);
+                Allocation memory a = alloc[id];
+                if (a.adapter == address(0) || a.bps == 0) continue;
+                uint256 part = (amount * a.bps) / 10_000;
+                if (part == 0) continue;
+                deployed += IStrategyAdapter(a.adapter).deposit{value: part}(part, bytes(""));
+            }
+        } else {
+            IERC20 token = IERC20(asset);
+            token.safeTransferFrom(msg.sender, address(this), amount);
+            for (uint256 i = 0; i < n; i++) {
+                bytes32 id = _ids.at(i);
+                Allocation memory a = alloc[id];
+                if (a.adapter == address(0) || a.bps == 0) continue;
+                uint256 part = (amount * a.bps) / 10_000;
+                if (part == 0) continue;
+                token.forceApprove(a.adapter, 0);
+                token.forceApprove(a.adapter, part);
+                deployed += IStrategyAdapter(a.adapter).deposit(part, bytes(""));
+            }
         }
     }
 
@@ -193,18 +201,33 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         uint256 n = _ids.length();
         require(n > 0, "NoAlloc");
 
-        for (uint256 i = 0; i < n; i++) {
-            bytes32 id = _ids.at(i);
-            Allocation memory a = alloc[id];
-            if (a.adapter == address(0) || a.bps == 0) continue;
-            uint256 part = (amount * a.bps) / 10_000;
-            if (part == 0) continue;
-            received += IStrategyAdapter(a.adapter).withdraw(part, bytes(""));
-        }
-
-        // Forward received assets to caller (expected to be the farm)
-        if (received > 0) {
-            IERC20(asset).safeTransfer(farm, received);
+        if (asset == address(0)) {
+            uint256 beforeBal = address(this).balance;
+            for (uint256 i = 0; i < n; i++) {
+                bytes32 id = _ids.at(i);
+                Allocation memory a = alloc[id];
+                if (a.adapter == address(0) || a.bps == 0) continue;
+                uint256 part = (amount * a.bps) / 10_000;
+                if (part == 0) continue;
+                IStrategyAdapter(a.adapter).withdraw(part, bytes(""));
+            }
+            received = address(this).balance - beforeBal;
+            if (received > 0) {
+                (bool ok, ) = payable(farm).call{value: received}("");
+                require(ok, "EthSendFail");
+            }
+        } else {
+            for (uint256 i = 0; i < n; i++) {
+                bytes32 id = _ids.at(i);
+                Allocation memory a = alloc[id];
+                if (a.adapter == address(0) || a.bps == 0) continue;
+                uint256 part = (amount * a.bps) / 10_000;
+                if (part == 0) continue;
+                received += IStrategyAdapter(a.adapter).withdraw(part, bytes(""));
+            }
+            if (received > 0) {
+                IERC20(asset).safeTransfer(farm, received);
+            }
         }
     }
 
@@ -231,22 +254,37 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
      */
     function harvest() external override onlyFarm nonReentrant whenNotPaused returns (uint256 baseReturned) {
         uint256 n = _ids.length();
-        for (uint256 i = 0; i < n; i++) {
-            bytes32 id = _ids.at(i);
-            address adapter = alloc[id].adapter;
-            if (adapter == address(0)) continue;
-            uint256 delta;
-            address[] memory rTok;
-            uint256[] memory rAmt;
-            (delta, rTok, rAmt) = IStrategyAdapter(adapter).harvest();
-            if (delta > 0) baseReturned += delta;
-        }
-
-        // Forward realized base assets to farm
-        if (baseReturned > 0) {
-            IERC20(asset).safeTransfer(farm, baseReturned);
+        if (asset == address(0)) {
+            uint256 beforeBal = address(this).balance;
+            for (uint256 i = 0; i < n; i++) {
+                bytes32 id = _ids.at(i);
+                address adapter = alloc[id].adapter;
+                if (adapter == address(0)) continue;
+                IStrategyAdapter(adapter).harvest();
+            }
+            baseReturned = address(this).balance - beforeBal;
+            if (baseReturned > 0) {
+                (bool ok, ) = payable(farm).call{value: baseReturned}("");
+                require(ok, "EthSendFail");
+            }
+        } else {
+            for (uint256 i = 0; i < n; i++) {
+                bytes32 id = _ids.at(i);
+                address adapter = alloc[id].adapter;
+                if (adapter == address(0)) continue;
+                uint256 delta;
+                address[] memory rTok;
+                uint256[] memory rAmt;
+                (delta, rTok, rAmt) = IStrategyAdapter(adapter).harvest();
+                if (delta > 0) baseReturned += delta;
+            }
+            if (baseReturned > 0) {
+                IERC20(asset).safeTransfer(farm, baseReturned);
+            }
         }
     }
+
+    receive() external payable {}
 
     /// @notice Total base asset across all adapters (as reported by adapters).
     function totalAssets() external view override returns (uint256) {

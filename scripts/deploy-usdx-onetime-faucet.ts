@@ -1,7 +1,7 @@
 import hre from "hardhat";
 
 // Config
-const TOKEN_ADDRESS = "0xFc411f933b84B8762d90ea699D7Ec82b10400912"; // USDX on base-sepolia
+const TOKEN_ADDRESS = "0xe50E303b29aB28181460D335a1186033Af24Bf82"; // USDX on base-sepolia
 const CLAIM_HUMAN = "100000"; // 100,000 tokens (one-time)
 const OPTIONAL_FUND_HUMAN = "5000000"; // 5,000,000 tokens funding (optional)
 
