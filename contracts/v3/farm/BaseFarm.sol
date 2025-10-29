@@ -16,7 +16,6 @@ import "../interfaces/IStakeholderRegistry.sol";
 import "../interfaces/IShareToken.sol";
 import "../interfaces/IPriceOracle.sol";
 import "../interfaces/IProtocolCore.sol";
-import "../tokens/ShareToken.sol";
 
 // Minimal interface to read the ProtocolCore owner
 interface IHasOwner {
@@ -94,33 +93,29 @@ contract BaseFarm is IBaseFarm, Ownable, ReentrancyGuard, Pausable {
     bool private _initialized;
 
     /**
-     * @notice Initialize BaseFarm and deploy its dedicated `ShareToken`.
+     * @notice Initialize BaseFarm with an existing share token (e.g., LayerZero OFT) deployed separately.
      * @param asset_ ERC-20 principal token address.
-     * @param name_ Name for the share token.
-     * @param symbol_ Symbol for the share token.
+     * @param shareToken_ Address of the pre-deployed share token contract.
      * @param protocolCore_ ProtocolCore contract address.
      * @param farmId_ Unique farm identifier assigned by the protocol.
      * @param initialOwner Owner to assign for admin functions (factory during wiring).
      */
     function initialize(
         address asset_,
-        string memory name_,
-        string memory symbol_,
+        address shareToken_,
         address protocolCore_,
         uint256 farmId_,
         address initialOwner
     ) external {
         require(!_initialized, "Init");
         require(protocolCore_ != address(0) && initialOwner != address(0), "InvalidCoreOrOwner");
+        require(shareToken_ != address(0), "ZeroShareToken");
         asset = asset_;
         protocolCore = protocolCore_;
         farmId = farmId_;
 
-        // Deploy a dedicated share token, set this farm as minter, then hand ownership to factory (initialOwner)
-        ShareToken token = new ShareToken(name_, symbol_);
-        token.setMinter(address(this));
-        token.transferOwnership(initialOwner);
-        shareToken = IShareToken(address(token));
+        // Wire the external share token
+        shareToken = IShareToken(shareToken_);
 
         _transferOwnership(initialOwner);
         _initialized = true;

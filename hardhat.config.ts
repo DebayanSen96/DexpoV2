@@ -69,6 +69,61 @@ const config: HardhatUserConfig = {
           debug: { revertStrings: "strip" },
         },
       },
+      // Reduce bytecode size for heavy V3 contracts (deployment networks enforce size limits)
+      "contracts/v3/farm/BaseFarm.sol": {
+        version: "0.8.24",
+        settings: {
+          viaIR: false,
+          optimizer: { enabled: true, runs: 200 },
+          metadata: { bytecodeHash: "none" },
+          debug: { revertStrings: "strip" },
+        },
+      },
+      "contracts/v3/strategies/StrategyRouter.sol": {
+        version: "0.8.24",
+        settings: {
+          viaIR: false,
+          optimizer: { enabled: true, runs: 200 },
+          metadata: { bytecodeHash: "none" },
+          debug: { revertStrings: "strip" },
+        },
+      },
+      "contracts/v3/modules/PayoutPolicy.sol": {
+        version: "0.8.24",
+        settings: {
+          viaIR: false,
+          optimizer: { enabled: true, runs: 200 },
+          metadata: { bytecodeHash: "none" },
+          debug: { revertStrings: "strip" },
+        },
+      },
+      "contracts/v3/modules/LockupPolicy.sol": {
+        version: "0.8.24",
+        settings: {
+          viaIR: false,
+          optimizer: { enabled: true, runs: 200 },
+          metadata: { bytecodeHash: "none" },
+          debug: { revertStrings: "strip" },
+        },
+      },
+      "contracts/v3/modules/StakeholderRegistry.sol": {
+        version: "0.8.24",
+        settings: {
+          viaIR: false,
+          optimizer: { enabled: true, runs: 200 },
+          metadata: { bytecodeHash: "none" },
+          debug: { revertStrings: "strip" },
+        },
+      },
+      "contracts/v3/factories/FarmFactory.sol": {
+        version: "0.8.24",
+        settings: {
+          viaIR: true,
+          optimizer: { enabled: true, runs: 1 },
+          metadata: { bytecodeHash: "none" },
+          debug: { revertStrings: "strip" },
+        },
+      },
     },
   },
   networks,

@@ -17,6 +17,13 @@ import "../interfaces/IPayoutPolicy.sol";
 /// @dev Minimal interface for adapters that support one-time router wiring
 interface IAdapterRouterSettable { function setRouterOnce(address r) external; }
 
+/// @dev Minimal interface for the external share token deployer
+interface IShareTokenDeployer {
+    function deployShareToken(string memory name_, string memory symbol_, address lzEndpoint_, address initialOwner_)
+        external
+        returns (address);
+}
+
 /**
  * @title FarmFactory (v3)
  * @notice Deploys and wires a complete Dexponent v3 farm stack. Restricted to ProtocolCore.
@@ -35,9 +42,12 @@ contract FarmFactory is IFarmFactory, Ownable {
     address public lockupImpl;
     address public payoutImpl;
     address public registryImpl;
+    /// @notice LayerZero endpoint used by OFT ShareToken deployed by BaseFarm.
+    address public lzEndpoint;
 
     event ImplementationsSet(address baseFarm, address router, address payout, address lockup, address registry);
     event WhitelistRegistrySet(address indexed registry);
+    event LayerZeroEndpointSet(address indexed endpoint);
 
     // Lightweight registry for discovery: which farms were deployed for which owner
     mapping(address => address[]) public farmsByOwner; // owner => list of baseFarm addresses
@@ -55,6 +65,10 @@ contract FarmFactory is IFarmFactory, Ownable {
     // Optional protocol-wide whitelist registry used to configure routers/adapters at clone time
     address public whitelistRegistry;
 
+    /// @notice External deployer used to create ShareTokenOFT instances to keep factory bytecode small.
+    address public shareTokenDeployer;
+    event ShareTokenDeployerSet(address indexed deployer);
+
     /// @notice Initialize the factory bound to a specific `ProtocolCore` and default swap/oracle.
     /// @param core Address of the ProtocolCore that is authorized to call this factory.
     /// @param swapOracle Address of the default swap/oracle (e.g., MockSwapRouter). Can be zero to disable.
@@ -67,6 +81,13 @@ contract FarmFactory is IFarmFactory, Ownable {
     /// @notice Update the default swap/oracle used for future farms/adapters. Zero disables wiring.
     function setDefaultSwapOracle(address swapOracle) external onlyOwner {
         defaultSwapOracle = swapOracle;
+    }
+
+    /// @notice Set the LayerZero endpoint to be used for OFT share tokens.
+    function setLayerZeroEndpoint(address endpoint) external onlyOwner {
+        require(endpoint != address(0), "ZeroEndpoint");
+        lzEndpoint = endpoint;
+        emit LayerZeroEndpointSet(endpoint);
     }
 
     /// @notice Set factory-wide default minimum subscription (base units). 0 disables.
@@ -102,6 +123,13 @@ contract FarmFactory is IFarmFactory, Ownable {
     /// @notice Set an auxiliary module that can call factory functions as core (e.g., FarmCreationModule).
     function setCoreModule(address module) external onlyOwner {
         coreModule = module;
+    }
+
+    /// @notice Set the external ShareToken deployer contract (must implement IShareTokenDeployer)
+    function setShareTokenDeployer(address d) external onlyOwner {
+        require(d != address(0), "ZeroDeployer");
+        shareTokenDeployer = d;
+        emit ShareTokenDeployerSet(d);
     }
 
     /**
@@ -241,8 +269,19 @@ contract FarmFactory is IFarmFactory, Ownable {
         StakeholderRegistry registry = StakeholderRegistry(Clones.clone(registryImpl));
         registry.initialize(core, farmId, address(this));
 
+        // Deploy the ShareToken (OFT) via external deployer with factory as temporary owner
+        require(lzEndpoint != address(0), "LZUnset");
+        require(shareTokenDeployer != address(0), "DeployerUnset");
+        address shareTokenAddr = IShareTokenDeployer(shareTokenDeployer).deployShareToken(
+            farmName,
+            farmSymbol,
+            lzEndpoint,
+            address(this)
+        );
+
+        // Deploy BaseFarm clone and initialize with external share token address
         BaseFarm farm = BaseFarm(payable(Clones.clone(baseFarmImpl)));
-        farm.initialize(asset, farmName, farmSymbol, core, farmId, address(this));
+        farm.initialize(asset, shareTokenAddr, core, farmId, address(this));
 
         // 2) Wire modules
         farm.setStrategyRouter(address(router));
@@ -309,7 +348,11 @@ contract FarmFactory is IFarmFactory, Ownable {
         }
 
         // 5) Configure ShareToken atomically while factory is owner, then transfer ownership
-        IShareToken st = farm.shareToken();
+        IShareToken st = IShareToken(shareTokenAddr);
+        // Allow farm to mint/burn
+        // setMinter is not in IShareToken; use low-level call to avoid hard coupling
+        (bool okMinter, ) = shareTokenAddr.call(abi.encodeWithSignature("setMinter(address)", address(farm)));
+        okMinter;
         // Apply config (owner-only)
         st.setTransferable(stCfg.transferable);
         st.setTransferFeeBps(stCfg.transferFeeBps);

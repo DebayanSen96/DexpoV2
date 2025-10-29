@@ -1,104 +1,104 @@
 {
-  "network": "ethereum-hoodi",
-  "deployer": "0xF9D676bec8210Ba4F5c080Fabd13ADD8c9d407F7",
-  "lastUpdated": "2025-10-16T10:41:26.178Z",
+  "network": "base-sepolia",
+  "deployer": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+  "lastUpdated": "2025-10-29T08:47:22.121Z",
   "steps": {
     "DXPToken": {
       "deployed": true,
-      "address": "0xb8F8202B3f9347Cbb098eD3a04E2976B71A15de2",
-      "txHash": "0xb24d4ec32a12a7955d8de89d9be94239b776879a48505f993e50400aa8c7ec77"
+      "address": "0x6340C82D188bc86B79238B13f21231C4a27b7303",
+      "txHash": "0x75c01b3579205ddf6ecafd6539dc11eb956995ee74d24a6792056475d2228419"
     },
     "ProtocolCore": {
       "deployed": true,
-      "address": "0xa808aCc2D501e4cc9429A4C6A6452a3EE83d1736",
-      "txHash": "0x6c9f9fa30f79ab4d792d25199b9442be393502f4e5ed43a61ae1f573acf04d45"
+      "address": "0xcF4D8c57d5e71D1bca43A75Df389e5D67a36946e",
+      "txHash": "0x96c98120346c821d614b6c6c162dcbd760c21aca886738c465633c2b2bc66b9f"
     },
     "WhitelistRegistry": {
       "deployed": true,
-      "address": "0x39D1269b3099B0C7C221c30a032DBBc2A6Cb26E3",
-      "txHash": "0x06f7eff16a70673c607d18f724a06f9f049c6c3d65a50481fff86e4c8e4dd6f4"
+      "address": "0xc5AE5476dAe60DC337B9BabA13E70ec34c6E5Da8",
+      "txHash": "0xca28c1f824e8f3680dfd9191303868e95a7c507abd1427a8b99e165de23f5ea6"
     },
     "signerApproved": {
       "deployed": true,
-      "txHash": "0xbcef8c640fb09aa6ef46f70d649288d3dd1eb7282dfec3041e8d71f96e660db5"
+      "txHash": "0x0fcc4b5293092249b485c6a0c0cb836514e51606461720ae78bc94b4c1b9e829"
     },
     "DXPTokenOwnershipTransferred": {
       "deployed": true,
-      "txHash": "0x600ebcb17f83258ef2fc87b0312a844cb00b8dae7e439f95820b764bd5d5db60"
+      "txHash": "0x585c0d0b0c4421ed0aa134b9cd0aa89800b3ba3110458cb8ed0b863fa835b483"
     },
     "MockLiquidityManager": {
       "deployed": true,
-      "address": "0x8Bc0431CC8938e614736dd496E672F2823F784A7",
-      "txHash": "0x713190ebea5d8371feb0f48d8e4040adb24f47c1e2c2bb53bae5d6548905ead6"
+      "address": "0xc2B869896f110Ae3432f206Dc612e3eFa8610FC1",
+      "txHash": "0x9adc351d21139345e6fe1b6569c77c21b4f507b45c14d7f428c5fd86672c1346"
     },
     "LiquidityManagerWired": {
       "deployed": true,
-      "txHash": "0x069169a25c620af2a4fc1f6e4b6fa4d1d8d7c449680b20f6f906bf9b92c3cb5c"
+      "txHash": "0xc45df25b867f633613fe1073b40602cae56dcf999deb0a8ab79afbd725d62a15"
     },
     "BridgingAdapter": {
       "deployed": true,
-      "address": "0xBd0dc5E8A851E3D2c365201EB12F12F579b081C9",
-      "txHash": "0x0487fa0f0d9c271dddc9a04eba32f043f31c43f8f3a66ce227853d95e06f072d"
+      "address": "0x14aFA87aaDEC1990368217761992B6fEf4589d60",
+      "txHash": "0x2372d9773dc745d53d43181e40213214f1302f0642131a3e39dfee387efd78b6"
     },
     "FarmFactory": {
       "deployed": true,
-      "address": "0xEf683854Cc8D7b95bD49bF83294F4b32cff690a2",
-      "txHash": "0xe685b5429a4924e79d72909eda14910dd244b0328854bc5fa4bbebfb56399ce8"
+      "address": "0x84E160d90648a77Fb6d94182C58530a09E3bB5b5",
+      "txHash": "0xebab4f1cf0d3a88ddfda9d4b9c36a8bb617d37f3a3f1d83b28b93f9f049d2083"
     },
     "FarmFactoryWired": {
       "deployed": true,
-      "txHash": "0x529b3b3709b23b03c400377e0eda0c8d9a8bce60ad0e107ded4e264d011a5b25"
+      "txHash": "0x3bbb0e74ef40cb3c5a8765a8f433d7afc01d86833191fcf502be20d37883d619"
     },
     "WhitelistRegistrySet": {
       "deployed": true,
-      "txHash": "0xd31d1fe60975b6b8172964a24d6c2e8e38df322ca37e2b244be65f1abfd02a2f"
+      "txHash": "0xaf362e25648337f2111063df0e0dd7433f3a01f5ccf8ecc5726bde2f15ffb70d"
     },
     "ModuleImplementations": {
       "deployed": true,
       "addresses": {
-        "BaseFarm": "0xEb7C55F3ABae932Ba40559db27968265D81678CE",
-        "StrategyRouter": "0xa4469787B5436Be5599BaC913Ca931620f9F0D45",
-        "PayoutPolicy": "0x4B8E57D126704f86EE92d03093b069E4d86794ba",
-        "LockupPolicy": "0x065f77EDa3a90ba8E61E42611603A89b426bbdB7",
-        "StakeholderRegistry": "0xC6b375dCD5A5B76367Dd027Fd771c057cb035d83"
+        "BaseFarm": "0x35343044499aD9aDC16Abc26A4946fFA8AFfe1F9",
+        "StrategyRouter": "0xB1cD35b7589943eF36FDD872df9241D403Dd8eb9",
+        "PayoutPolicy": "0x0E7683903F623E0bBD08d3278EEd2f0b2690650C",
+        "LockupPolicy": "0x4Fc2de1D9142cabA038a6E7D9D922919EA618895",
+        "StakeholderRegistry": "0xf345c38636fe44D6F3c9aE747171607f26cdE5ce"
       },
       "txHashes": []
     },
     "ImplementationsSet": {
       "deployed": true,
-      "txHash": "0x04e9f49b51f58d572ee27a316806a4f82cb859246b14cd6226788d7ae2f229e5"
+      "txHash": "0x1f4443042438db97bdb2994ff72cf9cc8ba3f0ee52e1119a8b004fbe4a4ab78c"
     },
     "FarmCreationModule": {
       "deployed": true,
-      "address": "0x2C530878f67ffBF92d443C8bcCd87e18751E1A81",
-      "txHash": "0x312509367939edd4312c48caa25da34dbceb12ad15d94af50fa9e5282a0f40cb"
+      "address": "0xD1f6372E034eBC17ffcA520270551C78D95DB670",
+      "txHash": "0x658f8a42bf49f7879decb60c4f3a31c71b469396ab3c1d20ca0bae5f062bffbc"
     },
     "FarmCreationModuleWired": {
       "deployed": true,
-      "txHash": "0x1da98d469a0f200e2e1b541ccbd48c6d47fa74f74e2199d3e03cfd8487821b33"
+      "txHash": "0x2b2320c70cacff5aa7c21b5603f5576c3eed8399effd9f4134b4674a1a77d77d"
     },
     "FarmCreationModuleAuthorized": {
       "deployed": true,
-      "txHash": "0x60b7e77d19e50278000055a698163a70454ab7f122b7b192d2a392cc5c57a23b"
+      "txHash": "0x75c165f0c67a256c83d89d4a55da09df6cb2cf59a22a247defb99198a18df827"
     },
     "DeployerApproved": {
       "deployed": true,
-      "txHash": "0x1af38364ebff9cc8c2990dae6591654b082aaceafcfaef6640d04cfee7efb687"
+      "txHash": "0x6b7094d38d9d7d1a268d386afd8b4e9228d8f0f0e28b0563df1a05237661a9c8"
     },
     "BluechipIndexAdapter": {
       "deployed": true,
-      "address": "0x2F2C0700553CC27760A80a3d30B6d24BE022Eaa2",
-      "txHash": "0xf2790da35d9f45587c97143f729ad553c5fe4f7243810040d4d55f3a53a5c8d8"
+      "address": "0x697094FA1ffC1d56434923b06DFAc46C0A8205a5",
+      "txHash": "0xf4d1a3c90fceb11c2d3f2e9d61c390b87026ac3b97331e9ef567eccd4ae89a6b"
     },
     "AdapterWhitelisted": {
       "deployed": true,
-      "txHash": "0x06509045b9ea8190f90161616a992d307db678e26c0c685f39b6923b6733ba19"
+      "txHash": "0x308905351b187add946094095549be29c2d9a3b35415b58801bc50883df067ae"
     },
     "BluechipIndexFarm": {
       "deployed": true,
       "farmId": "1",
-      "baseFarm": "0x86c4Ab4aFA092833Ee1B4ECCde31358c260d908b",
-      "txHash": "0xef931fa86b0535152254a59ca9a4485d991ec87cdb7ea1409031669f9f6edf5b"
+      "baseFarm": "0xdABE34C85984bCFDaE2F9D2b270E6818eEcE1F86",
+      "txHash": "0xf9c3229d1a1f94cfc34d50088f725d67633dd6591fd98db1efd99627eccb366f"
     },
     "HyperPerpAdapter": {
       "deployed": false,
@@ -114,6 +114,20 @@
       "farmId": null,
       "baseFarm": null,
       "txHash": null
+    },
+    "LayerZeroEndpointSet": {
+      "deployed": true,
+      "txHash": "0xc42832c9cc83c0f44d68d7b710ae68adc5be39a23f42ff798b879fb1e301ee8c",
+      "address": "0x6EDCE65403992e310A62460808c4b910D972f10f"
+    },
+    "ShareTokenDeployer": {
+      "deployed": true,
+      "address": "0xA59571fEd408BBc008b9F3719be1b429293AF80E",
+      "txHash": "0x8ed01a6e8c8eae399301a47e77cf53b09aa6574c01d413d4c9bdc2778a07ad6d"
+    },
+    "ShareTokenDeployerSet": {
+      "deployed": true,
+      "txHash": "0x17dafa74a580994698996f87a60ac5e0e059cd842ceff616ee089a9ba52aa09b"
     }
   }
 }

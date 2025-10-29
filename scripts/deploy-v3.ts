@@ -8,6 +8,11 @@ function env(name: string, def?: string): string | undefined {
   return process.env[name] ?? def;
 }
 
+// Small sleep helper
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // Helper: get EIP-1559 gas overrides with a safety bump
 async function getGasOverrides(ethers: any) {
   const feeData = await ethers.provider.getFeeData();
@@ -47,6 +52,30 @@ async function loadManifest(network: string): Promise<DeploymentManifest> {
     if (manifest.network === network) {
       return manifest;
     }
+
+  // Deploy ShareTokenDeployer and set it on FarmFactory (keeps factory bytecode small)
+  if (!manifest.steps.ShareTokenDeployer.deployed) {
+    console.log("Deploying ShareTokenDeployer...");
+    const DeployerF = await ethers.getContractFactory("contracts/v3/tokens/ShareTokenDeployer.sol:ShareTokenDeployer");
+    const deployerCtr = await DeployerF.deploy(await nextTxOpts());
+    await deployerCtr.waitForDeployment();
+    const deployerAddr = await deployerCtr.getAddress();
+    console.log("ShareTokenDeployer:", deployerAddr);
+    manifest.steps.ShareTokenDeployer.deployed = true;
+    manifest.steps.ShareTokenDeployer.address = deployerAddr;
+    manifest.steps.ShareTokenDeployer.txHash = deployerCtr.deploymentTransaction()?.hash || null;
+    await saveManifest(manifest);
+  }
+
+  if (!manifest.steps.ShareTokenDeployerSet.deployed) {
+    const deployerAddr = manifest.steps.ShareTokenDeployer.address!;
+    console.log("Setting ShareTokenDeployer on FarmFactory...", deployerAddr);
+    const tx = await farmFactory.setShareTokenDeployer(deployerAddr, await nextTxOpts());
+    await tx.wait();
+    manifest.steps.ShareTokenDeployerSet.deployed = true;
+    manifest.steps.ShareTokenDeployerSet.txHash = tx.hash;
+    await saveManifest(manifest);
+  }
   } catch (error) {
     console.log("No existing manifest found, creating new one...");
   }
@@ -144,6 +173,9 @@ async function main() {
   ensureStep(manifest, "LiquidityManagerWired", { deployed: false, txHash: null });
   ensureStep(manifest, "AdapterWhitelisted", { deployed: false, txHash: null });
   ensureStep(manifest, "BluechipIndexFarm", { deployed: false, farmId: null, baseFarm: null, txHash: null });
+  ensureStep(manifest, "LayerZeroEndpointSet", { deployed: false, txHash: null, address: null });
+  ensureStep(manifest, "ShareTokenDeployer", { deployed: false, address: null, txHash: null });
+  ensureStep(manifest, "ShareTokenDeployerSet", { deployed: false, txHash: null });
   // HyperPerp optional steps
   ensureStep(manifest, "HyperPerpAdapter", { deployed: false, address: null, txHash: null });
   ensureStep(manifest, "HyperPerpAdapterWhitelisted", { deployed: false, txHash: null });
@@ -228,15 +260,25 @@ async function main() {
     dxpAddr = await dxp.getAddress();
     console.log("DXPToken:", dxpAddr);
 
-    // Mint initial supply to deployer (100,000,000 DXP)
-    try {
-      const decimals = await dxp.decimals();
-      const mintAmt = ethers.parseUnits("100000000", decimals);
-      console.log("Minting 100,000,000 DXP to deployer...", deployerAddress);
-      const mintTx = await dxp.mint(deployerAddress, mintAmt, await nextTxOpts());
-      await mintTx.wait();
-    } catch (e) {
-      console.warn("Warning: initial DXP mint failed", e);
+    // Mint initial supply to deployer (100,000,000 DXP) with retry to avoid immediate RPC lag
+    {
+      let success = false;
+      for (let i = 0; i < 5 && !success; i++) {
+        try {
+          const decimals = await dxp.decimals();
+          const mintAmt = (ethers as any).parseUnits("100000000", decimals);
+          console.log("Minting 100,000,000 DXP to deployer...", deployerAddress);
+          const mintTx = await dxp.mint(deployerAddress, mintAmt, await nextTxOpts());
+          await mintTx.wait();
+          success = true;
+        } catch (e) {
+          if (i === 4) {
+            console.warn("Warning: initial DXP mint failed after retries", e);
+          } else {
+            await sleep(2000);
+          }
+        }
+      }
     }
 
     // Update manifest
@@ -477,6 +519,53 @@ async function main() {
     await saveManifest(manifest);
   }
 
+  // Set LayerZero endpoint on FarmFactory (per-chain). If not configured for this chain, skip.
+  if (!manifest.steps.LayerZeroEndpointSet.deployed) {
+    const LZ_ENDPOINTS: Record<string, string | undefined> = {
+      sepolia: env("LZ_ENDPOINT_SEPOLIA") ?? env("LZ_ENDPOINT"),
+      "base-sepolia": env("LZ_ENDPOINT_BASE_SEPOLIA") ?? env("LZ_ENDPOINT"),
+      "ethereum-hoodi": env("LZ_ENDPOINT_ETH_HOODI") ?? env("LZ_ENDPOINT"),
+      monad: env("LZ_ENDPOINT_MONAD") ?? env("LZ_ENDPOINT"),
+      "hyperliquid-testnet": env("LZ_ENDPOINT_HYPER_TESTNET") ?? env("LZ_ENDPOINT"),
+    };
+    const lzEndpoint = LZ_ENDPOINTS[network];
+    if (lzEndpoint && lzEndpoint !== ethers.ZeroAddress) {
+      console.log("Setting LayerZero endpoint on FarmFactory...", lzEndpoint);
+      const tx = await farmFactory.setLayerZeroEndpoint(lzEndpoint, await nextTxOpts());
+      await tx.wait();
+      manifest.steps.LayerZeroEndpointSet.deployed = true;
+      manifest.steps.LayerZeroEndpointSet.txHash = tx.hash;
+      (manifest.steps.LayerZeroEndpointSet as any).address = lzEndpoint;
+      await saveManifest(manifest);
+    } else {
+      console.log(`No LayerZero endpoint configured for network ${network}. Skipping setLayerZeroEndpoint.`);
+    }
+  }
+
+  // Ensure ShareTokenDeployer is deployed and set on FarmFactory
+  if (!manifest.steps.ShareTokenDeployer.deployed) {
+    console.log("Deploying ShareTokenDeployer...");
+    const DeployerF = await ethers.getContractFactory("contracts/v3/tokens/ShareTokenDeployer.sol:ShareTokenDeployer");
+    const deployerCtr = await DeployerF.deploy(await nextTxOpts());
+    await deployerCtr.waitForDeployment();
+    const deployerAddr = await deployerCtr.getAddress();
+    console.log("ShareTokenDeployer:", deployerAddr);
+    manifest.steps.ShareTokenDeployer.deployed = true;
+    manifest.steps.ShareTokenDeployer.address = deployerAddr;
+    manifest.steps.ShareTokenDeployer.txHash = deployerCtr.deploymentTransaction()?.hash || null;
+    await saveManifest(manifest);
+  }
+
+  if (!manifest.steps.ShareTokenDeployerSet.deployed) {
+    const deployerAddr = manifest.steps.ShareTokenDeployer.address!;
+    console.log("Setting ShareTokenDeployer on FarmFactory...", deployerAddr);
+    const tx = await farmFactory.setShareTokenDeployer(deployerAddr, await nextTxOpts());
+    await tx.wait();
+    manifest.steps.ShareTokenDeployerSet.deployed = true;
+    manifest.steps.ShareTokenDeployerSet.txHash = tx.hash;
+    await saveManifest(manifest);
+  }
+
   // 5.1) Deploy implementation contracts for clone-based modules and set them in the factory
   let baseFarmImplAddr: string, routerImplAddr: string, payoutImplAddr: string, lockupImplAddr: string, registryImplAddr: string;
 
@@ -489,24 +578,34 @@ async function main() {
     const RegistryImplF = await ethers.getContractFactory("contracts/v3/modules/StakeholderRegistry.sol:StakeholderRegistry");
 
     const baseFarmImpl = await BaseFarmImplF.deploy(await nextTxOpts());
+    console.log("BaseFarm Impl tx:", baseFarmImpl.deploymentTransaction()?.hash);
     await baseFarmImpl.waitForDeployment();
     baseFarmImplAddr = await baseFarmImpl.getAddress();
+    console.log("BaseFarm Impl address:", baseFarmImplAddr);
 
     const routerImpl = await RouterImplF.deploy(await nextTxOpts());
+    console.log("StrategyRouter Impl tx:", routerImpl.deploymentTransaction()?.hash);
     await routerImpl.waitForDeployment();
     routerImplAddr = await routerImpl.getAddress();
+    console.log("StrategyRouter Impl address:", routerImplAddr);
 
     const payoutImpl = await PayoutImplF.deploy(await nextTxOpts());
+    console.log("PayoutPolicy Impl tx:", payoutImpl.deploymentTransaction()?.hash);
     await payoutImpl.waitForDeployment();
     payoutImplAddr = await payoutImpl.getAddress();
+    console.log("PayoutPolicy Impl address:", payoutImplAddr);
 
     const lockupImpl = await LockupImplF.deploy(await nextTxOpts());
+    console.log("LockupPolicy Impl tx:", lockupImpl.deploymentTransaction()?.hash);
     await lockupImpl.waitForDeployment();
     lockupImplAddr = await lockupImpl.getAddress();
+    console.log("LockupPolicy Impl address:", lockupImplAddr);
 
     const registryImpl = await RegistryImplF.deploy(await nextTxOpts());
+    console.log("StakeholderRegistry Impl tx:", registryImpl.deploymentTransaction()?.hash);
     await registryImpl.waitForDeployment();
     registryImplAddr = await registryImpl.getAddress();
+    console.log("StakeholderRegistry Impl address:", registryImplAddr);
 
     console.log("Module Implementations:", {
       BaseFarm: baseFarmImplAddr,
@@ -676,6 +775,12 @@ async function main() {
   let lendMods: any;
 
   if (!manifest.steps.BluechipIndexFarm.deployed) {
+    // Ensure LayerZero endpoint is set on this chain; OFT share token requires a valid endpoint at BaseFarm.initialize
+    const currentLzEndpoint: string = await farmFactory.lzEndpoint();
+    if (!currentLzEndpoint || currentLzEndpoint === ethers.ZeroAddress) {
+      console.log("LayerZero endpoint not set on FarmFactory for this network. Skipping farm creation.");
+      return;
+    }
     console.log("Creating Bluechip Index farm via ProtocolCore.createApprovedFarm...");
     const lendLockCfg = {
       enabled: LEND_LOCK_ENABLED,
