@@ -67,7 +67,11 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
         if (msg.sender != owner() && msg.sender != IOwnable(protocolCore).owner()) revert("Unauthorized");
         _;
     }
-
+    modifier onlyOwnerProtocolOrFarm() {
+        address pOwner = IOwnable(protocolCore).owner();
+        if (msg.sender != owner() && msg.sender != pOwner && msg.sender != farm) revert("Unauthorized");
+        _;
+    }
     event FarmSet(address indexed farm);
     event WhitelistRegistrySet(address indexed registry);
 
@@ -235,7 +239,7 @@ contract StrategyRouter is IStrategyRouter, Ownable, ReentrancyGuard, Pausable {
      * @notice Update target weights without moving funds (MVP behavior).
      * @param targetBps New target weights; must sum to 10_000.
      */
-    function rebalance(uint16[] calldata targetBps) external override onlyOwnerOrProtocolOwner whenNotPaused {
+    function rebalance(uint16[] calldata targetBps) external override onlyOwnerProtocolOrFarm whenNotPaused {
         uint256 n = _ids.length();
         require(targetBps.length == n, "LenMismatch");
         uint256 sum = 0;

@@ -6,6 +6,11 @@ const networks: HardhatUserConfig["networks"] = {
   hardhat: {
     allowUnlimitedContractSize: true,
   },
+  sepolia: {
+    url: process.env.SEPOLIA_RPC_URL || "https://eth-sepolia.public.blastapi.io",
+    accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+    chainId: 11155111,
+  },
   "base-sepolia": {
     url: "https://sepolia.base.org", // Replace with your actual RPC URL
     accounts: ["8c94cd0dba51e5ebe7a4bb7efc3a5a577ff8e66d9c3e28e1448d468e8055402c"], // Replace with your actual private key

@@ -21,6 +21,10 @@ interface IMockSwapRouter {
     function swapFrom(address tokenIn, address tokenOut, uint256 amountIn, address from, address recipient) external returns (uint256);
 }
 
+interface IERC1271 {
+    function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4);
+}
+
 contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
     using SafeERC20 for IERC20;
 
@@ -44,8 +48,8 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
     bytes32 private constant APPROVAL_TYPEHASH = keccak256(
         "Approval(address token,address spender,uint256 amount)"
     );
-    mapping(uint256 => bool) public usedNonces;
     uint256 public nonce;
+    bytes4 private constant EIP1271_MAGICVALUE = 0x1626ba7e;
 
     // Events
     event RouterSet(address indexed router);
@@ -180,8 +184,8 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
         uint256 minBuyAmount,
         bytes calldata data,
         uint256 deadline,
-        uint8 v1, bytes32 r1, bytes32 s1,
-        uint8 v2, bytes32 r2, bytes32 s2
+        bytes calldata farmSig,
+        bytes calldata protocolSig
     ) external {
         require(block.timestamp <= deadline, "Expired");
         // Allow native ETH represented by address(0)
@@ -209,12 +213,8 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
         address farmOwner = IOwnable(router).owner();
         address protocolOwner = IOwnable(protocolCore).owner();
 
-        address signer1 = ecrecover(digest, v1, r1, s1);
-        address signer2 = ecrecover(digest, v2, r2, s2);
-
-        require((signer1 == farmOwner && signer2 == protocolOwner) || (signer1 == protocolOwner && signer2 == farmOwner), "InvalidSignature");
-        require(!usedNonces[nonce], "NonceUsed");
-        usedNonces[nonce] = true;
+        require(_isValidSig(farmOwner, digest, farmSig), "InvalidSignature");
+        require(_isValidSig(protocolOwner, digest, protocolSig), "InvalidSignature");
         nonce++;
 
         uint256 buyBefore = buyToken == address(0)
@@ -240,6 +240,33 @@ contract BluechipIndexAdapter is IStrategyAdapter, Ownable, EIP712 {
         require(buyAmount >= minBuyAmount, "Slippage");
 
         emit SwapExecuted(sellToken, sellAmount, buyToken, buyAmount);
+    }
+
+    function _isValidSig(address signer, bytes32 digest, bytes memory signature) internal view returns (bool) {
+        if (signer.code.length == 0) {
+            if (signature.length != 65) return false;
+            bytes32 r;
+            bytes32 s;
+            uint8 v;
+            assembly {
+                r := mload(add(signature, 0x20))
+                s := mload(add(signature, 0x40))
+                v := byte(0, mload(add(signature, 0x60)))
+            }
+            // Reject malleable 's' values: s must be in lower half order
+            if (uint256(s) > 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0) return false;
+            // Only allow v 27/28
+            if (v != 27 && v != 28) return false;
+            address rec = ecrecover(digest, v, r, s);
+            return rec == signer;
+        } else {
+            // Contract wallet: verify the same EIP-712 digest via EIP-1271 (domain binds to this contract & chainId)
+            try IERC1271(signer).isValidSignature(digest, signature) returns (bytes4 magic) {
+                return magic == EIP1271_MAGICVALUE;
+            } catch {
+                return false;
+            }
+        }
     }
 
     // IStrategyAdapter
