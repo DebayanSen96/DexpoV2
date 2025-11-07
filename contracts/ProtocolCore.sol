@@ -45,8 +45,9 @@ import "./interfaces/IRootFarm.sol";
 import "./interfaces/IConsensus.sol";
 import "./v3/interfaces/IFarmFactory.sol";
 import "./interfaces/ILiquidityManager.sol";
-import "./v3/core/FarmCreationModule.sol";
 import "./interfaces/IBridgeAdapter.sol";
+import "./v3/interfaces/IProtocolCore.sol";
+import "./v3/interfaces/ICoreAccessControl.sol";
 
 // local farm interface (only the fns we actually call)
 interface IFarmMinimal {
@@ -57,7 +58,7 @@ interface IFarmMinimal {
     function yieldYodaIncentiveSplit() external view returns (uint256);
 }
 
-contract ProtocolCore is Ownable, ReentrancyGuard {
+contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessControl {
     // ───────────────────────────────────────────────────────────
     //                        CONSTANTS
     // ───────────────────────────────────────────────────────────
@@ -148,6 +149,8 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     mapping(uint256 => mapping(address => uint256)) public verifierStakes; // farmId ➜ verifier ➜ stake
     uint256 public minVerifierStake = 100e18; // mutable parameter
 
+    // Access control handled off-chain; on-chain views are permissive
+
     // ───────────────────────────────────────────────────────────
     //              PROTOCOL-WIDE FINANCIAL STATE
     // ───────────────────────────────────────────────────────────
@@ -168,9 +171,10 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     // ───────────────────────────────────────────────────────────
     ILiquidityManager public liquidityManager;
     IFarmFactory public farmFactory; // v3 farm stack factory
+    address public vaultFactory; // v3 minimal vault factory
     IBridgeAdapter public bridgeAdapter;
     IConsensus public consensus; // pulls verifier rounds
-    FarmCreationModule public farmCreationModule; // external thin module to create farms
+    address public farmCreationModule; // external thin module to create farms (optional)
 
     // immutable tokens
     IDXPToken public immutable dxpToken;
@@ -185,7 +189,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     // ───────────────────────────────────────────────────────────
     //                        FARM RULES 
     // ───────────────────────────────────────────────────────────
-    struct FarmRules {
+    struct CoreFarmRules {
         uint16 minLpBps;              // minimum LP share
         uint16 maxOwnerBps;           // max farm owner share
         uint16 maxVerifierBps;        // max verifier share
@@ -198,7 +202,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         uint64 maxEpochSeconds;       // max payout epoch
     }
 
-    FarmRules private _farmRules = FarmRules({
+    CoreFarmRules private _farmRules = CoreFarmRules({
         minLpBps: 6000,
         maxOwnerBps: 3000,
         maxVerifierBps: 1000,
@@ -211,7 +215,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         maxEpochSeconds: 30 days
     });
 
-    event FarmRulesUpdated(FarmRules rules);
+    event FarmRulesUpdated(CoreFarmRules rules);
 
     // ───────────────────────────────────────────────────────────
     //                           EVENTS
@@ -314,7 +318,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
      * @param _dxpToken         Pre-deployed ERC-20 DXP address
      * @param fallbackRatio     Default bonus ratio (e.g. 70 = 70 %)
      * @param _protocolFeeRate  % fee on farm-owner slice of revenue
-     * @param _reserveRatio     % of fee kept in reserves (rest sent to RootFarm)
+     * @param _reserveRatio     % of fee kept in reserves
      */
     constructor(
         address _dxpToken,
@@ -345,20 +349,40 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         farmFactory = IFarmFactory(f);
     }
 
+    /// @notice Set the v3 `VaultFactory` contract used to deploy minimal vaults.
+    /// @param f Address of the vault factory contract.
+    function setVaultFactory(address f) external onlyOwner {
+        require(f != address(0), "zero address");
+        vaultFactory = f;
+    }
+
     /// @notice Set the external FarmCreationModule used to create farms (reduces core bytecode/stack usage)
     function setFarmCreationModule(address m) external onlyOwner {
         require(m != address(0), "zero address");
-        farmCreationModule = FarmCreationModule(m);
+        farmCreationModule = m;
     }
 
     // ───────────────────────────────────────────────────────────
     //                        FARM RULES 
     // ───────────────────────────────────────────────────────────
-    function getFarmRules() external view returns (FarmRules memory) {
-        return _farmRules;
+    function getFarmRules() external view override returns (IProtocolCoreV3.FarmRules memory) {
+        CoreFarmRules memory r = _farmRules;
+        IProtocolCoreV3.FarmRules memory out = IProtocolCoreV3.FarmRules({
+            minLpBps: r.minLpBps,
+            maxOwnerBps: r.maxOwnerBps,
+            maxVerifierBps: r.maxVerifierBps,
+            maxTransferFeeBps: r.maxTransferFeeBps,
+            maxProtocolRakeBps: r.maxProtocolRakeBps,
+            maxEarlyExitBps: r.maxEarlyExitBps,
+            maxLockupSeconds: r.maxLockupSeconds,
+            maxNoExitLockupSeconds: r.maxNoExitLockupSeconds,
+            minEpochSeconds: r.minEpochSeconds,
+            maxEpochSeconds: r.maxEpochSeconds
+        });
+        return out;
     }
 
-    function setFarmRules(FarmRules calldata rules) external onlyOwner {
+    function setFarmRules(CoreFarmRules calldata rules) external onlyOwner {
         require(rules.minLpBps <= 10_000, "minLp>100%");
         require(rules.maxOwnerBps <= 10_000, "owner>100%");
         require(rules.maxVerifierBps <= 10_000, "verifier>100%");
@@ -393,7 +417,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         bool /*shareTransferable*/,
         uint16 shareTransferFeeBps,
         uint16 protocolRakeBps
-    ) external view {
+    ) external view override {
         // Splits safety
         require(lpBps + ownerBps + verifierBps == 10_000, "Split!=100%");
         require(lpBps >= _farmRules.minLpBps, "LP share too low");
@@ -462,8 +486,10 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
      * @param farm   BaseFarm address.
      * @param farmId Canonical farm id assigned by the factory.
      */
-    function registerFarm(address owner_, address farm, uint256 farmId) external {
-        require(msg.sender == address(farmFactory), "!factory");
+    function registerFarm(address owner_, address farm, uint256 farmId) external override {
+        bool isFarmFactory = msg.sender == address(farmFactory);
+        bool isVaultFactory = msg.sender == address(vaultFactory);
+        require(isFarmFactory || isVaultFactory, "!factory");
         require(farm != address(0) && owner_ != address(0), "zero addr");
         require(farmId != 0, "farmId=0 reserved");
 
@@ -488,7 +514,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     /// @notice Report protocol fee streamed by a farm to protocol receiver.
     /// @param farmId Farm identifier.
     /// @param amount Amount of fee accounted for this report.
-    function reportProtocolFee(uint256 farmId, uint256 amount) external {
+    function reportProtocolFee(uint256 farmId, uint256 amount) external override {
         address farm = farmAddressOf[farmId];
         require(farm != address(0), "unknown farmId");
         require(msg.sender == farm, "!farm");
@@ -497,6 +523,27 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         totalProtocolFees += amount;
         emit ProtocolFeeReported(farmId, farm, amount, totalProtocolFeesByFarm[farmId]);
     }
+
+    // IProtocolCoreV3 verifier views
+    function getApprovedVerifiers(uint256 farmId) external view override returns (address[] memory) {
+        return approvedVerifiersList[farmId];
+    }
+    function isApprovedVerifier(uint256 farmId, address who) external view override returns (bool) {
+        return verifierStakes[farmId][who] > 0;
+    }
+
+    // ICoreAccessControl views (permissive defaults)
+    function canOperate(address /*vault*/, address /*caller*/) external pure override returns (bool) {
+        return true;
+    }
+    function isGlobalPaused() external pure override returns (bool) { return false; }
+    function isVaultPaused(address /*vault*/) external pure override returns (bool) { return false; }
+    function isActionAllowed(address /*vault*/, address /*target*/) external pure override returns (bool) {
+        return true;
+    }
+    function tvlCapOf(address /*vault*/) external pure override returns (uint256) { return 0; }
+
+    // No on-chain role or policy mutators; enforced off-chain
     /// @notice Approve or revoke an address to create farms via this core.
     /// @param who Address to (un)approve.
     /// @param approved True to approve, false to revoke.
@@ -543,337 +590,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
     }
 
 
-    // ───────────────────────────────────────────────────────────
-    //                       V3 FARM CREATION
-    // ───────────────────────────────────────────────────────────
-    uint256 public nextFarmId; // starts at 0, v3 farm ids begin at 1 (0 reserved for Root)
-
-    function createApprovedFarm(
-        address asset,
-        string memory farmName,
-        string memory farmSymbol,
-        address ownerRecipient,
-        uint16 lpBps,
-        uint16 ownerBps,
-        uint16 verifierBps,
-        IFarmFactory.LockConfig calldata lockCfg,
-        IFarmFactory.PayoutConfig calldata payoutCfg,
-        IFarmFactory.ShareTokenConfig calldata stCfg,
-        bytes32[] calldata adapterKeys,
-        address[] calldata adapterAddrs,
-        uint16[] calldata adapterBps
-    ) external nonReentrant returns (uint256 farmIdOut, address baseFarm) {
-        require(approvedFarmOwners[msg.sender], "Not an approved farm owner");
-        require(address(farmFactory) != address(0), "No FarmFactory");
-        require(uint256(lpBps) + ownerBps + verifierBps == 10_000, "Split!=100%");
-
-        unchecked { nextFarmId += 1; }
-        farmIdOut = nextFarmId;
-
-        IFarmFactory.FarmAddresses memory addrs = farmCreationModule.createFarmWithMin(
-            farmFactory,
-            asset,
-            farmName,
-            farmSymbol,
-            address(this),
-            farmIdOut,
-            msg.sender,
-            ownerRecipient,
-            lpBps,
-            ownerBps,
-            verifierBps,
-            lockCfg,
-            payoutCfg,
-            stCfg,
-            adapterKeys,
-            adapterAddrs,
-            adapterBps,
-            0
-        );
-
-        farmAddressOf[farmIdOut] = addrs.baseFarm;
-        farms[addrs.baseFarm] = FarmDetails({
-            farmAddress: addrs.baseFarm,
-            owner: msg.sender,
-            asset: asset,
-            farmId: farmIdOut
-        });
-
-        farmsById[farmIdOut] = FarmDetails_V3({
-            baseFarm: addrs.baseFarm,
-            owner: msg.sender,
-            asset: asset,
-            farmId: farmIdOut,
-            router: addrs.router,
-            payoutPolicy: addrs.payoutPolicy,
-            lockupPolicy: addrs.lockupPolicy,
-            stakeholderRegistry: addrs.stakeholderRegistry
-        });
-        farmIdOf[addrs.baseFarm] = farmIdOut;
-
-        emit FarmCreated(
-            farmIdOut,
-            addrs.baseFarm,
-            msg.sender,
-            addrs.router,
-            addrs.payoutPolicy,
-            addrs.lockupPolicy,
-            addrs.stakeholderRegistry
-        );
-
-        return (farmIdOut, addrs.baseFarm);
-    }
-
-    function createApprovedFarmWithMin(
-        address asset,
-        string memory farmName,
-        string memory farmSymbol,
-        address ownerRecipient,
-        uint16 lpBps,
-        uint16 ownerBps,
-        uint16 verifierBps,
-        IFarmFactory.LockConfig calldata lockCfg,
-        IFarmFactory.PayoutConfig calldata payoutCfg,
-        IFarmFactory.ShareTokenConfig calldata stCfg,
-        bytes32[] calldata adapterKeys,
-        address[] calldata adapterAddrs,
-        uint16[] calldata adapterBps,
-        uint256 minSubscriptionBaseUnits
-    ) public nonReentrant returns (uint256 farmIdOut, address baseFarm) {
-        require(approvedFarmOwners[msg.sender], "Not an approved farm owner");
-        require(address(farmFactory) != address(0), "No FarmFactory");
-        require(uint256(lpBps) + ownerBps + verifierBps == 10_000, "Split!=100%");
-
-        unchecked { nextFarmId += 1; }
-        farmIdOut = nextFarmId;
-
-        IFarmFactory.FarmAddresses memory addrs = farmCreationModule.createFarmWithMin(
-            farmFactory,
-            asset,
-            farmName,
-            farmSymbol,
-            address(this),
-            farmIdOut,
-            msg.sender,
-            ownerRecipient,
-            lpBps,
-            ownerBps,
-            verifierBps,
-            lockCfg,
-            payoutCfg,
-            stCfg,
-            adapterKeys,
-            adapterAddrs,
-            adapterBps,
-            minSubscriptionBaseUnits
-        );
-
-        farmAddressOf[farmIdOut] = addrs.baseFarm;
-        farms[addrs.baseFarm] = FarmDetails({
-            farmAddress: addrs.baseFarm,
-            owner: msg.sender,
-            asset: asset,
-            farmId: farmIdOut
-        });
-
-        farmsById[farmIdOut] = FarmDetails_V3({
-            baseFarm: addrs.baseFarm,
-            owner: msg.sender,
-            asset: asset,
-            farmId: farmIdOut,
-            router: addrs.router,
-            payoutPolicy: addrs.payoutPolicy,
-            lockupPolicy: addrs.lockupPolicy,
-            stakeholderRegistry: addrs.stakeholderRegistry
-        });
-        farmIdOf[addrs.baseFarm] = farmIdOut;
-
-        emit FarmCreated(
-            farmIdOut,
-            addrs.baseFarm,
-            msg.sender,
-            addrs.router,
-            addrs.payoutPolicy,
-            addrs.lockupPolicy,
-            addrs.stakeholderRegistry
-        );
-
-        return (farmIdOut, addrs.baseFarm);
-    }
-
-    /**
-     * @notice Create a new v3 farm for a specified `creator` (farm owner).
-     *         Protocol owner may call this for any approved farm owner. A farm owner
-     *         may call this only for themselves.
-     */
-    function createApprovedFarmFor(
-        address creator,
-        address asset,
-        string memory farmName,
-        string memory farmSymbol,
-        address ownerRecipient,
-        uint16 lpBps,
-        uint16 ownerBps,
-        uint16 verifierBps,
-        IFarmFactory.LockConfig calldata lockCfg,
-        IFarmFactory.PayoutConfig calldata payoutCfg,
-        IFarmFactory.ShareTokenConfig calldata stCfg,
-        bytes32[] calldata adapterKeys,
-        address[] calldata adapterAddrs,
-        uint16[] calldata adapterBps
-    ) external nonReentrant returns (uint256 farmIdOut, address baseFarm) {
-        require(address(farmFactory) != address(0), "No FarmFactory");
-        require(uint256(lpBps) + ownerBps + verifierBps == 10_000, "Split!=100%");
-
-        bool isProtocolOwner = (msg.sender == owner());
-        if (isProtocolOwner) {
-            require(approvedFarmOwners[creator], "Creator not approved");
-        } else {
-            require(approvedFarmOwners[msg.sender], "Not an approved farm owner");
-            require(msg.sender == creator, "Sender!=creator");
-        }
-
-        unchecked { nextFarmId += 1; }
-        farmIdOut = nextFarmId;
-
-        IFarmFactory.FarmAddresses memory addrs = farmCreationModule.createFarmWithMin(
-            farmFactory,
-            asset,
-            farmName,
-            farmSymbol,
-            address(this),
-            farmIdOut,
-            creator,
-            ownerRecipient,
-            lpBps,
-            ownerBps,
-            verifierBps,
-            lockCfg,
-            payoutCfg,
-            stCfg,
-            adapterKeys,
-            adapterAddrs,
-            adapterBps,
-            0
-        );
-
-        farmAddressOf[farmIdOut] = addrs.baseFarm;
-        farms[addrs.baseFarm] = FarmDetails({
-            farmAddress: addrs.baseFarm,
-            owner: creator,
-            asset: asset,
-            farmId: farmIdOut
-        });
-
-        farmsById[farmIdOut] = FarmDetails_V3({
-            baseFarm: addrs.baseFarm,
-            owner: creator,
-            asset: asset,
-            farmId: farmIdOut,
-            router: addrs.router,
-            payoutPolicy: addrs.payoutPolicy,
-            lockupPolicy: addrs.lockupPolicy,
-            stakeholderRegistry: addrs.stakeholderRegistry
-        });
-        farmIdOf[addrs.baseFarm] = farmIdOut;
-
-        emit FarmCreated(
-            farmIdOut,
-            addrs.baseFarm,
-            creator,
-            addrs.router,
-            addrs.payoutPolicy,
-            addrs.lockupPolicy,
-            addrs.stakeholderRegistry
-        );
-
-        return (farmIdOut, addrs.baseFarm);
-    }
-
-    function createApprovedFarmForWithMin(
-        address creator,
-        address asset,
-        string memory farmName,
-        string memory farmSymbol,
-        address ownerRecipient,
-        uint16 lpBps,
-        uint16 ownerBps,
-        uint16 verifierBps,
-        IFarmFactory.LockConfig calldata lockCfg,
-        IFarmFactory.PayoutConfig calldata payoutCfg,
-        IFarmFactory.ShareTokenConfig calldata stCfg,
-        bytes32[] calldata adapterKeys,
-        address[] calldata adapterAddrs,
-        uint16[] calldata adapterBps,
-        uint256 minSubscriptionBaseUnits
-    ) public nonReentrant returns (uint256 farmIdOut, address baseFarm) {
-        require(address(farmFactory) != address(0), "No FarmFactory");
-        require(uint256(lpBps) + ownerBps + verifierBps == 10_000, "Split!=100%");
-
-        bool isProtocolOwner = (msg.sender == owner());
-        if (isProtocolOwner) {
-            require(approvedFarmOwners[creator], "Creator not approved");
-        } else {
-            require(approvedFarmOwners[msg.sender], "Not an approved farm owner");
-            require(msg.sender == creator, "Sender!=creator");
-        }
-
-        unchecked { nextFarmId += 1; }
-        farmIdOut = nextFarmId;
-
-        IFarmFactory.FarmAddresses memory addrs = farmCreationModule.createFarmWithMin(
-            farmFactory,
-            asset,
-            farmName,
-            farmSymbol,
-            address(this),
-            farmIdOut,
-            creator,
-            ownerRecipient,
-            lpBps,
-            ownerBps,
-            verifierBps,
-            lockCfg,
-            payoutCfg,
-            stCfg,
-            adapterKeys,
-            adapterAddrs,
-            adapterBps,
-            minSubscriptionBaseUnits
-        );
-
-        farmAddressOf[farmIdOut] = addrs.baseFarm;
-        farms[addrs.baseFarm] = FarmDetails({
-            farmAddress: addrs.baseFarm,
-            owner: creator,
-            asset: asset,
-            farmId: farmIdOut
-        });
-
-        farmsById[farmIdOut] = FarmDetails_V3({
-            baseFarm: addrs.baseFarm,
-            owner: creator,
-            asset: asset,
-            farmId: farmIdOut,
-            router: addrs.router,
-            payoutPolicy: addrs.payoutPolicy,
-            lockupPolicy: addrs.lockupPolicy,
-            stakeholderRegistry: addrs.stakeholderRegistry
-        });
-        farmIdOf[addrs.baseFarm] = farmIdOut;
-
-        emit FarmCreated(
-            farmIdOut,
-            addrs.baseFarm,
-            creator,
-            addrs.router,
-            addrs.payoutPolicy,
-            addrs.lockupPolicy,
-            addrs.stakeholderRegistry
-        );
-
-        return (farmIdOut, addrs.baseFarm);
-    }
+    // V3 farm creation helpers removed (handled off-chain via factories)
 
     // ───────────────────────────────────────────────────────────
     //                    VERIFIER STAKING LOGIC
@@ -936,21 +653,7 @@ contract ProtocolCore is Ownable, ReentrancyGuard {
         dxpToken.transfer(msg.sender, amount);
     }
 
-    /// Simple views for the Consensus module / UIs
-    function isApprovedVerifier(
-        uint256 farmId,
-        address who
-    ) external view returns (bool) {
-        address[] storage lst = approvedVerifiersList[farmId];
-        for (uint256 i; i < lst.length; i++) if (lst[i] == who) return true;
-        return false;
-    }
-
-    function getApprovedVerifiers(
-        uint256 farmId
-    ) external view returns (address[] memory) {
-        return approvedVerifiersList[farmId];
-    }
+    // duplicate consensus-view helpers removed; use IProtocolCoreV3 implementations above
 
     /** @dev owner-only list manager for Yield-Yodas (new) */
     function setApprovedYieldYoda(

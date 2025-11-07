@@ -26,17 +26,14 @@ contract UserVault is ReentrancyGuard, EIP712 {
         "Action(address to,uint256 value,bytes data,uint256 nonce,uint256 deadline)"
     );
 
-    // Batch support (compact arrays hashed under EIP-712)
-    bytes32 private constant BATCH_TYPEHASH = keccak256(
-        "Batch(bytes32 toHash,bytes32 valueHash,bytes32 dataHash,uint256 nonce,uint256 deadline)"
-    );
+    // Batch EIP-712 removed for simplicity
 
     mapping(address => bool) public isOwner;
     address[] public owners;
     uint8 public threshold;
     uint256 public nonce;
 
-    uint256 private constant MAX_BATCH = 100;
+    // batch disabled
 
     event Executed(address indexed to, uint256 value, bytes data, bytes result);
     event OwnerAdded(address indexed owner);
@@ -44,7 +41,7 @@ contract UserVault is ReentrancyGuard, EIP712 {
     event OwnerSwapped(address indexed oldOwner, address indexed newOwner);
     event ThresholdChanged(uint8 threshold);
     event GuardSet(address indexed guard);
-    event BatchExecuted(uint256 count);
+    // batch disabled
 
     error InvalidOwners();
     error InvalidThreshold();
@@ -117,12 +114,7 @@ contract UserVault is ReentrancyGuard, EIP712 {
         if (to == address(this)) {
             _requireAllowedAdminSelector(data);
         }
-        if (guard != address(0) && to != address(this)) IGuard(guard).check(to, value, data);
-        (bool ok, bytes memory ret) = to.call{value: value}(data);
-        if (!ok) revert CallFailed();
-        if (guard != address(0) && to != address(this)) IGuard(guard).checkAfter(to, value, data, ret);
-        emit Executed(to, value, data, ret);
-        return ret;
+        return _perform(to, value, data);
     }
 
     function execute(Action calldata a, bytes[] calldata sigs)
@@ -136,106 +128,14 @@ contract UserVault is ReentrancyGuard, EIP712 {
         if (a.to == address(this)) {
             _requireAllowedAdminSelector(a.data);
         }
-        bytes32 digest = _hashTypedDataV4(
-            keccak256(abi.encode(
-                ACTION_TYPEHASH,
-                a.to,
-                a.value,
-                keccak256(a.data),
-                a.nonce,
-                a.deadline
-            ))
-        );
-
-        uint256 sigCount = sigs.length;
-        if (sigCount < threshold) revert InsufficientSignatures();
-        address last;
-        uint256 valid;
-        for (uint256 i = 0; i < sigCount; i++) {
-            address signer = ECDSA.recover(digest, sigs[i]);
-            if (!isOwner[signer]) revert DuplicateOrInvalidSigner();
-            if (i > 0 && signer <= last) revert DuplicateOrInvalidSigner();
-            last = signer;
-            unchecked { valid++; }
-        }
-        if (valid < threshold) revert InsufficientSignatures();
+        bytes32 digest = _hashAction(a);
+        _validateSignatures(digest, sigs);
 
         nonce = a.nonce + 1;
-        if (guard != address(0) && a.to != address(this)) IGuard(guard).check(a.to, a.value, a.data);
-        (bool ok, bytes memory ret) = a.to.call{value: a.value}(a.data);
-        if (!ok) revert CallFailed();
-        if (guard != address(0) && a.to != address(this)) IGuard(guard).checkAfter(a.to, a.value, a.data, ret);
-        emit Executed(a.to, a.value, a.data, ret);
-        return ret;
+        return _perform(a.to, a.value, a.data);
     }
 
-    // Execute a batch of calls atomically under one signature set and nonce.
-    function executeBatch(
-        address[] calldata to,
-        uint256[] calldata value,
-        bytes[] calldata data,
-        uint256 deadline,
-        bytes[] calldata sigs
-    ) external payable nonReentrant returns (bytes[] memory results) {
-        if (block.timestamp > deadline) revert DeadlineExpired();
-        uint256 len = to.length;
-        if (len == 0 || len > MAX_BATCH || value.length != len || data.length != len) revert InvalidBatchLength();
-
-        // Build EIP-712 hashes of arrays
-        bytes32[] memory toLeaves = new bytes32[](len);
-        bytes32[] memory valueLeaves = new bytes32[](len);
-        bytes32[] memory dataLeaf = new bytes32[](len);
-        for (uint256 i = 0; i < len; i++) {
-            if (to[i] == address(this)) {
-                _requireAllowedAdminSelector(data[i]);
-            }
-            toLeaves[i] = bytes32(uint256(uint160(to[i])));
-            valueLeaves[i] = bytes32(value[i]);
-            dataLeaf[i] = keccak256(data[i]);
-        }
-        bytes32 toHash = keccak256(abi.encodePacked(toLeaves));
-        bytes32 valueHash = keccak256(abi.encodePacked(valueLeaves));
-        bytes32 dataHash = keccak256(abi.encodePacked(dataLeaf));
-
-        bytes32 digest = _hashTypedDataV4(
-            keccak256(abi.encode(
-                BATCH_TYPEHASH,
-                toHash,
-                valueHash,
-                dataHash,
-                nonce,
-                deadline
-            ))
-        );
-
-        uint256 sigCount = sigs.length;
-        if (sigCount < threshold) revert InsufficientSignatures();
-        address last;
-        uint256 valid;
-        for (uint256 i = 0; i < sigCount; i++) {
-            address signer = ECDSA.recover(digest, sigs[i]);
-            if (!isOwner[signer]) revert DuplicateOrInvalidSigner();
-            if (i > 0 && signer <= last) revert DuplicateOrInvalidSigner();
-            last = signer;
-            unchecked { valid++; }
-        }
-        if (valid < threshold) revert InsufficientSignatures();
-
-        uint256 current = nonce;
-        nonce = current + 1;
-
-        results = new bytes[](len);
-        for (uint256 i = 0; i < len; i++) {
-            if (guard != address(0) && to[i] != address(this)) IGuard(guard).check(to[i], value[i], data[i]);
-            (bool ok, bytes memory ret) = to[i].call{value: value[i]}(data[i]);
-            if (!ok) revert CallFailed();
-            if (guard != address(0) && to[i] != address(this)) IGuard(guard).checkAfter(to[i], value[i], data[i], ret);
-            emit Executed(to[i], value[i], data[i], ret);
-            results[i] = ret;
-        }
-        emit BatchExecuted(len);
-        return results;
-    }
+    // batch disabled
 
     // EIP-1271 signature validation over a pre-hashed message.
     function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4) {
@@ -325,6 +225,47 @@ contract UserVault is ReentrancyGuard, EIP712 {
         ) revert InvalidSelector();
     }
 
+    function _hashAction(Action calldata a) private view returns (bytes32) {
+        return _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    ACTION_TYPEHASH,
+                    a.to,
+                    a.value,
+                    keccak256(a.data),
+                    a.nonce,
+                    a.deadline
+                )
+            )
+        );
+    }
+
+    // batch disabled
+
+    function _validateSignatures(bytes32 digest, bytes[] calldata sigs) private view {
+        uint256 sigCount = sigs.length;
+        if (sigCount < threshold) revert InsufficientSignatures();
+        address last;
+        uint256 valid;
+        for (uint256 i = 0; i < sigCount; i++) {
+            address signer = ECDSA.recover(digest, sigs[i]);
+            if (!isOwner[signer]) revert DuplicateOrInvalidSigner();
+            if (i > 0 && signer <= last) revert DuplicateOrInvalidSigner();
+            last = signer;
+            unchecked { valid++; }
+        }
+        if (valid < threshold) revert InsufficientSignatures();
+    }
+
+    function _perform(address to, uint256 value, bytes calldata data) private returns (bytes memory ret) {
+        if (guard != address(0) && to != address(this)) IGuard(guard).check(to, value, data);
+        (bool ok, bytes memory out) = to.call{value: value}(data);
+        if (!ok) revert CallFailed();
+        if (guard != address(0) && to != address(this)) IGuard(guard).checkAfter(to, value, data, out);
+        emit Executed(to, value, data, out);
+        return out;
+    }
+
     receive() external payable {}
 
     // Helper: compute EIP-712 digest for a single Action (for off-chain signing/testing).
@@ -350,35 +291,5 @@ contract UserVault is ReentrancyGuard, EIP712 {
     }
 
     // Helper: compute EIP-712 digest for a batch using the current nonce.
-    function getBatchDigest(
-        address[] calldata to,
-        uint256[] calldata value,
-        bytes[] calldata data,
-        uint256 deadline
-    ) external view returns (bytes32) {
-        uint256 len = to.length;
-        bytes32[] memory toLeaves = new bytes32[](len);
-        bytes32[] memory valueLeaves = new bytes32[](len);
-        bytes32[] memory dataLeaf = new bytes32[](len);
-        for (uint256 i = 0; i < len; i++) {
-            toLeaves[i] = bytes32(uint256(uint160(to[i])));
-            valueLeaves[i] = bytes32(value[i]);
-            dataLeaf[i] = keccak256(data[i]);
-        }
-        bytes32 toHash = keccak256(abi.encodePacked(toLeaves));
-        bytes32 valueHash = keccak256(abi.encodePacked(valueLeaves));
-        bytes32 dataHash = keccak256(abi.encodePacked(dataLeaf));
-        return _hashTypedDataV4(
-            keccak256(
-                abi.encode(
-                    BATCH_TYPEHASH,
-                    toHash,
-                    valueHash,
-                    dataHash,
-                    nonce,
-                    deadline
-                )
-            )
-        );
-    }
+    // batch disabled
 }
