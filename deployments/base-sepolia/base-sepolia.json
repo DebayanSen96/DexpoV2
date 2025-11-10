@@ -2,22 +2,24 @@
   "network": "base-sepolia",
   "deployer": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
   "contracts": {
-    "DXPToken": "0xFa3fF0a8Ba1dD00765EdA0cecFBb13E24222f42C",
-    "ProtocolCore": "0x840c09228CD7FB1091b0674aBdbd4eF280a88d5a",
-    "VaultFactory": "0x47392C9Da61AB45Bdc01921438C33ED342051B75",
-    "MockLiquidityManager": "0xc296e2e738B0dBE981Fc251e722b3f2b1392c98E",
-    "BridgingAdapter": "0x1d41afa1D567342df629CA4f8387fE4EA0BD5a6A",
+    "DXPToken": "0x65E844d4e7E83871A23f4781A70cF426b06ea157",
+    "ProtocolCore": "0x8e60eC18da8dc2a04251CeC8D0aa17860766Cf76",
+    "VaultFactory": "0xEd8FbF6925486823aCD09573F3879e3B901d4750",
+    "MockSwapRouter": "0x8C82f93a99518f7381BBb29Cc29128e7C5249042",
+    "VaultTreasury": "0x14Cf36426932d6eBbB1Ab8029A256425F859DB11",
+    "MockLiquidityManager": "0xaE00389e8d3cb420CCd7C2Bf39449174958A9E9F",
+    "BridgingAdapter": "0xc739DA3632858E5472536Df25EEB91517797A199",
     "WhitelistRegistry": "0x0000000000000000000000000000000000000000",
     "vaults": {
       "bluechip": {
-        "Vault": "0x236ec4C8111E20DAC7Fa3dD28C87F17ef097404e",
+        "Vault": null,
         "FarmId": "2"
       }
     }
   },
   "params": {
-    "ASSET_TOKEN": "0xFa3fF0a8Ba1dD00765EdA0cecFBb13E24222f42C",
-    "USDC_TOKEN": "0xFa3fF0a8Ba1dD00765EdA0cecFBb13E24222f42C",
+    "ASSET_TOKEN": "0x65E844d4e7E83871A23f4781A70cF426b06ea157",
+    "USDC_TOKEN": "0x65E844d4e7E83871A23f4781A70cF426b06ea157",
     "FALLBACK_BONUS_RATIO": "70",
     "PROTOCOL_FEE_RATE": "10",
     "RESERVE_RATIO": "50",
@@ -25,6 +27,10 @@
       "VAULT_NAME": "Dexponent Bluechip Vault",
       "VAULT_SYMBOL": "dBLUE",
       "FARM_ID": "2",
+      "SHARE_DECIMALS": 18,
+      "SHARE_TRANSFERABLE": true,
+      "TRANSFER_FEE_BPS": 0,
+      "MIN_SUBSCRIPTION": "0",
       "LOCK_ENABLED": false,
       "LOCK_ALLOW_EARLY": true,
       "LOCK_EARLY_BPS": 200,

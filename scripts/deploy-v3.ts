@@ -151,6 +151,9 @@ async function main() {
   ensureStep(manifest, "VaultFactory", { deployed: false, address: null, txHash: null });
   ensureStep(manifest, "VaultFactoryWired", { deployed: false, txHash: null });
   ensureStep(manifest, "VaultCreated", { deployed: false, address: null, txHash: null, farmId: null });
+  ensureStep(manifest, "MockSwapRouter", { deployed: false, address: null, txHash: null });
+  ensureStep(manifest, "VaultTreasury", { deployed: false, address: null, txHash: null });
+  ensureStep(manifest, "TreasuryBound", { deployed: false, txHash: null });
   // HyperPerp optional steps
   ensureStep(manifest, "HyperPerpAdapter", { deployed: false, address: null, txHash: null });
   ensureStep(manifest, "HyperPerpAdapterWhitelisted", { deployed: false, txHash: null });
@@ -188,9 +191,13 @@ async function main() {
   // Per-vault overrides (Bluechip Index only)
 
   // Bluechip Index (streaming focus) — uses BluechipIndexAdapter
-  const LEND_VAULT_NAME = env("LEND_VAULT_NAME", "Dexponent Bluechip Vault")!; // test: BluechipIndexAdapter
+  const LEND_VAULT_NAME = env("LEND_VAULT_NAME", "Dexponent Bluechip Vault")!;
   const LEND_VAULT_SYMBOL = env("LEND_VAULT_SYMBOL", "dBLUE")!;
   const LEND_FARM_ID = BigInt(env("LEND_FARM_ID", "2")!);
+  const LEND_SHARE_DECIMALS = Number(env("LEND_SHARE_DECIMALS", "18"));
+  const LEND_SHARE_TRANSFERABLE = env("LEND_SHARE_TRANSFERABLE", "true") === "true";
+  const LEND_TRANSFER_FEE_BPS = Number(env("LEND_TRANSFER_FEE_BPS", "0")); // 0..2000
+  const LEND_MIN_SUBSCRIPTION = BigInt(env("LEND_MIN_SUBSCRIPTION", "0")!);
   const LEND_LOCK_ENABLED = env("LEND_LOCK_ENABLED", "false") === "true";
   const LEND_LOCK_ALLOW_EARLY = env("LEND_LOCK_ALLOW_EARLY", "true") === "true";
   const LEND_LOCK_EARLY_BPS = Number(env("LEND_LOCK_EARLY_BPS", "200")); // 2%
@@ -509,32 +516,131 @@ async function main() {
 
   // No adapters to deploy/whitelist for minimal vault
 
+  // --- Deploy or use MockSwapRouter (env override) ---
+  let mockRouterAddr: string | undefined;
+  const ENV_ROUTER = env("MOCK_SWAP_ROUTER", "");
+  if (ENV_ROUTER && ENV_ROUTER !== "" && ENV_ROUTER !== ethers.ZeroAddress) {
+    console.log("Using MOCK_SWAP_ROUTER from env:", ENV_ROUTER);
+    mockRouterAddr = ENV_ROUTER;
+    // record for convenience
+    manifest.steps.MockSwapRouter.deployed = true;
+    manifest.steps.MockSwapRouter.address = mockRouterAddr;
+    manifest.steps.MockSwapRouter.txHash = manifest.steps.MockSwapRouter.txHash || null;
+    await saveManifest(manifest);
+  } else if (!manifest.steps.MockSwapRouter.deployed) {
+    console.log("Deploying MockSwapRouter...");
+    const RouterF = await ethers.getContractFactory("contracts/libraries/testnet/MockSwapRouter.sol:MockSwapRouter");
+    const router = await RouterF.deploy(
+      deployerAddress,
+      [], // tokens
+      [], // prices
+      await nextTxOpts()
+    );
+    await router.waitForDeployment();
+    mockRouterAddr = await router.getAddress();
+    console.log("MockSwapRouter:", mockRouterAddr);
+    manifest.steps.MockSwapRouter.deployed = true;
+    manifest.steps.MockSwapRouter.address = mockRouterAddr;
+    manifest.steps.MockSwapRouter.txHash = router.deploymentTransaction()?.hash || null;
+    await saveManifest(manifest);
+    // seed base asset price = 1e18 by default (only if we deployed it and own it)
+    try {
+      const txp = await router.addOrUpdateToken(ASSET_TOKEN, (10n ** 18n).toString(), await nextTxOpts());
+      await txp.wait();
+    } catch {}
+  } else {
+    mockRouterAddr = manifest.steps.MockSwapRouter.address!;
+  }
+
+  // --- Deploy VaultTreasury (assets valuer + action simulator) ---
+  let treasuryAddr: string | undefined;
+  if (!manifest.steps.VaultTreasury.deployed) {
+    console.log("Deploying VaultTreasury...");
+    const TreasuryF = await ethers.getContractFactory("contracts/v3/treasury/VaultTreasury.sol:VaultTreasury");
+    const treasury = await TreasuryF.deploy(coreAddr, deployerAddress, ASSET_TOKEN, mockRouterAddr ?? ethers.ZeroAddress, await nextTxOpts());
+    await treasury.waitForDeployment();
+    treasuryAddr = await treasury.getAddress();
+    console.log("VaultTreasury:", treasuryAddr);
+    // Optional APRs
+    const LEND_APR_BPS = Number(env("LEND_APR_BPS", "300"));
+    const BORROW_APR_BPS = Number(env("BORROW_APR_BPS", "800"));
+    try { const rt = await treasury.setRates(LEND_APR_BPS, BORROW_APR_BPS, await nextTxOpts()); await rt.wait(); } catch {}
+    manifest.steps.VaultTreasury.deployed = true;
+    manifest.steps.VaultTreasury.address = treasuryAddr;
+    manifest.steps.VaultTreasury.txHash = treasury.deploymentTransaction()?.hash || null;
+    await saveManifest(manifest);
+  } else {
+    treasuryAddr = manifest.steps.VaultTreasury.address!;
+  }
+
   // --- Create Vault ---
   let lendFarmId: bigint = LEND_FARM_ID;
   if (!manifest.steps.VaultCreated.deployed) {
-    console.log("Creating vault via VaultFactory.createVault...");
-    const tx = await vaultFactory.createVault(
+    console.log("Creating vault via ProtocolCore.createVaultViaCore...");
+    const OWNER_EOA = deployerAddress; // pass-through owner EOA instead of ProtocolCore
+    const USD_PRICER = env("USD_PRICER", ethers.ZeroAddress);
+    const ASSETS_VALUER = treasuryAddr ?? env("ASSETS_VALUER", ethers.ZeroAddress);
+    const tx = await core.createVaultViaCore(
       ASSET_TOKEN,
       LEND_VAULT_NAME,
       LEND_VAULT_SYMBOL,
-      coreAddr,
+      OWNER_EOA,
       lendFarmId,
+      USD_PRICER,
+      ASSETS_VALUER,
+      LEND_MIN_SUBSCRIPTION,
+      LEND_LOCK_SECONDS,
+      LEND_SHARE_TRANSFERABLE,
+      LEND_TRANSFER_FEE_BPS,
+      LEND_SHARE_DECIMALS,
       await nextTxOpts()
     );
     const rcpt = await tx.wait();
-    // Find VaultCreated event
-    const vaultEvent = rcpt.logs
-      .map((l: any) => { try { return (vaultFactory.interface as any).parseLog(l); } catch { return undefined; } })
-      .find((ev: any) => ev && ev.name === "VaultCreated");
-    const vaultAddr = vaultEvent?.args?.vault as string;
-    console.log("Vault created:", vaultAddr, "farmId=", String(lendFarmId));
+    // Resolve the newly created vault from manifest or by reading latest from factory registry
+    let vaultAddr: string | undefined;
+    try {
+      // Query last vault by owner from factory storage
+      const list = await vaultFactory.vaultsByOwner(OWNER_EOA);
+      vaultAddr = list[list.length - 1];
+    } catch {}
+    console.log("Vault created:", vaultAddr ?? "(address resolved via factory)", "farmId=", String(lendFarmId));
+    // Bind treasury to vault (one-time)
+    if (treasuryAddr) {
+      try {
+        const tr = await (await ethers.getContractAt("contracts/v3/treasury/VaultTreasury.sol:VaultTreasury", treasuryAddr)).setVaultOnce(vaultAddr!, await nextTxOpts());
+        await tr.wait();
+        manifest.steps.TreasuryBound.deployed = true;
+        manifest.steps.TreasuryBound.txHash = tr.hash;
+      } catch {}
+      try {
+        const vaultCtr = await ethers.getContractAt("contracts/v3/vault/BaseVault.sol:Vault4626", vaultAddr!);
+        const txv = await vaultCtr.setAssetsValuer(treasuryAddr, await nextTxOpts());
+        await txv.wait();
+      } catch {}
+    }
     manifest.steps.VaultCreated.deployed = true;
-    manifest.steps.VaultCreated.address = vaultAddr;
+    manifest.steps.VaultCreated.address = vaultAddr ?? null;
     manifest.steps.VaultCreated.txHash = tx.hash;
     manifest.steps.VaultCreated.farmId = String(lendFarmId);
     await saveManifest(manifest);
   } else {
     console.log("Vault already created, skipping...");
+    // If vault exists but treasury is present, still try to bind and set as valuer
+    const vaultAddr = manifest.steps.VaultCreated.address!;
+    if (treasuryAddr) {
+      try {
+        const tr = await (await ethers.getContractAt("contracts/v3/treasury/VaultTreasury.sol:VaultTreasury", treasuryAddr)).setVaultOnce(vaultAddr, await nextTxOpts());
+        await tr.wait();
+        manifest.steps.TreasuryBound.deployed = true;
+        manifest.steps.TreasuryBound.txHash = tr.hash;
+      } catch {}
+      try {
+        const vaultCtr = await ethers.getContractAt("contracts/v3/vault/BaseVault.sol:Vault4626", vaultAddr);
+        const txv = await vaultCtr.setAssetsValuer(treasuryAddr, await nextTxOpts());
+        await txv.wait();
+      } catch {}
+      await saveManifest(manifest);
+    }
   }
 
   // No whitelist registry usage in minimal flow
@@ -587,6 +693,8 @@ async function main() {
       DXPToken: dxpAddr,
       ProtocolCore: coreAddr,
       VaultFactory: vaultFactoryAddr,
+      MockSwapRouter: mockRouterAddr,
+      VaultTreasury: treasuryAddr,
       MockLiquidityManager: mockLmAddr,
       BridgingAdapter: bridgingAdapterAddr,
       WhitelistRegistry: whitelistAddr,
@@ -608,6 +716,10 @@ async function main() {
       VAULT_NAME: LEND_VAULT_NAME,
       VAULT_SYMBOL: LEND_VAULT_SYMBOL,
       FARM_ID: lendFarmId.toString(),
+      SHARE_DECIMALS: LEND_SHARE_DECIMALS,
+      SHARE_TRANSFERABLE: LEND_SHARE_TRANSFERABLE,
+      TRANSFER_FEE_BPS: LEND_TRANSFER_FEE_BPS,
+      MIN_SUBSCRIPTION: LEND_MIN_SUBSCRIPTION.toString(),
       LOCK_ENABLED: LEND_LOCK_ENABLED,
       LOCK_ALLOW_EARLY: LEND_LOCK_ALLOW_EARLY,
       LOCK_EARLY_BPS: LEND_LOCK_EARLY_BPS,

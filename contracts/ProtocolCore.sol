@@ -58,6 +58,29 @@ interface IFarmMinimal {
     function yieldYodaIncentiveSplit() external view returns (uint256);
 }
 
+interface IVaultFactoryMinimal {
+    function createVault(
+        address asset,
+        string calldata name,
+        string calldata symbol,
+        address core,
+        address ownerEoa,
+        uint256 farmId,
+        address usdPricer,
+        address assetsValuer,
+        uint8 shareDecimals,
+        bool shareTransferable,
+        uint16 transferFeeBps
+    ) external returns (address vault);
+}
+
+interface IVault4626Config {
+    function setMinSubscriptionAssets(uint256 minAssets) external;
+    function setLockupSeconds(uint64 seconds_) external;
+    function setAssetsValuer(address valuer) external;
+    function setUsdPricer(address pricer) external;
+}
+
 contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessControl {
     // ───────────────────────────────────────────────────────────
     //                        CONSTANTS
@@ -354,6 +377,49 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
     function setVaultFactory(address f) external onlyOwner {
         require(f != address(0), "zero address");
         vaultFactory = f;
+    }
+
+    function createVaultViaCore(
+        address asset,
+        string calldata name,
+        string calldata symbol,
+        address ownerEoa,
+        uint256 farmId,
+        address usdPricer,
+        address assetsValuer,
+        uint256 minSubscriptionAssets,
+        uint64 lockupSeconds,
+        bool shareTransferable,
+        uint16 transferFeeBps,
+        uint8 shareDecimals
+    ) external onlyOwner returns (address vault) {
+        require(vaultFactory != address(0), "no factory");
+        vault = IVaultFactoryMinimal(vaultFactory).createVault(
+            asset,
+            name,
+            symbol,
+            address(this),
+            ownerEoa,
+            farmId,
+            usdPricer,
+            assetsValuer,
+            shareDecimals,
+            shareTransferable,
+            transferFeeBps
+        );
+        if (minSubscriptionAssets > 0) {
+            IVault4626Config(vault).setMinSubscriptionAssets(minSubscriptionAssets);
+        }
+        if (lockupSeconds > 0) {
+            IVault4626Config(vault).setLockupSeconds(lockupSeconds);
+        }
+        if (assetsValuer != address(0)) {
+            // Ensure valuer is set if factory passed zero in some flows
+            try IVault4626Config(vault).setAssetsValuer(assetsValuer) { } catch { }
+        }
+        if (usdPricer != address(0)) {
+            try IVault4626Config(vault).setUsdPricer(usdPricer) { } catch { }
+        }
     }
 
     /// @notice Set the external FarmCreationModule used to create farms (reduces core bytecode/stack usage)

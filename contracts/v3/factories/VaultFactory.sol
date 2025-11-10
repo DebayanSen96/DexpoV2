@@ -11,11 +11,14 @@ contract VaultFactory is Ownable {
     event VaultCreated(address indexed vault, address indexed asset, uint256 indexed farmId);
 
     // Lightweight registry for discovery
-    mapping(address => address[]) public vaultsByOwner; // owner(core) => list of vaults
-    mapping(address => address) public ownerByVault;    // vault => owner(core)
+    mapping(address => address[]) public vaultsByOwner; // owner(EOA) => list of vaults
+    mapping(address => address) public ownerByVault;    // vault => owner(EOA)
 
     error NotCore();
     address public coreModule; // optional module allowed to act as core
+
+    // Default USD pricer used if per-vault override is zero
+    address public defaultUsdPricer;
 
     modifier onlyCoreOrModule() {
         if (msg.sender != protocolCore && msg.sender != coreModule) revert NotCore();
@@ -28,20 +31,41 @@ contract VaultFactory is Ownable {
     }
 
     function setCoreModule(address module) external onlyOwner { coreModule = module; }
+    function setDefaultUsdPricer(address pricer) external onlyOwner { defaultUsdPricer = pricer; }
 
     function createVault(
         address asset,
         string calldata name,
         string calldata symbol,
         address core,
-        uint256 farmId
+        address ownerEoa,
+        uint256 farmId,
+        address usdPricer,
+        address assetsValuer,
+        uint8 shareDecimals,
+        bool shareTransferable,
+        uint16 transferFeeBps
     ) external onlyCoreOrModule returns (address vault) {
-        require(asset != address(0) && core != address(0), "Zero");
-        Vault4626 v = new Vault4626(asset, core, name, symbol);
+        require(asset != address(0) && core != address(0) && ownerEoa != address(0), "Zero");
+        address pricer = usdPricer == address(0) ? defaultUsdPricer : usdPricer;
+        Vault4626 v = new Vault4626(
+            asset,
+            core,
+            ownerEoa,
+            name,
+            symbol,
+            pricer,
+            assetsValuer,
+            shareDecimals,
+            0,
+            0,
+            shareTransferable,
+            transferFeeBps
+        );
         vault = address(v);
-        IProtocolCoreV3(core).registerFarm(core, vault, farmId);
-        vaultsByOwner[core].push(vault);
-        ownerByVault[vault] = core;
+        IProtocolCoreV3(core).registerFarm(ownerEoa, vault, farmId);
+        vaultsByOwner[ownerEoa].push(vault);
+        ownerByVault[vault] = ownerEoa;
         emit VaultCreated(vault, asset, farmId);
     }
 }

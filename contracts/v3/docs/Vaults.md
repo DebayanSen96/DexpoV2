@@ -1,11 +1,12 @@
-# Dexponent v3 Vault Architecture (ERC‑4626‑inspired)
+# Dexponent v3 Vaults (Unified: Wallets + Yield Farms)
 
-This document describes the minimal vault pattern replacing farm+router+adapters for new deployments.
+This guide documents the unified vault pattern and the updated, Core‑driven deployment flow.
 
-- Vault contract: `reference/v3/vault/BaseVault.sol` (contract `Vault4626`)
-- Protocol control: `reference/v3/core/ProtocolCoreV3.sol`
-- Factory support: `reference/v3/factories/FarmFactory.sol` → `createVault(...)`
-- Pricing (optional): `reference/v3/oracles/UsdPricerMock.sol`
+- Vault: `contracts/v3/vault/BaseVault.sol` (contract `Vault4626`)
+- Protocol Core: `contracts/v3/core/ProtocolCoreV3.sol` (or `contracts/ProtocolCore.sol` in testnet stack)
+- Factory: `contracts/v3/factories/VaultFactory.sol`
+- Treasury (optional valuer): `contracts/v3/treasury/VaultTreasury.sol`
+- USD pricer (optional): project‑specific or mock
 
 ## TVL and Price-Per-Share
 - **TVL (base)**: `totalAssets()`
@@ -42,6 +43,22 @@ Flow:
 - Operator allowlist: `setVaultOperator(vault, operator, allowed)`.
 - Action allowlist: `setActionAllowlist(vault, enabled)` and `setActionTarget(vault, target, allowed)`.
 - Compatibility: keeps `IProtocolCoreV3` for farm rules & fee reporting.
+
+## Recent Additions (Vault4626)
+- **Min subscription**: `minSubscriptionAssets` enforced on `deposit`/`mint`.
+- **Simple lockup**: `lockupSeconds` enforced on `withdraw`/`redeem` using per‑user `lastDepositTs`.
+- **Owner shortcuts for smart wallets**:
+  - `userApproveAsset(spender, amount)`
+  - `userExecuteAction(target, data)`
+  - These are `onlyOwner`, respect Core pause/allowlist, and mirror operator flows.
+- **Share token policy**:
+  - `shareTransferable` (on/off transfer gate for the ERC20 share token)
+  - `transferFeeBps` (0..2000 bps) — fee taken on transfers and sent to `owner()`
+  - `decimals()` is configurable per vault via `shareDecimals` at deploy
+
+### Getters
+- `getLockupConfig() -> (enabled, seconds)`
+- `getUserPosition(user) -> (lastDeposit, lockedUntil)`
 
 ## Migration Guidance
 - New deployments should prefer `Factory.createVault(...)` over legacy `createFarmStack(...)`.
@@ -92,25 +109,73 @@ bytes memory data = abi.encodeWithSignature(
 vault.executeAction(venue, data);
 ```
 
-### Factory & Core Setup (Hardhat pseudo)
+### Core‑Driven Deployment (ProtocolOwner)
 ```solidity
-// 1) Deploy ProtocolCoreV3 with protocol operator as owner
-core = await (await ethers.getContractFactory("ProtocolCoreV3")).deploy(operator);
+// 1) Deploy ProtocolCore and wire VaultFactory once
+core.setVaultFactory(vaultFactory);
 
-// 2) Deploy FarmFactory bound to core
-factory = await (await ethers.getContractFactory("FarmFactory")).deploy(core, address(0));
+// 2) (Optional) Deploy Treasury and set router/rates
+// treasury = new VaultTreasury(core, owner, asset, router);
 
-// 3) Deploy a new vault
-vault = await (await ethers.getContractFactory("Vault4626")).attach(
-  await (await factory.createVault(asset, "My Vault", "MVSH", core, 1)).wait()
+// 3) Create vault via Core (owner can be EOA or multisig)
+address vault = core.createVaultViaCore(
+  asset,
+  "My Vault",
+  "MVSH",
+  ownerEoa,               // vault owner (EOA or multisig)
+  farmId,                 // registry id
+  usdPricer,              // optional
+  address(treasury),      // optional assets valuer
+  minSubscriptionAssets,  // e.g., 10e6 for USDC
+  lockupSeconds,          // e.g., 30 days
+  shareTransferable,      // true for LP shares, false for smart wallets
+  transferFeeBps,         // 0..2000; applied on transfers, sent to vault owner
+  shareDecimals           // e.g., 18 or token‑matching
 );
 
-// 4) Roles & allowlists
-await core.setExecutor(executor, true);
-await core.setActionAllowlist(vault, true);
-await core.setActionTarget(vault, whitelistedDex, true);
+// 4) Bind Treasury once (called by Treasury owner)
+// treasury.setVaultOnce(vault);
+
+// 5) Roles & allowlists (optional)
+core.setExecutor(executor, true);
+core.setActionAllowlist(vault, true);
+core.setActionTarget(vault, address(treasury), true);
 ```
 
 Notes:
-- The vault owner is `ProtocolCoreV3`. Authorized operators are controlled by core.
-- All strategy decisions live off‑chain; vault remains strategy‑agnostic.
+- Treasury is optional; attach only if you use external positions you want reflected in `totalAssets()`.
+- For smart wallets without external positions, you may skip Treasury initially.
+
+## On‑chain Configurables (who can call)
+- **Protocol owner (deployment via Core)**
+  - `createVaultViaCore(asset, name, symbol, ownerEoa, farmId, usdPricer, assetsValuer, minSubscriptionAssets, lockupSeconds, shareTransferable, transferFeeBps, shareDecimals)`
+    - Creates a new vault through `VaultFactory` and applies initial config.
+- **Vault owner (EOA or multisig)**
+  - `setUsdPricer(pricer)`
+  - `setAssetsValuer(valuer)`
+  - `setMinSubscriptionAssets(minAssets)`
+  - `setLockupSeconds(seconds_)`
+  - `setShareTransferable(bool)`
+  - `setTransferFeeBps(uint16)`
+  - `userApproveAsset(spender, amount)`
+  - `userExecuteAction(target, data)`
+- **Core owner / Operators (via ProtocolCoreV3 roles)**
+  - `approveAsset(spender, amount)`
+  - `executeAction(target, data)`
+  - Core policy: `pauseAll`, `pauseVault`, `setVaultOperator`, `setActionAllowlist`, `setActionTarget`, `setTvlCap`
+
+## Smart Wallets vs Yield Farms
+- **Smart Wallets (owner‑operated)**
+  - Set `owner` to the user EOA or to a multisig contract.
+  - Use `userApproveAsset`/`userExecuteAction` for owner‑initiated actions.
+  - Attach Treasury only if you need swaps/lending and NAV reflection; otherwise omit.
+
+- **Yield Farms (operator‑run)**
+  - Core operators use `approveAsset`/`executeAction` with allowlists and pause controls.
+  - Attach Treasury at deploy to track external NAV and enable actions.
+
+## On‑chain Reads (summary)
+- Vault: `asset`, `totalAssets`, `pricePerShareE18`, `totalAssetsUsdE18`, `decimals/symbol/name`.
+- Lockup/MinSub: `getLockupConfig`, `getUserPosition`, `minSubscriptionAssets`.
+- Share token policy: `shareTransferable`, `transferFeeBps`.
+- Treasury: `getCachedUsd`, `trackedTokens(i)`, `trackedTokenCount`, `lendPrincipal/borrowPrincipal`, `lendAprBps/borrowAprBps`, `lastAccrualTs`.
