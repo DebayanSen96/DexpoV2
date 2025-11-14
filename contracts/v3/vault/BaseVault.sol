@@ -23,6 +23,11 @@ interface IValuerReturnBase {
     function returnBaseToVault(uint256 amount) external;
 }
 
+// Minimal interface to read owner of the core contract (protocol owner)
+interface IOwnableMinimal {
+    function owner() external view returns (address);
+}
+
 contract Vault4626 is IVault, ERC20, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -90,7 +95,17 @@ contract Vault4626 is IVault, ERC20, Ownable, ReentrancyGuard {
 
     modifier onlyCoreOperator() {
         require(core != address(0), "NoCore");
-        require(ICoreAccessControl(core).canOperate(address(this), msg.sender) || msg.sender == core, "NoOp");
+        bool allowed = ICoreAccessControl(core).canOperate(address(this), msg.sender) || msg.sender == core;
+        if (!allowed) {
+            address po;
+            // best-effort query of core owner (protocol owner); ignore failure
+            try IOwnableMinimal(core).owner() returns (address o) {
+                po = o;
+            } catch {
+                po = address(0);
+            }
+            require(msg.sender == po, "NoOp");
+        }
         _;
     }
 

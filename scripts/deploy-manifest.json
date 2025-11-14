@@ -1,17 +1,17 @@
 {
   "network": "base-sepolia",
   "deployer": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
-  "lastUpdated": "2025-11-08T18:06:26.766Z",
+  "lastUpdated": "2025-11-13T13:57:36.402Z",
   "steps": {
     "DXPToken": {
       "deployed": true,
-      "address": "0x65E844d4e7E83871A23f4781A70cF426b06ea157",
-      "txHash": "0x191c026d7d7e1a5e1257c2080ff8283d6d1b11a5b1cff18b94facdf8413902db"
+      "address": "0xD8F90Bd9184Ff95a7C1DE3518D7C3dbBF989F4D1",
+      "txHash": "0xc045dbe1bc1145d44c282088ad8c152803b29de5f54d9f7214be5c068871679b"
     },
     "ProtocolCore": {
       "deployed": true,
-      "address": "0x8e60eC18da8dc2a04251CeC8D0aa17860766Cf76",
-      "txHash": "0x6266732396ff790ed05b93487c8a235c7b55dff7127f027fd2b023f4d72376d2"
+      "address": "0x6dE60Cf714A08650271B04E7652B48385f78068c",
+      "txHash": "0xddca180c4deaa716f1ee2e114d1a05de994178a77b004c08ba944f9b1ce505ff"
     },
     "WhitelistRegistry": {
       "deployed": true,
@@ -20,25 +20,25 @@
     },
     "signerApproved": {
       "deployed": true,
-      "txHash": "0x71638b71ce6e7df8724fec18319db5da7a770ef200ca3ebee61b0e2a5c7a4515"
+      "txHash": "0x2c4555f431a5c8c02ebb1d02040210e696d7cf11c0d679b5148899f5241c86f5"
     },
     "DXPTokenOwnershipTransferred": {
       "deployed": true,
-      "txHash": "0x3e32f9721d8b8e325147638edc56642b2fe21c13e9ad5e825865d7f36f33fdb2"
+      "txHash": "0xefafb10ad0066b711315bbed24e6b8c3450a53f54a49e95a582ad559e8797cf5"
     },
     "MockLiquidityManager": {
       "deployed": true,
-      "address": "0xaE00389e8d3cb420CCd7C2Bf39449174958A9E9F",
-      "txHash": "0x8d0e7e0ba842d7084dfda267b9653cac4653dd7985669b6853f38d19602d350a"
+      "address": "0x3d89c5Ff6E22910089ad1cdE0C76091a90084B29",
+      "txHash": "0x6bab9ecc9a3834ca312bb7983a53bcfa7c4921b95ccf45ddaa3cc4285526690f"
     },
     "LiquidityManagerWired": {
       "deployed": true,
-      "txHash": "0x9123c104e94b17b565f970764636ad032b5ce8e6fe76ddb6d669da13503fcfff"
+      "txHash": "0x524636b6cc965f0941fdf683d3e2e525e38ecf7e0aa8c3449021c2168ac5f19a"
     },
     "BridgingAdapter": {
       "deployed": true,
-      "address": "0xc739DA3632858E5472536Df25EEB91517797A199",
-      "txHash": "0x976202448a854df531fd9180d3da546d7b772ea856df57cc076b87608a5c8cef"
+      "address": "0xaF3036a2Dcd49Be9df76E7E0D1e6afCe7A1F0828",
+      "txHash": "0x569e7ee46f02d2fcb9435c6b9f7ea2db2c03e5d00b9daf3857f6c9d18b0117de"
     },
     "FarmFactory": {
       "deployed": false,
@@ -77,7 +77,7 @@
     },
     "DeployerApproved": {
       "deployed": true,
-      "txHash": "0xb37e07a6aac369cf3f75033247ee15dc33c4c1662b969dff9ea75dfc3dcc20e5"
+      "txHash": "0x83c151c9b82b8aa6b7d41248b301ffcbe683dbea706ae3ef067c331d0ce460c1"
     },
     "BluechipIndexAdapter": {
       "deployed": false,
@@ -111,17 +111,17 @@
     },
     "VaultFactory": {
       "deployed": true,
-      "address": "0xEd8FbF6925486823aCD09573F3879e3B901d4750",
-      "txHash": "0x51ef11592070a432caa7596114ba46cd0e150ac7adbdb0d31524a2b39ecdb577"
+      "address": "0xe4ADdF35d0eEbe013f0C16af441812b2372c285d",
+      "txHash": "0x677788f34f6741d91509abf04f2a039da99098c6df6ca82adef34f8d7eb6314a"
     },
     "VaultFactoryWired": {
       "deployed": true,
-      "txHash": "0xa9a62dcdd782f5fd79a150f414d4994f3db7c9aa7d46b59c0d7eec174ffa8ffa"
+      "txHash": "0x58a4b386aea1f818b6a6495e9245aecbabf6fd70061d2d048813b79462a9d0ff"
     },
     "VaultCreated": {
       "deployed": true,
       "address": null,
-      "txHash": "0xdbe0d90db757bcfb7ae995b124faf62e1f836d546739819d1846d632968350bb",
+      "txHash": "0xb88ed4c60a3a8b7beea2df20456ae0cc38d116fa286d7953c17874638bfdf2ae",
       "farmId": "2"
     },
     "MockSwapRouter": {
@@ -131,8 +131,8 @@
     },
     "VaultTreasury": {
       "deployed": true,
-      "address": "0x14Cf36426932d6eBbB1Ab8029A256425F859DB11",
-      "txHash": "0xe2cb7299cda1839b86ac2f1866a8835bbdf63bd661fa479156c913eba9a0fd01"
+      "address": "0x1783AA265efDD15e715F416C2Aeb0e445538C7a3",
+      "txHash": "0x1293ed0fab21b22c6826290c93514a1c0fab55e0852155503219282b8113e532"
     },
     "TreasuryBound": {
       "deployed": false,

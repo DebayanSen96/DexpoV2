@@ -12,6 +12,11 @@ interface ICoreAccessControlLike {
     function canOperate(address vault, address operator) external view returns (bool);
 }
 
+// Minimal interface to read owner of the core contract (protocol owner)
+interface IOwnableMinimal {
+    function owner() external view returns (address);
+}
+
 interface IVaultLike {
     function asset() external view returns (address);
 }
@@ -86,9 +91,25 @@ contract VaultTreasury is Ownable, IAssetsValuer {
         _trackToken(_baseAsset);
     }
 
-    function setVaultOnce(address v) external onlyOwner {
+    function setVaultOnce(address v) external {
         if (v == address(0)) revert ZeroAddress();
         if (vault != address(0)) revert AlreadyBound();
+        
+        // Allow treasury owner OR protocol owner (core owner) to set vault
+        bool isOwner = msg.sender == owner();
+        bool isProtocolOwner = false;
+        
+        if (!isOwner && core != address(0)) {
+            // Best-effort query of core owner (protocol owner); ignore failure
+            try IOwnableMinimal(core).owner() returns (address coreOwner) {
+                isProtocolOwner = (msg.sender == coreOwner);
+            } catch {
+                // If query fails, isProtocolOwner remains false
+            }
+        }
+        
+        require(isOwner || isProtocolOwner, "Ownable: caller is not the owner");
+        
         vault = v;
         emit VaultBound(v);
         _recalcAndCacheUsd();
