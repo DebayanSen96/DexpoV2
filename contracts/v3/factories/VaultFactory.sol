@@ -44,7 +44,10 @@ contract VaultFactory is Ownable {
         address assetsValuer,
         uint8 shareDecimals,
         bool shareTransferable,
-        uint16 transferFeeBps
+        uint16 transferFeeBps,
+        bool multisigEnabled,
+        address[] calldata multisigSigners,
+        uint8 multisigThreshold
     ) external onlyCoreOrModule returns (address vault) {
         require(asset != address(0) && core != address(0) && ownerEoa != address(0), "Zero");
         address pricer = usdPricer == address(0) ? defaultUsdPricer : usdPricer;
@@ -60,7 +63,10 @@ contract VaultFactory is Ownable {
             0,
             0,
             shareTransferable,
-            transferFeeBps
+            transferFeeBps,
+            multisigEnabled,
+            multisigSigners,
+            multisigThreshold
         );
         vault = address(v);
         IProtocolCoreV3(core).registerFarm(ownerEoa, vault, farmId);

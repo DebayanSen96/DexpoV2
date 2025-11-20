@@ -48,11 +48,34 @@ contract Vault4626 is IVault, ERC20, Ownable, ReentrancyGuard {
     bool public shareTransferable; // default true; if false, disallow transfers between EOAs
     uint16 public transferFeeBps;  // fee on transfers (0-10000); sent to current owner
 
+    // Multisig state (only used if multisigEnabled)
+    bool public immutable multisigEnabled;
+    uint8 public immutable multisigThreshold; // M in M-of-N
+    address[] public multisigSigners; // N signers
+    mapping(address => bool) public isMultisigSigner;
+    
+    struct PendingAction {
+        address target;
+        bytes data;
+        uint256 value;
+        uint64 deadline;
+        bool executed;
+        mapping(address => bool) approvals;
+        uint8 approvalCount;
+    }
+    
+    mapping(bytes32 => PendingAction) public pendingActions;
+    uint256 public actionNonce;
+
     event UsdPricerSet(address pricer);
     event AssetsValuerSet(address valuer);
     event TvlUpdated(uint256 totalAssets);
     event ActionExecuted(address indexed target, bytes data, bytes result);
     event AssetApproval(address indexed spender, uint256 amount);
+    event MultisigActionProposed(bytes32 indexed actionId, address indexed proposer, address target, bytes data);
+    event MultisigActionApproved(bytes32 indexed actionId, address indexed approver);
+    event MultisigActionExecuted(bytes32 indexed actionId, address indexed executor);
+    event MultisigActionCancelled(bytes32 indexed actionId);
 
     constructor(
         address asset_,
@@ -66,7 +89,10 @@ contract Vault4626 is IVault, ERC20, Ownable, ReentrancyGuard {
         uint256 minSubscriptionAssets_,
         uint64 lockupSeconds_,
         bool shareTransferable_,
-        uint16 transferFeeBps_
+        uint16 transferFeeBps_,
+        bool multisigEnabled_,
+        address[] memory multisigSigners_,
+        uint8 multisigThreshold_
     ) ERC20(name_, symbol_) Ownable(owner_) {
         require(asset_ != address(0), "AssetZero");
         asset = asset_;
@@ -81,6 +107,21 @@ contract Vault4626 is IVault, ERC20, Ownable, ReentrancyGuard {
         if (transferFeeBps_ > 0) {
             require(transferFeeBps_ <= 2000, "FeeHigh");
             transferFeeBps = transferFeeBps_;
+        }
+        
+        multisigEnabled = multisigEnabled_;
+        if (multisigEnabled_) {
+            require(multisigSigners_.length >= 2 && multisigSigners_.length <= 10, "SignerCount");
+            require(multisigThreshold_ >= 2 && multisigThreshold_ <= multisigSigners_.length, "Threshold");
+            multisigThreshold = multisigThreshold_;
+            for (uint i = 0; i < multisigSigners_.length; i++) {
+                address signer = multisigSigners_[i];
+                require(signer != address(0) && !isMultisigSigner[signer], "InvalidSigner");
+                multisigSigners.push(signer);
+                isMultisigSigner[signer] = true;
+            }
+        } else {
+            multisigThreshold = 0;
         }
     }
 
@@ -241,21 +282,29 @@ contract Vault4626 is IVault, ERC20, Ownable, ReentrancyGuard {
         return (ppsBase * p) / (10 ** _assetDecimals);
     }
 
+    modifier onlyOwnerOrMultisig() {
+        if (multisigEnabled) {
+            revert("UseMultisig");
+        }
+        _checkOwner();
+        _;
+    }
+
     // Owner-gated
-    function setUsdPricer(address pricer) external onlyOwner {
+    function setUsdPricer(address pricer) external onlyOwnerOrMultisig {
         usdPricer = pricer;
         emit UsdPricerSet(pricer);
     }
 
-    function setAssetsValuer(address valuer) external onlyOwner {
+    function setAssetsValuer(address valuer) external onlyOwnerOrMultisig {
         assetsValuer = valuer;
         emit AssetsValuerSet(valuer);
     }
 
-    function setMinSubscriptionAssets(uint256 minAssets) external onlyOwner { minSubscriptionAssets = minAssets; }
-    function setLockupSeconds(uint64 seconds_) external onlyOwner { lockupSeconds = seconds_; }
-    function setShareTransferable(bool t) external onlyOwner { shareTransferable = t; }
-    function setTransferFeeBps(uint16 bps) external onlyOwner { require(bps <= 2000, "FeeHigh"); transferFeeBps = bps; }
+    function setMinSubscriptionAssets(uint256 minAssets) external onlyOwnerOrMultisig { minSubscriptionAssets = minAssets; }
+    function setLockupSeconds(uint64 seconds_) external onlyOwnerOrMultisig { lockupSeconds = seconds_; }
+    function setShareTransferable(bool t) external onlyOwnerOrMultisig { shareTransferable = t; }
+    function setTransferFeeBps(uint16 bps) external onlyOwnerOrMultisig { require(bps <= 2000, "FeeHigh"); transferFeeBps = bps; }
 
     function approveAsset(address spender, uint256 amount) external override onlyCoreOperator nonReentrant {
         IERC20(asset).forceApprove(spender, 0);
@@ -272,13 +321,13 @@ contract Vault4626 is IVault, ERC20, Ownable, ReentrancyGuard {
         return res;
     }
 
-    function userApproveAsset(address spender, uint256 amount) external whenCoreNotPaused onlyOwner nonReentrant {
+    function userApproveAsset(address spender, uint256 amount) external whenCoreNotPaused onlyOwnerOrMultisig nonReentrant {
         IERC20(asset).forceApprove(spender, 0);
         IERC20(asset).forceApprove(spender, amount);
         emit AssetApproval(spender, amount);
     }
 
-    function userExecuteAction(address target, bytes calldata data) external whenCoreNotPaused onlyOwner nonReentrant returns (bytes memory result) {
+    function userExecuteAction(address target, bytes calldata data) external whenCoreNotPaused onlyOwnerOrMultisig nonReentrant returns (bytes memory result) {
         require(target != address(0), "ZeroTarget");
         if (core != address(0)) {
             require(ICoreAccessControl(core).isActionAllowed(address(this), target), "TargetBlocked");
@@ -324,5 +373,101 @@ contract Vault4626 is IVault, ERC20, Ownable, ReentrancyGuard {
         try IValuerReturnBase(assetsValuer).returnBaseToVault(shortfall) {
         } catch {
         }
+    }
+    
+    // ========== Multisig Functions ==========
+    
+    modifier onlyMultisigSigner() {
+        require(multisigEnabled && isMultisigSigner[msg.sender], "NotSigner");
+        _;
+    }
+    
+    function proposeAction(
+        address target,
+        bytes calldata data,
+        uint256 value,
+        uint64 deadline
+    ) external onlyMultisigSigner returns (bytes32 actionId) {
+        require(deadline > block.timestamp, "DeadlinePast");
+        actionId = keccak256(abi.encodePacked(actionNonce++, target, data, value, deadline));
+        PendingAction storage action = pendingActions[actionId];
+        action.target = target;
+        action.data = data;
+        action.value = value;
+        action.deadline = deadline;
+        action.executed = false;
+        action.approvals[msg.sender] = true;
+        action.approvalCount = 1;
+        emit MultisigActionProposed(actionId, msg.sender, target, data);
+        emit MultisigActionApproved(actionId, msg.sender);
+    }
+    
+    function approveAction(bytes32 actionId) external onlyMultisigSigner {
+        PendingAction storage action = pendingActions[actionId];
+        require(action.target != address(0), "NoAction");
+        require(!action.executed, "Executed");
+        require(block.timestamp <= action.deadline, "Expired");
+        require(!action.approvals[msg.sender], "AlreadyApproved");
+        
+        action.approvals[msg.sender] = true;
+        action.approvalCount++;
+        emit MultisigActionApproved(actionId, msg.sender);
+    }
+    
+    function executeAction(bytes32 actionId) external onlyMultisigSigner nonReentrant returns (bytes memory result) {
+        PendingAction storage action = pendingActions[actionId];
+        require(action.target != address(0), "NoAction");
+        require(!action.executed, "Executed");
+        require(block.timestamp <= action.deadline, "Expired");
+        require(action.approvalCount >= multisigThreshold, "NotEnoughApprovals");
+        
+        action.executed = true;
+        
+        if (core != address(0)) {
+            require(ICoreAccessControl(core).isActionAllowed(address(this), action.target), "TargetBlocked");
+        }
+        
+        (bool ok, bytes memory res) = action.target.call{value: action.value}(action.data);
+        require(ok, "CallFail");
+        emit MultisigActionExecuted(actionId, msg.sender);
+        emit ActionExecuted(action.target, action.data, res);
+        return res;
+    }
+    
+    function cancelAction(bytes32 actionId) external onlyMultisigSigner {
+        PendingAction storage action = pendingActions[actionId];
+        require(action.target != address(0), "NoAction");
+        require(!action.executed, "Executed");
+        require(block.timestamp > action.deadline, "NotExpired");
+        
+        delete pendingActions[actionId];
+        emit MultisigActionCancelled(actionId);
+    }
+    
+    function getMultisigSigners() external view returns (address[] memory) {
+        return multisigSigners;
+    }
+    
+    function getActionApprovalStatus(bytes32 actionId, address signer) external view returns (bool) {
+        return pendingActions[actionId].approvals[signer];
+    }
+    
+    function getActionDetails(bytes32 actionId) external view returns (
+        address target,
+        bytes memory data,
+        uint256 value,
+        uint64 deadline,
+        bool executed,
+        uint8 approvalCount
+    ) {
+        PendingAction storage action = pendingActions[actionId];
+        return (
+            action.target,
+            action.data,
+            action.value,
+            action.deadline,
+            action.executed,
+            action.approvalCount
+        );
     }
 }

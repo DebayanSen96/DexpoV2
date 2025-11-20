@@ -593,9 +593,6 @@ async function main() {
       LEND_SHARE_TRANSFERABLE,
       LEND_TRANSFER_FEE_BPS,
       LEND_SHARE_DECIMALS,
-      false, // multisigEnabled
-      [], // multisigSigners
-      0, // multisigThreshold
       await nextTxOpts()
     );
     const rcpt = await tx.wait();

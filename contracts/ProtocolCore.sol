@@ -70,7 +70,10 @@ interface IVaultFactoryMinimal {
         address assetsValuer,
         uint8 shareDecimals,
         bool shareTransferable,
-        uint16 transferFeeBps
+        uint16 transferFeeBps,
+        bool multisigEnabled,
+        address[] calldata multisigSigners,
+        uint8 multisigThreshold
     ) external returns (address vault);
 }
 
@@ -391,7 +394,10 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
         uint64 lockupSeconds,
         bool shareTransferable,
         uint16 transferFeeBps,
-        uint8 shareDecimals
+        uint8 shareDecimals,
+        bool multisigEnabled,
+        address[] calldata multisigSigners,
+        uint8 multisigThreshold
     ) external onlyOwner returns (address vault) {
         require(vaultFactory != address(0), "no factory");
         vault = IVaultFactoryMinimal(vaultFactory).createVault(
@@ -405,7 +411,10 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
             assetsValuer,
             shareDecimals,
             shareTransferable,
-            transferFeeBps
+            transferFeeBps,
+            multisigEnabled,
+            multisigSigners,
+            multisigThreshold
         );
         if (minSubscriptionAssets > 0) {
             IVault4626Config(vault).setMinSubscriptionAssets(minSubscriptionAssets);
