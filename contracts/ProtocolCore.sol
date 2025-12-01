@@ -84,15 +84,13 @@ interface IIndexSwapFactory {
     }
     
     function createVault(
-        address[] calldata safeOwners,
-        uint256 safeThreshold,
+        address owner,
         string calldata name,
         string calldata symbol,
         TokenWeight[] calldata portfolio,
-        uint256 farmId,
         address customSwapRouter,
         uint256 lockupSeconds
-    ) external returns (address safe, address indexSwap);
+    ) external returns (address indexSwap);
 }
 
 interface IVault4626Config {
@@ -461,39 +459,33 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
     }
 
     /// @notice Create a new IndexSwap vault via the registered IndexSwapFactory
-    /// @param safeOwners Array of Safe multisig owners
-    /// @param safeThreshold M-of-N signature threshold
+    /// @param owner Owner address of the vault (can be EOA or VaultSafe)
     /// @param name Vault name (ERC20 share token)
     /// @param symbol Vault symbol (ERC20 share token)
     /// @param portfolio Array of token weights (must sum to 10000)
-    /// @param farmId Farm ID for registration (0 = standalone vault)
     /// @param customSwapRouter Custom swap router (address(0) = use factory default)
-    /// @return safe Address of deployed VaultSafe
+    /// @param lockupSeconds Lockup period in seconds
     /// @return indexSwap Address of deployed IndexSwap vault
     function createIndexSwapVault(
-        address[] calldata safeOwners,
-        uint256 safeThreshold,
+        address owner,
         string calldata name,
         string calldata symbol,
         IIndexSwapFactory.TokenWeight[] calldata portfolio,
-        uint256 farmId,
         address customSwapRouter,
         uint256 lockupSeconds
-    ) external onlyOwner returns (address safe, address indexSwap) {
+    ) external onlyOwner returns (address indexSwap) {
         require(indexSwapFactory != address(0), "Factory not set");
         
-        (safe, indexSwap) = IIndexSwapFactory(indexSwapFactory).createVault(
-            safeOwners,
-            safeThreshold,
+        indexSwap = IIndexSwapFactory(indexSwapFactory).createVault(
+            owner,
             name,
             symbol,
             portfolio,
-            farmId,
             customSwapRouter,
             lockupSeconds
         );
         
-        emit IndexSwapVaultCreated(safe, indexSwap, farmId);
+        emit IndexSwapVaultCreated(owner, indexSwap, 0);
     }
     
     /// @notice Set the external FarmCreationModule used to create farms (reduces core bytecode/stack usage)

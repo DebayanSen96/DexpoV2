@@ -33,6 +33,7 @@ const networks: HardhatUserConfig["networks"] = {
     url: process.env.HOODI_RPC_URL || "https://ethereum-hoodi-rpc.publicnode.com",
     accounts: ["2f9c39ab3295bc5d0efa10ab6a042a7486d25724f2bd35135088b402880e5eca"],
     chainId: 560048,
+    allowUnlimitedContractSize: true,
   },
 };
 
@@ -132,7 +133,7 @@ const config: HardhatUserConfig = {
       "contracts/v3/factories/IndexSwapFactory.sol": {
         version: "0.8.24",
         settings: {
-          viaIR: true,
+          viaIR: false,
           optimizer: { enabled: true, runs: 1 },
           metadata: { bytecodeHash: "none" },
           debug: { revertStrings: "strip" },
@@ -141,8 +142,8 @@ const config: HardhatUserConfig = {
       "contracts/v3/vault/IndexSwap.sol": {
         version: "0.8.24",
         settings: {
-          viaIR: true,
-          optimizer: { enabled: true, runs: 200 },
+          viaIR: false,
+          optimizer: { enabled: true, runs: 1 },
           metadata: { bytecodeHash: "none" },
           debug: { revertStrings: "strip" },
         },
@@ -150,8 +151,8 @@ const config: HardhatUserConfig = {
       "contracts/v3/vault/VaultSafe.sol": {
         version: "0.8.24",
         settings: {
-          viaIR: true,
-          optimizer: { enabled: true, runs: 200 },
+          viaIR: false,
+          optimizer: { enabled: true, runs: 1 },
           metadata: { bytecodeHash: "none" },
           debug: { revertStrings: "strip" },
         },

@@ -42,6 +42,7 @@ contract IndexSwap is ERC20, ReentrancyGuard {
     
     address public lendModule;
     address public borrowModule;
+    address public stakingModule;
     
     uint256 public constant BPS_DIVISOR = 10000;
     uint256 public minDepositAmount;
@@ -54,7 +55,9 @@ contract IndexSwap is ERC20, ReentrancyGuard {
     event PortfolioUpdated(TokenWeight[] newPortfolio);
     event Rebalanced(address indexed caller);
     event SwapRouterUpdated(address indexed newRouter);
-    event ModulesUpdated(address lendModule, address borrowModule);
+    event ModulesUpdated(address lendModule, address borrowModule, address stakingModule);
+    event NativeDeposited(address indexed user, uint256 amount);
+    event NativeWithdrawn(address indexed user, uint256 amount);
     event LockupUpdated(uint256 newLockupSeconds);
     
     modifier onlySafeOrProtocolOwner() {
@@ -316,7 +319,7 @@ contract IndexSwap is ERC20, ReentrancyGuard {
         
         uint256 totalWeight = 0;
         for (uint256 i = 0; i < _portfolio.length; i++) {
-            require(_portfolio[i].token != address(0), "Invalid token");
+            // Allow address(0) for native ETH staking vaults
             totalWeight += _portfolio[i].weightBps;
         }
         require(totalWeight == BPS_DIVISOR, "Weights must sum to 100%");
@@ -341,8 +344,8 @@ contract IndexSwap is ERC20, ReentrancyGuard {
         emit SwapRouterUpdated(_router);
     }
     
-    function setModules(address _lendModule, address _borrowModule) external {
-        if (lendModule != address(0) || borrowModule != address(0)) {
+    function setModules(address _lendModule, address _borrowModule, address _stakingModule) external {
+        if (lendModule != address(0) || borrowModule != address(0) || stakingModule != address(0)) {
             bool isSafeOwner = IVaultSafe(safe).isOwner(msg.sender);
             bool isProtocolOwner = false;
             
@@ -357,7 +360,8 @@ contract IndexSwap is ERC20, ReentrancyGuard {
         
         lendModule = _lendModule;
         borrowModule = _borrowModule;
-        emit ModulesUpdated(_lendModule, _borrowModule);
+        stakingModule = _stakingModule;
+        emit ModulesUpdated(_lendModule, _borrowModule, _stakingModule);
     }
     
     function setMinDepositAmount(uint256 _minAmount) external onlySafeOrProtocolOwner {
@@ -376,10 +380,24 @@ contract IndexSwap is ERC20, ReentrancyGuard {
     }
     
     function getTotalValueUsd() public view returns (uint256 totalUsd) {
+        bool hasNativeEth = false;
+        
         for (uint256 i = 0; i < portfolio.length; i++) {
             address token = portfolio[i].token;
+            if (token == address(0)) {
+                hasNativeEth = true;
+                continue;
+            }
             uint256 balance = IERC20(token).balanceOf(address(this));
             totalUsd += _getTokenValueUsd(token, balance);
+        }
+        
+        uint256 ethBalance = address(this).balance;
+        if (ethBalance > 0 || hasNativeEth) {
+            uint256 ethPriceUsd = IMockSwapRouter(swapRouter).priceUsdE18(address(0));
+            if (ethPriceUsd > 0 && ethBalance > 0) {
+                totalUsd += (ethBalance * ethPriceUsd) / 1e18;
+            }
         }
         
         if (lendModule != address(0)) {
@@ -394,6 +412,15 @@ contract IndexSwap is ERC20, ReentrancyGuard {
                     totalUsd -= borrowValue;
                 } else {
                     totalUsd = 0;
+                }
+            } catch {}
+        }
+        
+        if (stakingModule != address(0)) {
+            try IPositionModule(stakingModule).getPositionValue(address(this), address(0)) returns (uint256 stakingValue) {
+                uint256 ethPrice = IMockSwapRouter(swapRouter).priceUsdE18(address(0));
+                if (ethPrice > 0) {
+                    totalUsd += (stakingValue * ethPrice) / 1e18;
                 }
             } catch {}
         }
@@ -413,7 +440,9 @@ contract IndexSwap is ERC20, ReentrancyGuard {
         if (amount == 0) return 0;
         
         uint256 priceUsd = IMockSwapRouter(swapRouter).priceUsdE18(token);
-        uint8 decimals = IERC20Metadata(token).decimals();
+        
+        // Native ETH uses 18 decimals
+        uint8 decimals = token == address(0) ? 18 : IERC20Metadata(token).decimals();
         
         return (amount * priceUsd) / (10 ** decimals);
     }
@@ -424,7 +453,69 @@ contract IndexSwap is ERC20, ReentrancyGuard {
         uint256 priceUsd = IMockSwapRouter(swapRouter).priceUsdE18(token);
         require(priceUsd > 0, "Invalid price");
         
-        uint8 decimals = IERC20Metadata(token).decimals();
+        // Native ETH uses 18 decimals
+        uint8 decimals = token == address(0) ? 18 : IERC20Metadata(token).decimals();
         return (usdValue * (10 ** decimals)) / priceUsd;
     }
+    
+    function depositNative() external payable nonReentrant whenNotPaused returns (uint256 shares) {
+        require(msg.value > 0, "Zero deposit");
+        
+        uint256 ethPriceUsd = IMockSwapRouter(swapRouter).priceUsdE18(address(0));
+        require(ethPriceUsd > 0, "ETH price not set");
+        
+        uint256 depositValueUsd = (msg.value * ethPriceUsd) / 1e18;
+        
+        if (minDepositAmount > 0) {
+            require(depositValueUsd >= minDepositAmount, "Below minimum");
+        }
+        
+        uint256 supply = totalSupply();
+        if (supply == 0) {
+            shares = depositValueUsd;
+        } else {
+            uint256 currentTvlUsd = getTotalValueUsd();
+            require(currentTvlUsd > 0, "Current TVL is zero");
+            shares = (depositValueUsd * supply) / currentTvlUsd;
+        }
+        
+        require(shares > 0, "Zero shares");
+        _mint(msg.sender, shares);
+        
+        userDepositTimestamp[msg.sender] = block.timestamp;
+        
+        emit NativeDeposited(msg.sender, msg.value);
+    }
+    
+    function withdrawNative(uint256 shares) external nonReentrant whenNotPaused returns (uint256 ethAmount) {
+        require(shares > 0, "Zero shares");
+        require(balanceOf(msg.sender) >= shares, "Insufficient balance");
+        
+        if (lockupSeconds > 0) {
+            require(
+                block.timestamp >= userDepositTimestamp[msg.sender] + lockupSeconds,
+                "Lockup period active"
+            );
+        }
+        
+        uint256 supply = totalSupply();
+        uint256 ethBalance = address(this).balance;
+        ethAmount = (ethBalance * shares) / supply;
+        
+        require(ethAmount > 0, "Zero ETH amount");
+        require(address(this).balance >= ethAmount, "Insufficient ETH");
+        
+        _burn(msg.sender, shares);
+        
+        (bool success, ) = payable(msg.sender).call{value: ethAmount}("");
+        require(success, "ETH transfer failed");
+        
+        emit NativeWithdrawn(msg.sender, ethAmount);
+    }
+    
+    function getNativeBalance() external view returns (uint256) {
+        return address(this).balance;
+    }
+    
+    receive() external payable {}
 }

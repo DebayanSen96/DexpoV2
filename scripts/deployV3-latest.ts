@@ -1,5 +1,5 @@
 import { ethers, network } from "hardhat";
-import type { Contract, Signer } from "ethers";
+import type { Contract, Signer, ContractTransactionResponse } from "ethers";
 import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as path from "path";
@@ -30,6 +30,7 @@ interface DeploymentState {
   buySellModule?: string;
   lendModule?: string;
   borrowModule?: string;
+  stakingModule?: string;
   indexSwapFactory?: string;
   testTokens?: {
     usdx: string;
@@ -82,6 +83,15 @@ type BorrowModuleWithLiquidity = Contract & {
   depositLiquidity(token: string, amount: bigint): Promise<void>;
 };
 
+async function waitForTx<T extends ContractTransactionResponse>(txPromise: Promise<T>): Promise<T> {
+  const tx = await txPromise;
+  const receipt = await tx.wait();
+  if (!receipt?.status) {
+    throw new Error("Transaction failed");
+  }
+  return tx;
+}
+
 async function ensureBorrowModuleLiquidity(
   moduleAddress: string,
   token: Contract,
@@ -104,6 +114,7 @@ async function ensureBorrowModuleLiquidity(
 async function main() {
   const isLocalhost = network.name === "hardhat" || network.name === "localhost";
   const isBaseSepolia = network.name === "baseSepolia" || network.name === "base-sepolia";
+  const isHoodiNetwork = network.name.toLowerCase().includes("hoodi");
   
   let MOCK_SWAP_ROUTER = MOCK_SWAP_ROUTER_BASE_SEPOLIA;
   
@@ -296,22 +307,68 @@ async function main() {
     borrowModuleAddress = state.borrowModule;
   }
 
+  // Deploy StakingModule (only on eth-hoodi or if explicitly enabled)
+  const DEPLOY_STAKING = process.env.DEPLOY_STAKING_MODULE === "true" || isHoodiNetwork;
+  
+  let stakingModuleAddress = state.stakingModule || ethers.ZeroAddress;
+  if (DEPLOY_STAKING && !state.stakingModule) {
+    console.log("\nDeploying StakingModule (ETH Validator Staking via SSV)...");
+    
+    // ETH 2.0 Deposit Contract addresses
+    // Mainnet: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+    // Hoodi testnet: 0x00000000219ab540356cBB839Cbe05303d7705Fa (same)
+    const ETH_DEPOSIT_CONTRACT = process.env.ETH_DEPOSIT_CONTRACT || "0x00000000219ab540356cBB839Cbe05303d7705Fa";
+    
+    // SSV Network addresses (mainnet defaults, override via env for testnet)
+    const SSV_NETWORK = process.env.SSV_NETWORK || "0xDD9BC35aE942eF0cFa76930954a156B3fF30a4E1";
+    const SSV_TOKEN = process.env.SSV_TOKEN || "0x9D65fF81a3c488d585bBfb0Bfe3c7707c7917f54";
+    
+    console.log("  ETH Deposit Contract:", ETH_DEPOSIT_CONTRACT);
+    console.log("  SSV Network:", SSV_NETWORK);
+    console.log("  SSV Token:", SSV_TOKEN);
+    
+    const StakingModule = await ethers.getContractFactory("StakingModule");
+    const stakingModule = await StakingModule.deploy(
+      protocolCoreAddress,
+      ETH_DEPOSIT_CONTRACT,
+      SSV_NETWORK,
+      SSV_TOKEN
+    );
+    await stakingModule.waitForDeployment();
+    stakingModuleAddress = await stakingModule.getAddress();
+    console.log("StakingModule deployed to:", stakingModuleAddress);
+    
+    state.stakingModule = stakingModuleAddress;
+    state.lastStep = "stakingModule";
+    saveDeploymentState(network.name, state);
+  } else if (state.stakingModule) {
+    console.log("✅ StakingModule already deployed:", state.stakingModule);
+    stakingModuleAddress = state.stakingModule;
+  } else if (!DEPLOY_STAKING) {
+    console.log("⏭️  Skipping StakingModule (not eth-hoodi network, set DEPLOY_STAKING_MODULE=true to deploy)");
+  }
+
   // Step 3: Register Modules
   const moduleRegistry = await ethers.getContractAt("ModuleRegistry", moduleRegistryAddress);
   
-  if (state.lastStep === "borrowModule" || !state.indexSwapFactory) {
+  if (state.lastStep === "borrowModule" || state.lastStep === "stakingModule" || !state.indexSwapFactory) {
     console.log("\nStep 3: Register Modules in ModuleRegistry...");
-    await moduleRegistry.setSwapModule(swapModuleAddress);
+    await waitForTx(moduleRegistry.setSwapModule(swapModuleAddress));
     console.log("SwapModule registered");
     
-    await moduleRegistry.setBuySellModule(buySellModuleAddress);
+    await waitForTx(moduleRegistry.setBuySellModule(buySellModuleAddress));
     console.log("BuySellModule registered");
     
-    await moduleRegistry.setLendModule(lendModuleAddress);
+    await waitForTx(moduleRegistry.setLendModule(lendModuleAddress));
     console.log("LendModule registered");
     
-    await moduleRegistry.setBorrowModule(borrowModuleAddress);
+    await waitForTx(moduleRegistry.setBorrowModule(borrowModuleAddress));
     console.log("BorrowModule registered");
+    
+    if (stakingModuleAddress !== ethers.ZeroAddress) {
+      await waitForTx(moduleRegistry.setStakingModule(stakingModuleAddress));
+      console.log("StakingModule registered");
+    }
     
     state.lastStep = "modulesRegistered";
     saveDeploymentState(network.name, state);
@@ -396,10 +453,10 @@ async function main() {
     console.log("DAI:", daiAddress);
     
     // Get contract instances
-    usdc = await ethers.getContractAt("IERC20", usdcAddress);
-    usdx = await ethers.getContractAt("IERC20", usdxAddress);
-    usdt = await ethers.getContractAt("IERC20", usdtAddress);
-    dai = await ethers.getContractAt("IERC20", daiAddress);
+    usdx = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", usdxAddress);
+    usdc = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", usdcAddress);
+    usdt = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", usdtAddress);
+    dai = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", daiAddress);
     
   } else {
     // Deploy new tokens for localhost
@@ -437,22 +494,22 @@ async function main() {
 
     console.log("\nStep 7: Configure token prices in MockSwapRouter...");
     const router = await ethers.getContractAt("MockSwapRouter", MOCK_SWAP_ROUTER);
-    await router.addOrUpdateToken(usdxAddress, ethers.parseEther("1"));   // $1
-    await router.addOrUpdateToken(usdcAddress, ethers.parseEther("1"));   // $1
-    await router.addOrUpdateToken(usdtAddress, ethers.parseEther("1"));   // $1
-    await router.addOrUpdateToken(daiAddress, ethers.parseEther("1"));    // $1
+    await waitForTx(router.addOrUpdateToken(usdxAddress, ethers.parseEther("1")));   // $1
+    await waitForTx(router.addOrUpdateToken(usdcAddress, ethers.parseEther("1")));   // $1
+    await waitForTx(router.addOrUpdateToken(usdtAddress, ethers.parseEther("1")));   // $1
+    await waitForTx(router.addOrUpdateToken(daiAddress, ethers.parseEther("1")));    // $1
     console.log("✅ Token prices configured");
 
     console.log("\nStep 8: Add liquidity to MockSwapRouter...");
-    await usdx.mint(MOCK_SWAP_ROUTER, ethers.parseEther("1000000"));
-    await usdc.mint(MOCK_SWAP_ROUTER, ethers.parseUnits("1000000", 6));
-    await usdt.mint(MOCK_SWAP_ROUTER, ethers.parseUnits("1000000", 6));
-    await dai.mint(MOCK_SWAP_ROUTER, ethers.parseEther("1000000"));
+    await waitForTx(usdx.mint(MOCK_SWAP_ROUTER, ethers.parseEther("1000000")));
+    await waitForTx(usdc.mint(MOCK_SWAP_ROUTER, ethers.parseUnits("1000000", 6)));
+    await waitForTx(usdt.mint(MOCK_SWAP_ROUTER, ethers.parseUnits("1000000", 6)));
+    await waitForTx(dai.mint(MOCK_SWAP_ROUTER, ethers.parseEther("1000000")));
     console.log("✅ Liquidity added to router");
   }
 
   // Step 9: Create test vault
-  let safeAddress: string, indexSwapAddress: string;
+  let indexSwapAddress: string;
   
   if (!state.testVault) {
     console.log("\nStep 9: Create test vault via ProtocolCore...");
@@ -466,19 +523,17 @@ async function main() {
     const LOCKUP_3_DAYS = 3 * 24 * 60 * 60;  // 3 days in seconds
 
     const createVaultTx = await protocolCore.createIndexSwapVault(
-      [deployer.address],           // Single owner
-      1,                            // 1-of-1 threshold
+      deployer.address,             // Owner (EOA or VaultSafe)
       "Balanced Index Fund",        // Name
       "BIF",                        // Symbol
       portfolio,                    // 40/30/20/10 portfolio
-      0,                            // No farm registration
       ethers.ZeroAddress,           // Use default router
       LOCKUP_3_DAYS                 // 3 day lockup
     );
 
     const receipt = await createVaultTx.wait();
     
-    // Parse VaultCreated event
+    // Parse VaultCreated event from factory
     const vaultEvent = receipt?.logs.find((log: any) => {
       try {
         const parsed = indexSwapFactory.interface.parseLog(log);
@@ -489,30 +544,29 @@ async function main() {
     });
 
     const parsedVaultEvent = indexSwapFactory.interface.parseLog(vaultEvent!);
-    safeAddress = parsedVaultEvent?.args?.safe as string;
     indexSwapAddress = parsedVaultEvent?.args?.indexSwap as string;
 
     console.log("✅ Test Vault Created!");
-    console.log("  Safe:", safeAddress);
+    console.log("  Owner:", deployer.address);
     console.log("  IndexSwap:", indexSwapAddress);
     
     state.testVault = {
-      safe: safeAddress,
+      safe: deployer.address,
       indexSwap: indexSwapAddress
     };
     state.lastStep = "testVault";
     saveDeploymentState(network.name, state);
   } else {
     console.log("\nStep 9: ✅ Test vault already created");
-    safeAddress = state.testVault.safe;
     indexSwapAddress = state.testVault.indexSwap;
-    console.log("  Safe:", safeAddress);
+    console.log("  Owner:", state.testVault.safe);
     console.log("  IndexSwap:", indexSwapAddress);
   }
 
   // Note: Steps 10-18 (testing) are not idempotent and will run every time
   // Skip if you only want to deploy infrastructure
-  const skipTesting = process.env.SKIP_TESTING === "true";
+  // Always skip testing on hoodi networks to avoid noisy RPC issues
+  const skipTesting = process.env.SKIP_TESTING === "true" || isHoodiNetwork;
   
   if (skipTesting) {
     console.log("\n⏭️  Skipping testing steps (SKIP_TESTING=true)");
@@ -729,6 +783,9 @@ async function main() {
   console.log("BuySellModule:", buySellModuleAddress);
   console.log("LendModule:", lendModuleAddress);
   console.log("BorrowModule:", borrowModuleAddress);
+  if (stakingModuleAddress !== ethers.ZeroAddress) {
+    console.log("StakingModule:", stakingModuleAddress);
+  }
   
   console.log("\n=== Factory ===");
   console.log("IndexSwapFactory:", factoryAddress);
@@ -740,7 +797,7 @@ async function main() {
   console.log("DAI:", daiAddress);
   
   console.log("\n=== Test Vault ===");
-  console.log("Safe:", safeAddress);
+  console.log("Owner:", state.testVault?.safe || deployer.address);
   console.log("IndexSwap:", indexSwapAddress);
   console.log("Portfolio: 40% USDC, 30% DAI, 20% USDT, 10% USDx");
 
@@ -751,6 +808,7 @@ async function main() {
     buySellModule: buySellModuleAddress,
     lendModule: lendModuleAddress,
     borrowModule: borrowModuleAddress,
+    stakingModule: stakingModuleAddress !== ethers.ZeroAddress ? stakingModuleAddress : undefined,
     indexSwapFactory: factoryAddress,
     mockSwapRouter: MOCK_SWAP_ROUTER,
     testTokens: {
@@ -760,7 +818,7 @@ async function main() {
       dai: daiAddress
     },
     testVault: {
-      safe: safeAddress,
+      owner: state.testVault?.safe || deployer.address,
       indexSwap: indexSwapAddress
     }
   };

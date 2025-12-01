@@ -1,0 +1,25 @@
+{
+  "network": "ethereum-hoodi",
+  "deployer": "0xF9D676bec8210Ba4F5c080Fabd13ADD8c9d407F7",
+  "timestamp": 1764584627225,
+  "lastStep": "testVault",
+  "dxpToken": "0x343D3de585f1C9065Ba1Ba74A290eDd9D545B024",
+  "protocolCore": "0xCE12056cd7E65be1293146EC5Cec018Ee6127BD8",
+  "moduleRegistry": "0x2b178A4B10b3481B137a5Fdc0DCae140C93cCB66",
+  "swapModule": "0x7F41e5DbB36e3dFA9cA0f36701279F05fF365bd2",
+  "buySellModule": "0xbB651Bb266D542A28A304E2f18BaBcAE22e90DE9",
+  "lendModule": "0x93c984A0087A1aE45b8043E4A93926CEdD321184",
+  "borrowModule": "0x89c0E35bBe4490a2c87A0d95796A6E63f6f8e38F",
+  "stakingModule": "0x14abaC21670b4A2766d070e4026edC543CD8C37C",
+  "indexSwapFactory": "0x6f5142c921B6099a51d2721392B912E95De96487",
+  "testTokens": {
+    "usdx": "0xFC2a02Aea343aC12EB237C47cb0f15721657531D",
+    "usdc": "0x9E0199Ff17a2C5eF3898b366b4A145f6773227f8",
+    "usdt": "0x530248428E1fd951C05c7d1C35beE184A9c82876",
+    "dai": "0xb0eCa98555fa4a4fD71dbf9FD8cE5365392d912f"
+  },
+  "testVault": {
+    "safe": "0xF9D676bec8210Ba4F5c080Fabd13ADD8c9d407F7",
+    "indexSwap": "0x24f9CEC40116788b3F28D2162B82d8c79B83231a"
+  }
+}

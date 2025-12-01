@@ -9,11 +9,13 @@ contract ModuleRegistry is IModuleRegistry, Ownable {
     address public buySellModule;
     address public lendModule;
     address public borrowModule;
+    address public stakingModule;
     
     event SwapModuleUpdated(address indexed module);
     event BuySellModuleUpdated(address indexed module);
     event LendModuleUpdated(address indexed module);
     event BorrowModuleUpdated(address indexed module);
+    event StakingModuleUpdated(address indexed module);
     
     constructor() Ownable(msg.sender) {}
     
@@ -31,6 +33,10 @@ contract ModuleRegistry is IModuleRegistry, Ownable {
     
     function getBorrowModule() external view override returns (address) {
         return borrowModule;
+    }
+    
+    function getStakingModule() external view override returns (address) {
+        return stakingModule;
     }
     
     function setSwapModule(address module) external override onlyOwner {
@@ -55,5 +61,11 @@ contract ModuleRegistry is IModuleRegistry, Ownable {
         require(module != address(0), "Invalid module");
         borrowModule = module;
         emit BorrowModuleUpdated(module);
+    }
+    
+    function setStakingModule(address module) external override onlyOwner {
+        require(module != address(0), "Invalid module");
+        stakingModule = module;
+        emit StakingModuleUpdated(module);
     }
 }
