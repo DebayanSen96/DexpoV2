@@ -1,0 +1,25 @@
+{
+  "network": "base-sepolia",
+  "deployer": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+  "timestamp": 1764331921966,
+  "lastStep": "testVault",
+  "dxpToken": "0x9e6F7E833aeFFC8Df10eaAaE844067FF3C13f897",
+  "protocolCore": "0x355F82396A53f3752b2f461AB53a891Bb68e4c91",
+  "mockSwapRouter": "0x8C82f93a99518f7381BBb29Cc29128e7C5249042",
+  "moduleRegistry": "0xBd223730d7288891eBf767f3eb8b6A11809c18fF",
+  "swapModule": "0xF85bf210579Ee24B21889193Ffb43C39ecFA6931",
+  "buySellModule": "0x1166B399A1DB4C30B3e707De8f7Ce025D1E16863",
+  "lendModule": "0x256E21dF5D3941b5b8213044660e7C4150502D7e",
+  "borrowModule": "0x53f60904bba3b4548fA8B9b435B4ad381889D493",
+  "indexSwapFactory": "0x4f362f6894138fA9Baa45da9a004C6C6C16AB59A",
+  "testTokens": {
+    "usdx": "0xe50E303b29aB28181460D335a1186033Af24Bf82",
+    "usdc": "0x822f6bB6ba99a45F12D2d8E44CCE089B7AA47fC4",
+    "usdt": "0x1D196BCE6Bbea402fEF328AB1Ac50C971497173D",
+    "dai": "0x5355419854236B3D9c0675a87Fa560F230127663"
+  },
+  "testVault": {
+    "safe": "0xa2c3A4cC2Fae8Add51B278a7F7485376A7bB3deb",
+    "indexSwap": "0x5793B6e40F64b47BCa9891e8aB73A392d365cD85"
+  }
+}

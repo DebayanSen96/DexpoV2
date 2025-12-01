@@ -77,6 +77,24 @@ interface IVaultFactoryMinimal {
     ) external returns (address vault);
 }
 
+interface IIndexSwapFactory {
+    struct TokenWeight {
+        address token;
+        uint16 weightBps;
+    }
+    
+    function createVault(
+        address[] calldata safeOwners,
+        uint256 safeThreshold,
+        string calldata name,
+        string calldata symbol,
+        TokenWeight[] calldata portfolio,
+        uint256 farmId,
+        address customSwapRouter,
+        uint256 lockupSeconds
+    ) external returns (address safe, address indexSwap);
+}
+
 interface IVault4626Config {
     function setMinSubscriptionAssets(uint256 minAssets) external;
     function setLockupSeconds(uint64 seconds_) external;
@@ -197,7 +215,8 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
     // ───────────────────────────────────────────────────────────
     ILiquidityManager public liquidityManager;
     IFarmFactory public farmFactory; // v3 farm stack factory
-    address public vaultFactory; // v3 minimal vault factory
+    address public vaultFactory; // v3 minimal vault factory (deprecated)
+    address public indexSwapFactory; // v3 IndexSwap modular vault factory
     IBridgeAdapter public bridgeAdapter;
     IConsensus public consensus; // pulls verifier rounds
     address public farmCreationModule; // external thin module to create farms (optional)
@@ -260,6 +279,8 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
     // Lightweight v3 registry extensions and fee reporting
     event FarmRegistered(uint256 indexed farmId, address indexed farm, address indexed owner);
     event ProtocolFeeReported(uint256 indexed farmId, address indexed farm, uint256 amount, uint256 newFarmTotal);
+    event IndexSwapFactorySet(address indexed factory);
+    event IndexSwapVaultCreated(address indexed safe, address indexed indexSwap, uint256 indexed farmId);
 
     event BenchmarkYieldUpdated(uint256 indexed farmId, uint256 newYield);
     event ConsensusModuleUpdated(address indexed consensusAddr);
@@ -375,11 +396,19 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
         farmFactory = IFarmFactory(f);
     }
 
-    /// @notice Set the v3 `VaultFactory` contract used to deploy minimal vaults.
+    /// @notice Set the v3 `VaultFactory` contract used to deploy minimal vaults (deprecated).
     /// @param f Address of the vault factory contract.
     function setVaultFactory(address f) external onlyOwner {
         require(f != address(0), "zero address");
         vaultFactory = f;
+    }
+    
+    /// @notice Set the v3 `IndexSwapFactory` contract used to deploy modular IndexSwap vaults.
+    /// @param f Address of the IndexSwap factory contract.
+    function setIndexSwapFactory(address f) external onlyOwner {
+        require(f != address(0), "zero address");
+        indexSwapFactory = f;
+        emit IndexSwapFactorySet(f);
     }
 
     function createVaultViaCore(
@@ -431,6 +460,42 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
         }
     }
 
+    /// @notice Create a new IndexSwap vault via the registered IndexSwapFactory
+    /// @param safeOwners Array of Safe multisig owners
+    /// @param safeThreshold M-of-N signature threshold
+    /// @param name Vault name (ERC20 share token)
+    /// @param symbol Vault symbol (ERC20 share token)
+    /// @param portfolio Array of token weights (must sum to 10000)
+    /// @param farmId Farm ID for registration (0 = standalone vault)
+    /// @param customSwapRouter Custom swap router (address(0) = use factory default)
+    /// @return safe Address of deployed VaultSafe
+    /// @return indexSwap Address of deployed IndexSwap vault
+    function createIndexSwapVault(
+        address[] calldata safeOwners,
+        uint256 safeThreshold,
+        string calldata name,
+        string calldata symbol,
+        IIndexSwapFactory.TokenWeight[] calldata portfolio,
+        uint256 farmId,
+        address customSwapRouter,
+        uint256 lockupSeconds
+    ) external onlyOwner returns (address safe, address indexSwap) {
+        require(indexSwapFactory != address(0), "Factory not set");
+        
+        (safe, indexSwap) = IIndexSwapFactory(indexSwapFactory).createVault(
+            safeOwners,
+            safeThreshold,
+            name,
+            symbol,
+            portfolio,
+            farmId,
+            customSwapRouter,
+            lockupSeconds
+        );
+        
+        emit IndexSwapVaultCreated(safe, indexSwap, farmId);
+    }
+    
     /// @notice Set the external FarmCreationModule used to create farms (reduces core bytecode/stack usage)
     function setFarmCreationModule(address m) external onlyOwner {
         require(m != address(0), "zero address");
@@ -564,7 +629,8 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
     function registerFarm(address owner_, address farm, uint256 farmId) external override {
         bool isFarmFactory = msg.sender == address(farmFactory);
         bool isVaultFactory = msg.sender == address(vaultFactory);
-        require(isFarmFactory || isVaultFactory, "!factory");
+        bool isIndexSwapFactory = msg.sender == address(indexSwapFactory);
+        require(isFarmFactory || isVaultFactory || isIndexSwapFactory, "!factory");
         require(farm != address(0) && owner_ != address(0), "zero addr");
         require(farmId != 0, "farmId=0 reserved");
 
