@@ -24,6 +24,10 @@ interface IPositionModule {
     function getPositionValue(address vault, address token) external view returns (uint256);
 }
 
+interface IStakingModule {
+    function depositNative(address vault) external payable returns (uint256);
+}
+
 contract IndexSwap is ERC20, ReentrancyGuard {
     using SafeERC20 for IERC20;
     
@@ -515,6 +519,17 @@ contract IndexSwap is ERC20, ReentrancyGuard {
     
     function getNativeBalance() external view returns (uint256) {
         return address(this).balance;
+    }
+    
+    event NativeTransferredToStaking(uint256 amount);
+    
+    function transferNativeToStaking(uint256 amount) external onlySafeOrProtocolOwner nonReentrant {
+        require(stakingModule != address(0), "Staking module not set");
+        require(amount > 0 && amount <= address(this).balance, "Invalid amount");
+        
+        IStakingModule(stakingModule).depositNative{value: amount}(address(this));
+        
+        emit NativeTransferredToStaking(amount);
     }
     
     receive() external payable {}

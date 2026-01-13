@@ -10,12 +10,19 @@ contract ModuleRegistry is IModuleRegistry, Ownable {
     address public lendModule;
     address public borrowModule;
     address public stakingModule;
+    address public oracle;
+    
+    mapping(bytes32 => address) public modules;
+    mapping(address => bool) public isRegisteredModule;
     
     event SwapModuleUpdated(address indexed module);
     event BuySellModuleUpdated(address indexed module);
     event LendModuleUpdated(address indexed module);
     event BorrowModuleUpdated(address indexed module);
     event StakingModuleUpdated(address indexed module);
+    event OracleUpdated(address indexed oracle);
+    event ModuleRegistered(bytes32 indexed moduleId, address indexed module);
+    event ModuleRemoved(bytes32 indexed moduleId, address indexed module);
     
     constructor() Ownable(msg.sender) {}
     
@@ -67,5 +74,38 @@ contract ModuleRegistry is IModuleRegistry, Ownable {
         require(module != address(0), "Invalid module");
         stakingModule = module;
         emit StakingModuleUpdated(module);
+    }
+    
+    function setOracle(address _oracle) external onlyOwner {
+        require(_oracle != address(0), "Invalid oracle");
+        oracle = _oracle;
+        emit OracleUpdated(_oracle);
+    }
+    
+    function getOracle() external view returns (address) {
+        return oracle;
+    }
+    
+    function registerModule(bytes32 moduleId, address module) external onlyOwner {
+        require(module != address(0), "Invalid module");
+        address oldModule = modules[moduleId];
+        if (oldModule != address(0)) {
+            isRegisteredModule[oldModule] = false;
+        }
+        modules[moduleId] = module;
+        isRegisteredModule[module] = true;
+        emit ModuleRegistered(moduleId, module);
+    }
+    
+    function removeModule(bytes32 moduleId) external onlyOwner {
+        address module = modules[moduleId];
+        require(module != address(0), "Module not found");
+        isRegisteredModule[module] = false;
+        delete modules[moduleId];
+        emit ModuleRemoved(moduleId, module);
+    }
+    
+    function getModule(bytes32 moduleId) external view returns (address) {
+        return modules[moduleId];
     }
 }

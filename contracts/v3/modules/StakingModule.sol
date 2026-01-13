@@ -130,19 +130,24 @@ contract StakingModule is Ownable, ReentrancyGuard, EIP712 {
         ssvToken = IERC20(_ssvToken);
     }
     
-    modifier onlyAuthorized(address vault) {
-        bool isSafeOwner = false;
-        bool isProtocolOwner = false;
+    function _checkAuthorized(address vault) internal view {
+        if (msg.sender == vault) return;
         
+        bool isSafeOwner = false;
         try IVaultSafe(vault).isOwner(msg.sender) returns (bool result) {
             isSafeOwner = result;
         } catch {}
+        if (isSafeOwner) return;
         
         try IProtocolCore(protocolCore).owner() returns (address po) {
-            isProtocolOwner = (msg.sender == po);
+            if (msg.sender == po) return;
         } catch {}
         
-        if (!isSafeOwner && !isProtocolOwner) revert NotAuthorized();
+        revert NotAuthorized();
+    }
+    
+    modifier onlyAuthorized(address vault) {
+        _checkAuthorized(vault);
         _;
     }
     

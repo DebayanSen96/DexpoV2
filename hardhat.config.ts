@@ -35,6 +35,11 @@ const networks: HardhatUserConfig["networks"] = {
     chainId: 560048,
     allowUnlimitedContractSize: true,
   },
+  "base-mainnet": {
+    url: process.env.BASE_MAINNET_RPC_URL || "https://mainnet.base.org",
+    accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+    chainId: 8453,
+  },
 };
 
 const config: HardhatUserConfig = {

@@ -17,6 +17,15 @@ const BASE_SEPOLIA_TOKENS = {
   DAI: process.env.BASE_SEPOLIA_DAI || "0x5355419854236B3D9c0675a87Fa560F230127663"
 };
 
+interface TestToken {
+  name: string;
+  symbol: string;
+  decimals: number;
+  address: string;
+  priceUsd: number;
+  image: string;
+}
+
 interface DeploymentState {
   network: string;
   deployer: string;
@@ -78,6 +87,51 @@ function saveDeploymentState(networkName: string, state: DeploymentState): void 
   fs.writeFileSync(deploymentPath, JSON.stringify(state, null, 2));
   console.log(`💾 Saved deployment state to ${deploymentPath}`);
 }
+
+function getTestTokensPath(networkName: string): string {
+  const deploymentsDir = path.join(__dirname, "..", "deployments", "v3-latest");
+  if (!fs.existsSync(deploymentsDir)) {
+    fs.mkdirSync(deploymentsDir, { recursive: true });
+  }
+  return path.join(deploymentsDir, `${networkName}_test_tokens.json`);
+}
+
+function saveTestTokens(networkName: string, deployer: string, tokens: TestToken[]): void {
+  const tokensPath = getTestTokensPath(networkName);
+  const data = {
+    network: networkName,
+    mintedTo: deployer,
+    tokens
+  };
+  fs.writeFileSync(tokensPath, JSON.stringify(data, null, 2));
+  console.log(`💾 Saved test tokens to ${tokensPath}`);
+}
+
+function loadTestTokens(networkName: string): TestToken[] | null {
+  const tokensPath = getTestTokensPath(networkName);
+  if (!fs.existsSync(tokensPath)) {
+    return null;
+  }
+  try {
+    const data = JSON.parse(fs.readFileSync(tokensPath, "utf8"));
+    return data.tokens;
+  } catch {
+    return null;
+  }
+}
+
+const TEST_TOKEN_CONFIGS: Omit<TestToken, "address">[] = [
+  { name: "USD Coin", symbol: "USDC", decimals: 6, priceUsd: 1, image: "https://coin-images.coingecko.com/coins/images/6319/large/usdc.png?1696506694" },
+  { name: "Tether USD", symbol: "USDT", decimals: 6, priceUsd: 1, image: "https://coin-images.coingecko.com/coins/images/325/large/Tether.png?1696501661" },
+  { name: "Dai Stablecoin", symbol: "DAI", decimals: 18, priceUsd: 1, image: "https://coin-images.coingecko.com/coins/images/9956/large/Badge_Dai.png?1696509996" },
+  { name: "Wrapped Ether", symbol: "WETH", decimals: 18, priceUsd: 3500, image: "https://coin-images.coingecko.com/coins/images/2518/large/weth.png?1696503332" },
+  { name: "Wrapped Bitcoin", symbol: "WBTC", decimals: 8, priceUsd: 100000, image: "https://coin-images.coingecko.com/coins/images/7598/large/wrapped_bitcoin_wbtc.png?1696507857" },
+  { name: "Chainlink", symbol: "LINK", decimals: 18, priceUsd: 15, image: "https://coin-images.coingecko.com/coins/images/877/large/chainlink-new-logo.png?1696502009" },
+  { name: "Uniswap", symbol: "UNI", decimals: 18, priceUsd: 8, image: "https://coin-images.coingecko.com/coins/images/12504/large/uniswap-logo.png?1720676669" },
+  { name: "Aave", symbol: "AAVE", decimals: 18, priceUsd: 250, image: "https://coin-images.coingecko.com/coins/images/12645/large/aave-token-round.png?1720472354" },
+  { name: "USDx", symbol: "USDx", decimals: 18, priceUsd: 1, image: "https://dxp-bucket.sfo3.digitaloceanspaces.com/share-token-images_1758536678313_USDx--1-.png" },
+  { name: "Solana", symbol: "SOL", decimals: 18, priceUsd: 180, image: "https://coin-images.coingecko.com/coins/images/4128/large/solana.png?1718769756" }
+];
 
 type BorrowModuleWithLiquidity = Contract & {
   depositLiquidity(token: string, amount: bigint): Promise<void>;
@@ -182,7 +236,13 @@ async function main() {
   }
   
   // Step 0c: Deploy or use MockSwapRouter
-  if (isLocalhost && !state.mockSwapRouter) {
+  if (state.mockSwapRouter) {
+    console.log("\nStep 0c: ✅ MockSwapRouter already deployed:", state.mockSwapRouter);
+    MOCK_SWAP_ROUTER = state.mockSwapRouter;
+  } else if (isBaseSepolia) {
+    console.log("\nUsing existing MockSwapRouter:", MOCK_SWAP_ROUTER);
+    state.mockSwapRouter = MOCK_SWAP_ROUTER;
+  } else {
     console.log("\nStep 0c: Deploy MockSwapRouter...");
     const MockSwapRouter = await ethers.getContractFactory("MockSwapRouter");
     const mockRouter = await MockSwapRouter.deploy(
@@ -197,12 +257,6 @@ async function main() {
     state.mockSwapRouter = MOCK_SWAP_ROUTER;
     state.lastStep = "mockSwapRouter";
     saveDeploymentState(network.name, state);
-  } else if (state.mockSwapRouter) {
-    console.log("\nStep 0c: ✅ MockSwapRouter already deployed:", state.mockSwapRouter);
-    MOCK_SWAP_ROUTER = state.mockSwapRouter;
-  } else if (isBaseSepolia) {
-    console.log("\nUsing existing MockSwapRouter:", MOCK_SWAP_ROUTER);
-    state.mockSwapRouter = MOCK_SWAP_ROUTER;
   }
   
   console.log("\nDeploying IndexSwap System...\n");
@@ -414,126 +468,110 @@ async function main() {
     console.log("\nStep 5: ✅ IndexSwapFactory already registered");
   }
 
-  // ========== CREATE TEST VAULT ==========
+  // ========== DEPLOY TEST TOKENS ==========
   console.log("\n" + "=".repeat(60));
-  console.log("CREATING TEST VAULT");
+  console.log("DEPLOYING TEST TOKENS (10 tokens)");
   console.log("=".repeat(60));
 
-  let usdxAddress: string, usdcAddress: string, usdtAddress: string, daiAddress: string;
-  let usdc: any, usdx: any, usdt: any, dai: any;
-
-  // Step 6: Setup test tokens
-  if (isBaseSepolia || state.testTokens) {
-    if (state.testTokens) {
-      console.log("\nStep 6: ✅ Using existing test tokens");
-      usdxAddress = state.testTokens.usdx;
-      usdcAddress = state.testTokens.usdc;
-      usdtAddress = state.testTokens.usdt;
-      daiAddress = state.testTokens.dai;
-    } else {
-      // Use existing tokens on Base Sepolia
-      console.log("\nStep 6: Using existing Base Sepolia tokens...");
-      usdxAddress = BASE_SEPOLIA_TOKENS.USDX;
-      usdcAddress = BASE_SEPOLIA_TOKENS.USDC;
-      usdtAddress = BASE_SEPOLIA_TOKENS.USDT;
-      daiAddress = BASE_SEPOLIA_TOKENS.DAI;
+  let deployedTokens: TestToken[] = [];
+  const existingTokens = loadTestTokens(network.name);
+  
+  if (existingTokens && existingTokens.length >= 10) {
+    console.log("\nStep 6: ✅ Using existing test tokens");
+    deployedTokens = existingTokens;
+    for (const token of deployedTokens) {
+      console.log(`  ${token.symbol}: ${token.address} ($${token.priceUsd})`);
+    }
+  } else if (isBaseSepolia) {
+    console.log("\nStep 6: Using existing Base Sepolia tokens...");
+    deployedTokens = [
+      { name: "USD Coin", symbol: "USDC", decimals: 6, address: BASE_SEPOLIA_TOKENS.USDC, priceUsd: 1, image: "https://coin-images.coingecko.com/coins/images/6319/large/usdc.png?1696506694" },
+      { name: "Tether USD", symbol: "USDT", decimals: 6, address: BASE_SEPOLIA_TOKENS.USDT, priceUsd: 1, image: "https://coin-images.coingecko.com/coins/images/325/large/Tether.png?1696501661" },
+      { name: "Dai Stablecoin", symbol: "DAI", decimals: 18, address: BASE_SEPOLIA_TOKENS.DAI, priceUsd: 1, image: "https://coin-images.coingecko.com/coins/images/9956/large/Badge_Dai.png?1696509996" },
+      { name: "USDx", symbol: "USDx", decimals: 18, address: BASE_SEPOLIA_TOKENS.USDX, priceUsd: 1, image: "https://dxp-bucket.sfo3.digitaloceanspaces.com/share-token-images_1758536678313_USDx--1-.png" }
+    ];
+    saveTestTokens(network.name, deployer.address, deployedTokens);
+  } else {
+    console.log("\nStep 6: Deploy 10 test tokens...");
+    const MockERC20 = await ethers.getContractFactory("MockERC20");
+    const router = await ethers.getContractAt("MockSwapRouter", MOCK_SWAP_ROUTER);
+    
+    for (const config of TEST_TOKEN_CONFIGS) {
+      const token = await MockERC20.deploy(config.name, config.symbol, config.decimals);
+      await token.waitForDeployment();
+      const tokenAddress = await token.getAddress();
       
-      state.testTokens = {
-        usdx: usdxAddress,
-        usdc: usdcAddress,
-        usdt: usdtAddress,
-        dai: daiAddress
-      };
-      saveDeploymentState(network.name, state);
+      deployedTokens.push({
+        ...config,
+        address: tokenAddress
+      });
+      console.log(`  ${config.symbol} deployed: ${tokenAddress} ($${config.priceUsd})`);
+      
+      const priceE18 = ethers.parseEther(config.priceUsd.toString());
+      await waitForTx(router.addOrUpdateToken(tokenAddress, priceE18));
+      
+      const liquidityAmount = config.decimals === 18 
+        ? ethers.parseEther("1000000")
+        : ethers.parseUnits("1000000", config.decimals);
+      await waitForTx(token.mint(MOCK_SWAP_ROUTER, liquidityAmount));
     }
     
-    console.log("USDx:", usdxAddress);
-    console.log("USDC:", usdcAddress);
-    console.log("USDT:", usdtAddress);
-    console.log("DAI:", daiAddress);
-    
-    // Get contract instances
-    usdx = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", usdxAddress);
-    usdc = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", usdcAddress);
-    usdt = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", usdtAddress);
-    dai = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", daiAddress);
-    
-  } else {
-    // Deploy new tokens for localhost
-    console.log("\nStep 6: Deploy test tokens...");
-    const MockERC20 = await ethers.getContractFactory("MockERC20");
-    
-    usdx = await MockERC20.deploy("USDx", "USDx", 18);
-    await usdx.waitForDeployment();
-    usdxAddress = await usdx.getAddress();
-    console.log("USDx deployed:", usdxAddress);
-    
-    usdc = await MockERC20.deploy("USD Coin", "USDC", 6);
-    await usdc.waitForDeployment();
-    usdcAddress = await usdc.getAddress();
-    console.log("USDC deployed:", usdcAddress);
-    
-    usdt = await MockERC20.deploy("Tether USD", "USDT", 6);
-    await usdt.waitForDeployment();
-    usdtAddress = await usdt.getAddress();
-    console.log("USDT deployed:", usdtAddress);
-    
-    dai = await MockERC20.deploy("Dai Stablecoin", "DAI", 18);
-    await dai.waitForDeployment();
-    daiAddress = await dai.getAddress();
-    console.log("DAI deployed:", daiAddress);
-
-    state.testTokens = {
-      usdx: usdxAddress,
-      usdc: usdcAddress,
-      usdt: usdtAddress,
-      dai: daiAddress
-    };
-    state.lastStep = "testTokens";
-    saveDeploymentState(network.name, state);
-
-    console.log("\nStep 7: Configure token prices in MockSwapRouter...");
-    const router = await ethers.getContractAt("MockSwapRouter", MOCK_SWAP_ROUTER);
-    await waitForTx(router.addOrUpdateToken(usdxAddress, ethers.parseEther("1")));   // $1
-    await waitForTx(router.addOrUpdateToken(usdcAddress, ethers.parseEther("1")));   // $1
-    await waitForTx(router.addOrUpdateToken(usdtAddress, ethers.parseEther("1")));   // $1
-    await waitForTx(router.addOrUpdateToken(daiAddress, ethers.parseEther("1")));    // $1
-    console.log("✅ Token prices configured");
-
-    console.log("\nStep 8: Add liquidity to MockSwapRouter...");
-    await waitForTx(usdx.mint(MOCK_SWAP_ROUTER, ethers.parseEther("1000000")));
-    await waitForTx(usdc.mint(MOCK_SWAP_ROUTER, ethers.parseUnits("1000000", 6)));
-    await waitForTx(usdt.mint(MOCK_SWAP_ROUTER, ethers.parseUnits("1000000", 6)));
-    await waitForTx(dai.mint(MOCK_SWAP_ROUTER, ethers.parseEther("1000000")));
-    console.log("✅ Liquidity added to router");
+    saveTestTokens(network.name, deployer.address, deployedTokens);
+    console.log("✅ All 10 tokens deployed, prices configured, and liquidity added");
   }
 
-  // Step 9: Create test vault
+  const findToken = (symbol: string) => deployedTokens.find(t => t.symbol === symbol)!;
+  const usdcAddress = findToken("USDC").address;
+  const usdtAddress = findToken("USDT").address;
+  const daiAddress = findToken("DAI").address;
+  const usdxAddress = findToken("USDx").address;
+  
+  state.testTokens = { usdx: usdxAddress, usdc: usdcAddress, usdt: usdtAddress, dai: daiAddress };
+  saveDeploymentState(network.name, state);
+
+  // ========== CREATE VAULT SAFE & TEST VAULT ==========
+  console.log("\n" + "=".repeat(60));
+  console.log("CREATING VAULT SAFE & TEST VAULT");
+  console.log("=".repeat(60));
+
+  let vaultSafeAddress: string;
   let indexSwapAddress: string;
   
   if (!state.testVault) {
-    console.log("\nStep 9: Create test vault via ProtocolCore...");
+    console.log("\nStep 7: Deploy VaultSafe...");
+    const VaultSafe = await ethers.getContractFactory("VaultSafe");
+    const vaultSafe = await VaultSafe.deploy(
+      protocolCoreAddress,
+      [deployer.address],
+      1
+    );
+    await vaultSafe.waitForDeployment();
+    vaultSafeAddress = await vaultSafe.getAddress();
+    console.log("✅ VaultSafe deployed:", vaultSafeAddress);
+    console.log("  Owners:", [deployer.address]);
+    console.log("  Threshold: 1");
+
+    console.log("\nStep 8: Create test vault via ProtocolCore with VaultSafe as owner...");
     const portfolio = [
-      { token: usdcAddress, weightBps: 4000 },  // 40% USDC
-      { token: daiAddress, weightBps: 3000 },   // 30% DAI
-      { token: usdtAddress, weightBps: 2000 },  // 20% USDT
-      { token: usdxAddress, weightBps: 1000 }   // 10% USDx
+      { token: usdcAddress, weightBps: 4000 },
+      { token: daiAddress, weightBps: 3000 },
+      { token: usdtAddress, weightBps: 2000 },
+      { token: usdxAddress, weightBps: 1000 }
     ];
 
-    const LOCKUP_3_DAYS = 3 * 24 * 60 * 60;  // 3 days in seconds
+    const LOCKUP_ZERO = 0;
 
     const createVaultTx = await protocolCore.createIndexSwapVault(
-      deployer.address,             // Owner (EOA or VaultSafe)
-      "Balanced Index Fund",        // Name
-      "BIF",                        // Symbol
-      portfolio,                    // 40/30/20/10 portfolio
-      ethers.ZeroAddress,           // Use default router
-      LOCKUP_3_DAYS                 // 3 day lockup
+      vaultSafeAddress,
+      "Balanced Index Fund",
+      "BIF",
+      portfolio,
+      ethers.ZeroAddress,
+      LOCKUP_ZERO
     );
 
     const receipt = await createVaultTx.wait();
     
-    // Parse VaultCreated event from factory
     const vaultEvent = receipt?.logs.find((log: any) => {
       try {
         const parsed = indexSwapFactory.interface.parseLog(log);
@@ -547,75 +585,73 @@ async function main() {
     indexSwapAddress = parsedVaultEvent?.args?.indexSwap as string;
 
     console.log("✅ Test Vault Created!");
-    console.log("  Owner:", deployer.address);
+    console.log("  VaultSafe (Owner):", vaultSafeAddress);
     console.log("  IndexSwap:", indexSwapAddress);
     
     state.testVault = {
-      safe: deployer.address,
+      safe: vaultSafeAddress,
       indexSwap: indexSwapAddress
     };
     state.lastStep = "testVault";
     saveDeploymentState(network.name, state);
   } else {
-    console.log("\nStep 9: ✅ Test vault already created");
+    console.log("\nStep 7-8: ✅ VaultSafe and test vault already created");
+    vaultSafeAddress = state.testVault.safe;
     indexSwapAddress = state.testVault.indexSwap;
-    console.log("  Owner:", state.testVault.safe);
+    console.log("  VaultSafe:", vaultSafeAddress);
     console.log("  IndexSwap:", indexSwapAddress);
   }
 
-  // Note: Steps 10-18 (testing) are not idempotent and will run every time
+  // Note: Testing steps are not idempotent and will run every time
   // Skip if you only want to deploy infrastructure
-  // Always skip testing on hoodi networks to avoid noisy RPC issues
   const skipTesting = process.env.SKIP_TESTING === "true" || isHoodiNetwork;
   
   if (skipTesting) {
     console.log("\n⏭️  Skipping testing steps (SKIP_TESTING=true)");
-  } else {
-    console.log("\nStep 10: Test deposit to vault...");
   }
   
   const vault = await ethers.getContractAt("IndexSwap", indexSwapAddress);
+  const vaultSafe = await ethers.getContractAt("VaultSafe", vaultSafeAddress);
   
-  // Get test wallet for deposits on Base Sepolia
-  let testWallet = deployer;
-  if (isBaseSepolia && process.env.TEST_WALLET_PRIVATE_KEY) {
-    testWallet = new ethers.Wallet(process.env.TEST_WALLET_PRIVATE_KEY, ethers.provider);
-    console.log("Using test wallet:", testWallet.address);
-  }
+  const usdc = await ethers.getContractAt("MockERC20", usdcAddress);
+  const usdt = await ethers.getContractAt("MockERC20", usdtAddress);
+  const dai = await ethers.getContractAt("MockERC20", daiAddress);
+  const usdx = await ethers.getContractAt("MockERC20", usdxAddress);
   
   if (!skipTesting) {
-    // Define deposit amounts
-    const usdcAmount = ethers.parseUnits("4000", 6);   // 40% = $4000
-    const daiAmount = ethers.parseEther("3000");       // 30% = $3000
-    const usdtAmount = ethers.parseUnits("2000", 6);   // 20% = $2000
-    const usdxAmount = ethers.parseEther("1000");      // 10% = $1000
+    console.log("\n" + "=".repeat(60));
+    console.log("TESTING VAULT VIA VAULTSAFE");
+    console.log("=".repeat(60));
+
+    console.log("\nStep 9: Test deposit to vault...");
+    const usdcAmount = ethers.parseUnits("4000", 6);
+    const daiAmount = ethers.parseEther("3000");
+    const usdtAmount = ethers.parseUnits("2000", 6);
+    const usdxAmount = ethers.parseEther("1000");
     
     if (!isBaseSepolia) {
-      // Mint tokens for localhost
-      await usdc.mint(testWallet.address, usdcAmount);
-      await dai.mint(testWallet.address, daiAmount);
-      await usdt.mint(testWallet.address, usdtAmount);
-      await usdx.mint(testWallet.address, usdxAmount);
-      console.log("✅ Tokens minted to test wallet");
+      await usdc.mint(deployer.address, usdcAmount);
+      await dai.mint(deployer.address, daiAmount);
+      await usdt.mint(deployer.address, usdtAmount);
+      await usdx.mint(deployer.address, usdxAmount);
+      console.log("✅ Tokens minted to deployer");
     }
     
-    // Approve vault
-    await usdc.connect(testWallet).approve(indexSwapAddress, usdcAmount);
-    await dai.connect(testWallet).approve(indexSwapAddress, daiAmount);
-    await usdt.connect(testWallet).approve(indexSwapAddress, usdtAmount);
-    await usdx.connect(testWallet).approve(indexSwapAddress, usdxAmount);
-    console.log("✅ Tokens approved");
+    await usdc.approve(indexSwapAddress, usdcAmount);
+    await dai.approve(indexSwapAddress, daiAmount);
+    await usdt.approve(indexSwapAddress, usdtAmount);
+    await usdx.approve(indexSwapAddress, usdxAmount);
+    console.log("✅ Tokens approved for vault");
     
-    // Deposit
-    const depositTx = await vault.connect(testWallet).deposit([usdcAmount, daiAmount, usdtAmount, usdxAmount]);
+    const depositTx = await vault.deposit([usdcAmount, daiAmount, usdtAmount, usdxAmount]);
     await depositTx.wait();
     
-    const shares = await vault.balanceOf(testWallet.address);
+    const shares = await vault.balanceOf(deployer.address);
     console.log("✅ Deposit successful!");
-    console.log("  Depositor:", testWallet.address);
+    console.log("  Depositor:", deployer.address);
     console.log("  Shares received:", ethers.formatEther(shares));
 
-    console.log("\nStep 11: Verify vault metrics...");
+    console.log("\nStep 10: Verify vault metrics...");
     const tvl = await vault.getTotalValueUsd();
     const totalSupply = await vault.totalSupply();
     const sharePrice = tvl * ethers.parseEther("1") / totalSupply;
@@ -625,142 +661,96 @@ async function main() {
     console.log("  Total Supply:", ethers.formatEther(totalSupply), "shares");
     console.log("  Share Price:", ethers.formatEther(sharePrice), "USD");
 
-    // ========== COMPREHENSIVE TESTING ==========
-    console.log("\n" + "=".repeat(60));
-    console.log("COMPREHENSIVE VAULT TESTING");
-    console.log("=".repeat(60));
+    console.log("\nStep 11: Test VaultSafe operations (approveToken via submitTransaction)...");
+    const approveCalldata = vault.interface.encodeFunctionData("approveToken", [
+      daiAddress,
+      buySellModuleAddress,
+      ethers.parseEther("500")
+    ]);
+    
+    const submitTx = await vaultSafe.submitTransaction(indexSwapAddress, 0, approveCalldata);
+    await submitTx.wait();
+    console.log("✅ VaultSafe executed approveToken via submitTransaction");
 
-  // Get module instances
-  const buySellModuleContract = await ethers.getContractAt("BuySellModule", buySellModuleAddress);
-  const lendModuleContract = await ethers.getContractAt("LendModule", lendModuleAddress);
-  const borrowModuleContract = await ethers.getContractAt("BorrowModule", borrowModuleAddress);
+    const buySellModuleContract = await ethers.getContractAt("BuySellModule", buySellModuleAddress);
+    const lendModuleContract = await ethers.getContractAt("LendModule", lendModuleAddress);
+    const borrowModuleContract = await ethers.getContractAt("BorrowModule", borrowModuleAddress);
 
-  console.log("\nStep 12: Test Buy/Sell Operations...");
-  // Approve modules to spend vault tokens
-  await vault.approveToken(daiAddress, buySellModuleAddress, ethers.parseEther("500"));
-  console.log("✅ Approved BuySellModule to spend DAI");
-  
-  // Buy 100 USDC by selling DAI
-  const buyTx = await buySellModuleContract.buyToken(
-    indexSwapAddress,
-    daiAddress,      // Sell DAI
-    usdcAddress,     // Buy USDC
-    ethers.parseEther("100")  // Spend 100 DAI
-  );
-  await buyTx.wait();
-  console.log("✅ Bought USDC with DAI");
-  
-  // Check new balances
-  const usdcBalAfterBuy = await usdc.balanceOf(indexSwapAddress);
-  const daiBalAfterBuy = await dai.balanceOf(indexSwapAddress);
-  console.log("  USDC balance:", ethers.formatUnits(usdcBalAfterBuy, 6));
-  console.log("  DAI balance:", ethers.formatEther(daiBalAfterBuy));
-
-  console.log("\nStep 13: Test Lending Operations...");
-  // Approve lend module
-  await vault.approveToken(usdcAddress, lendModuleAddress, ethers.parseUnits("500", 6));
-  console.log("✅ Approved LendModule to spend USDC");
-  
-  // Lend 200 USDC
-  const lendTx = await lendModuleContract.lend(
-    indexSwapAddress,
-    usdcAddress,
-    ethers.parseUnits("200", 6)
-  );
-  await lendTx.wait();
-  console.log("✅ Lent 200 USDC");
-  
-  // Check lending position
-  const lendPosition = await lendModuleContract.getPositionValue(indexSwapAddress, usdcAddress);
-  console.log("  Lending position value:", ethers.formatEther(lendPosition), "USD");
-
-  console.log("\nStep 14: Test Borrowing Operations...");
-  // Add liquidity to borrow module for testing
-  if (isBaseSepolia && !state.borrowModuleFunded) {
-    console.log("⛽️ Funding BorrowModule with USDT for Base Sepolia tests...");
-    await ensureBorrowModuleLiquidity(
-      borrowModuleAddress,
-      usdt,
-      testWallet,
-      ethers.parseUnits("1000", 6)
+    console.log("\nStep 12: Test Buy/Sell Operations...");
+    const buyTx = await buySellModuleContract.buyToken(
+      indexSwapAddress,
+      daiAddress,
+      usdcAddress,
+      ethers.parseEther("100")
     );
-    state.borrowModuleFunded = true;
-    saveDeploymentState(network.name, state);
-  } else if (!isBaseSepolia) {
-    await usdt.mint(borrowModuleAddress, ethers.parseUnits("1000", 6));
-    console.log("✅ Added liquidity to BorrowModule");
-    state.borrowModuleFunded = true;
-    saveDeploymentState(network.name, state);
-  }
-  
-  // Borrow 100 USDT
-  const borrowTx = await borrowModuleContract.borrow(
-    indexSwapAddress,
-    usdtAddress,
-    ethers.parseUnits("100", 6)
-  );
-  await borrowTx.wait();
-  console.log("✅ Borrowed 100 USDT");
-  
-  // Check borrow position
-  const borrowPosition = await borrowModuleContract.getPositionValue(indexSwapAddress, usdtAddress);
-  console.log("  Borrow position value:", ethers.formatEther(borrowPosition), "USD");
+    await buyTx.wait();
+    console.log("✅ Bought USDC with DAI");
+    
+    const usdcBalAfterBuy = await usdc.balanceOf(indexSwapAddress);
+    const daiBalAfterBuy = await dai.balanceOf(indexSwapAddress);
+    console.log("  USDC balance:", ethers.formatUnits(usdcBalAfterBuy, 6));
+    console.log("  DAI balance:", ethers.formatEther(daiBalAfterBuy));
 
-  console.log("\nStep 15: Check TVL After Operations...");
-  const tvlAfterOps = await vault.getTotalValueUsd();
-  console.log("  TVL before operations:", ethers.formatEther(tvl), "USD");
-  console.log("  TVL after operations:", ethers.formatEther(tvlAfterOps), "USD");
-  console.log("  Change:", ethers.formatEther(tvlAfterOps - tvl), "USD");
+    console.log("\nStep 13: Test Lending Operations...");
+    const approveLendCalldata = vault.interface.encodeFunctionData("approveToken", [
+      usdcAddress,
+      lendModuleAddress,
+      ethers.parseUnits("500", 6)
+    ]);
+    await (await vaultSafe.submitTransaction(indexSwapAddress, 0, approveLendCalldata)).wait();
+    console.log("✅ VaultSafe approved LendModule to spend USDC");
+    
+    const lendTx = await lendModuleContract.lend(
+      indexSwapAddress,
+      usdcAddress,
+      ethers.parseUnits("200", 6)
+    );
+    await lendTx.wait();
+    console.log("✅ Lent 200 USDC");
+    
+    const lendPosition = await lendModuleContract.getPositionValue(indexSwapAddress, usdcAddress);
+    console.log("  Lending position value:", ethers.formatEther(lendPosition), "USD");
 
-  console.log("\nStep 16: Check Portfolio Weights...");
-  const portfolioAfterOps = await vault.getPortfolio();
-  console.log("  Target weights (unchanged):");
-  for (let i = 0; i < portfolioAfterOps.length; i++) {
-    const token = portfolioAfterOps[i][0];
-    const weight = portfolioAfterOps[i][1];
-    const tokenContract = await ethers.getContractAt("IERC20", token);
-    const balance = await tokenContract.balanceOf(indexSwapAddress);
-    const tokenInfo = {
-      [usdcAddress.toLowerCase()]: { symbol: "USDC", decimals: 6 },
-      [daiAddress.toLowerCase()]: { symbol: "DAI", decimals: 18 },
-      [usdtAddress.toLowerCase()]: { symbol: "USDT", decimals: 6 },
-      [usdxAddress.toLowerCase()]: { symbol: "USDx", decimals: 18 }
-    };
-    const info = tokenInfo[token.toLowerCase()];
-    const actualValue = await vault.getTotalValueUsd();
-    const tokenValue = (balance * ethers.parseEther("1")) / (10n ** BigInt(info.decimals));
-    const actualWeight = actualValue > 0n ? (tokenValue * 10000n) / actualValue : 0n;
-    console.log(`    ${info.symbol}: Target ${Number(weight)/100}%, Actual ~${Number(actualWeight)/100}%`);
-  }
+    console.log("\nStep 14: Test Borrowing Operations...");
+    if (!isBaseSepolia) {
+      await usdt.mint(borrowModuleAddress, ethers.parseUnits("1000", 6));
+      console.log("✅ Added liquidity to BorrowModule");
+    }
+    
+    const borrowTx = await borrowModuleContract.borrow(
+      indexSwapAddress,
+      usdtAddress,
+      ethers.parseUnits("100", 6)
+    );
+    await borrowTx.wait();
+    console.log("✅ Borrowed 100 USDT");
+    
+    const borrowPosition = await borrowModuleContract.getPositionValue(indexSwapAddress, usdtAddress);
+    console.log("  Borrow position value:", ethers.formatEther(borrowPosition), "USD");
 
-  console.log("\nStep 17: Test Rebalancing...");
-  const rebalanceTx = await vault.rebalance();
-  await rebalanceTx.wait();
-  console.log("✅ Rebalanced vault");
+    console.log("\nStep 15: Check TVL After Operations...");
+    const tvlAfterOps = await vault.getTotalValueUsd();
+    console.log("  TVL before operations:", ethers.formatEther(tvl), "USD");
+    console.log("  TVL after operations:", ethers.formatEther(tvlAfterOps), "USD");
 
-  console.log("\nStep 18: Verify Weights After Rebalancing...");
-  const tvlAfterRebalance = await vault.getTotalValueUsd();
-  console.log("  TVL after rebalance:", ethers.formatEther(tvlAfterRebalance), "USD");
-  
-  for (let i = 0; i < portfolioAfterOps.length; i++) {
-    const token = portfolioAfterOps[i][0];
-    const weight = portfolioAfterOps[i][1];
-    const tokenContract = await ethers.getContractAt("IERC20", token);
-    const balance = await tokenContract.balanceOf(indexSwapAddress);
-    const tokenInfo = {
-      [usdcAddress.toLowerCase()]: { symbol: "USDC", decimals: 6 },
-      [daiAddress.toLowerCase()]: { symbol: "DAI", decimals: 18 },
-      [usdtAddress.toLowerCase()]: { symbol: "USDT", decimals: 6 },
-      [usdxAddress.toLowerCase()]: { symbol: "USDx", decimals: 18 }
-    };
-    const info = tokenInfo[token.toLowerCase()];
-    console.log(`    ${info.symbol}: ${ethers.formatUnits(balance, info.decimals)} (target: ${Number(weight)/100}%)`);
-  }
+    console.log("\nStep 16: Test Rebalancing via VaultSafe...");
+    const rebalanceCalldata = vault.interface.encodeFunctionData("rebalance");
+    await (await vaultSafe.submitTransaction(indexSwapAddress, 0, rebalanceCalldata)).wait();
+    console.log("✅ VaultSafe executed rebalance");
+
+    console.log("\nStep 17: Test Withdrawal...");
+    const sharesToWithdraw = ethers.parseEther("1000");
+    const withdrawTx = await vault.withdraw(sharesToWithdraw);
+    await withdrawTx.wait();
+    console.log("✅ Withdrew", ethers.formatEther(sharesToWithdraw), "shares");
+    
+    const sharesAfterWithdraw = await vault.balanceOf(deployer.address);
+    console.log("  Remaining shares:", ethers.formatEther(sharesAfterWithdraw));
 
     console.log("\n" + "=".repeat(60));
     console.log("✅ ALL TESTS PASSED!");
     console.log("=".repeat(60));
-  } // End of testing block
+  }
 
   // ========== DEPLOYMENT SUMMARY ==========
   console.log("\n" + "=".repeat(60));
@@ -791,13 +781,14 @@ async function main() {
   console.log("IndexSwapFactory:", factoryAddress);
   
   console.log("\n=== Test Tokens ===");
-  console.log("USDx:", usdxAddress);
-  console.log("USDC:", usdcAddress);
-  console.log("USDT:", usdtAddress);
-  console.log("DAI:", daiAddress);
+  console.log("Tokens file:", getTestTokensPath(network.name));
+  console.log("Total tokens:", deployedTokens.length);
+  for (const token of deployedTokens) {
+    console.log(`  ${token.symbol}: ${token.address} ($${token.priceUsd})`);
+  }
   
   console.log("\n=== Test Vault ===");
-  console.log("Owner:", state.testVault?.safe || deployer.address);
+  console.log("VaultSafe:", vaultSafeAddress);
   console.log("IndexSwap:", indexSwapAddress);
   console.log("Portfolio: 40% USDC, 30% DAI, 20% USDT, 10% USDx");
 
@@ -811,14 +802,9 @@ async function main() {
     stakingModule: stakingModuleAddress !== ethers.ZeroAddress ? stakingModuleAddress : undefined,
     indexSwapFactory: factoryAddress,
     mockSwapRouter: MOCK_SWAP_ROUTER,
-    testTokens: {
-      usdx: usdxAddress,
-      usdc: usdcAddress,
-      usdt: usdtAddress,
-      dai: daiAddress
-    },
+    testTokens: deployedTokens,
     testVault: {
-      owner: state.testVault?.safe || deployer.address,
+      vaultSafe: vaultSafeAddress,
       indexSwap: indexSwapAddress
     }
   };

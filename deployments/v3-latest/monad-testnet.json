@@ -1,0 +1,25 @@
+{
+  "network": "monad-testnet",
+  "deployer": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+  "timestamp": 1764748081826,
+  "lastStep": "testVault",
+  "dxpToken": "0x1089a136177be060c24F2de2995ff8d68f47e8A3",
+  "protocolCore": "0x6Cc42dc0D74ADdBc609aE5ea91BD09c3AbBD0B48",
+  "mockSwapRouter": "0x2C6A8B5F530074F1dAe91747dEB8dFE0827A106C",
+  "moduleRegistry": "0xbF3919338faA3Fc3603364D30955a778A0681fd1",
+  "swapModule": "0x7D3385323af15220156Da925f6AAF42E477eA482",
+  "buySellModule": "0x1B3e22856891b23d4BCD659b1eF598b1cC5a3088",
+  "lendModule": "0x524d39572fA0DAa1dAeBdAAdAd9eF2336f7D658A",
+  "borrowModule": "0xFdA9ce4F9651C39a57E9c509341160C86B133999",
+  "indexSwapFactory": "0x8dbE47b8955760d7F45d9D185e08899171762398",
+  "testTokens": {
+    "usdx": "0x36A9219f557100b5B788aA68B1746Ea1a55E335B",
+    "usdc": "0x62E9eFd939B8F9B26cCc4aCe22A618F5bbF649Fc",
+    "usdt": "0x6FaB83BE73AffafF260aA3a76db7E7d17Fc0b690",
+    "dai": "0x3bD83C9ce77168c8A36aBa77Aa74e50E90F82731"
+  },
+  "testVault": {
+    "safe": "0x0A602D6b0f3Ac49Edc7794182978f9Ba4132eb6b",
+    "indexSwap": "0x052C5A8ADBd04E77b381ec9957cFC2F0bb55DBBD"
+  }
+}
