@@ -1,0 +1,18 @@
+{
+  "network": "base-mainnet",
+  "chainId": 8453,
+  "deployer": "0xB0D95c09558A18c4e66E56AcB57a6b868D9CaA6C",
+  "timestamp": 1768373630897,
+  "dxpToken": "0xd46105a17ABc807180Efa75186B01BD7bD56Ce48",
+  "protocolCore": "0xB15363C831Df7fa67e88D9CC9FD648B650dB6bFA",
+  "chainlinkOracle": "0x918230296e788C81965B134c284D21Bb2051E18f",
+  "moduleRegistry": "0x82fFB8F127f2Fc301c275675Ad366441Cc787f0E",
+  "swapModuleV3": "0x89A6F9Cf2a682cB1c00f5Df1Ee8E1DF6b27FC542",
+  "buySellModuleV3": "0x6695D2fD0d0b1E33935037ABfd78Df2CE7401dF4",
+  "feeCollector": "0x321846Dd2B56fbE649a67EE9D5Cb9C7729b57a91",
+  "protocolMetrics": "0x15D8B3D14D2292fd320e38d7e2FC60F0275840Cb",
+  "testVault": {
+    "safe": "0x860098d75B17Cf5bCe8c1A2c07dF0Bf2491C317e",
+    "indexSwap": "0xCF056BfDd6d241C6F2cb6911b028b03d031dABdD"
+  }
+}

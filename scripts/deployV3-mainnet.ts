@@ -38,6 +38,8 @@ interface DeploymentState {
   protocolCore?: string;
   chainlinkOracle?: string;
   moduleRegistry?: string;
+  feeCollector?: string;
+  protocolMetrics?: string;
   swapModuleV3?: string;
   buySellModuleV3?: string;
   
@@ -136,7 +138,7 @@ async function main() {
   // ========== STEP 3: ChainlinkOracle ==========
   if (!state.chainlinkOracle) {
     console.log("\n[3/7] Deploying ChainlinkOracle...");
-    const ChainlinkOracle = await ethers.getContractFactory("ChainlinkOracle");
+    const ChainlinkOracle = await ethers.getContractFactory("contracts/v3/mainnet/oracles/ChainlinkOracle.sol:ChainlinkOracle");
     const oracle = await ChainlinkOracle.deploy();
     await oracle.waitForDeployment();
     state.chainlinkOracle = await oracle.getAddress();
@@ -168,7 +170,7 @@ async function main() {
   // ========== STEP 4: ModuleRegistry ==========
   if (!state.moduleRegistry) {
     console.log("\n[4/7] Deploying ModuleRegistry...");
-    const ModuleRegistry = await ethers.getContractFactory("ModuleRegistry");
+    const ModuleRegistry = await ethers.getContractFactory("contracts/v3/mainnet/core/ModuleRegistry.sol:ModuleRegistry");
     const registry = await ModuleRegistry.deploy();
     await registry.waitForDeployment();
     state.moduleRegistry = await registry.getAddress();
@@ -185,7 +187,7 @@ async function main() {
   // ========== STEP 5: SwapModuleV3 ==========
   if (!state.swapModuleV3) {
     console.log("\n[5/7] Deploying SwapModuleV3...");
-    const SwapModuleV3 = await ethers.getContractFactory("SwapModuleV3");
+    const SwapModuleV3 = await ethers.getContractFactory("contracts/v3/mainnet/modules/SwapModuleV3.sol:SwapModuleV3");
     const swapModule = await SwapModuleV3.deploy(
       state.protocolCore,
       BASE_MAINNET.SWAP_ROUTER,
@@ -198,7 +200,7 @@ async function main() {
     await (await swapModule.setPoolFee(BASE_MAINNET.USDC, BASE_MAINNET.DAI, BASE_MAINNET.POOL_FEE_LOWEST)).wait();
     await (await swapModule.setPoolFee(BASE_MAINNET.WBTC, BASE_MAINNET.USDC, BASE_MAINNET.POOL_FEE_LOW)).wait();
     
-    const registry = await ethers.getContractAt("ModuleRegistry", state.moduleRegistry);
+    const registry = await ethers.getContractAt("contracts/v3/mainnet/core/ModuleRegistry.sol:ModuleRegistry", state.moduleRegistry);
     await (await registry.setSwapModule(state.swapModuleV3)).wait();
     
     state.lastStep = "swapModuleV3";
@@ -210,8 +212,8 @@ async function main() {
 
   // ========== STEP 6: BuySellModuleV3 ==========
   if (!state.buySellModuleV3) {
-    console.log("\n[6/7] Deploying BuySellModuleV3...");
-    const BuySellModuleV3 = await ethers.getContractFactory("BuySellModuleV3");
+    console.log("\n[6/9] Deploying BuySellModuleV3...");
+    const BuySellModuleV3 = await ethers.getContractFactory("contracts/v3/mainnet/modules/BuySellModuleV3.sol:BuySellModuleV3");
     const buySellModule = await BuySellModuleV3.deploy(
       state.protocolCore,
       BASE_MAINNET.SWAP_ROUTER,
@@ -224,21 +226,56 @@ async function main() {
     await (await buySellModule.setPoolFee(BASE_MAINNET.USDC, BASE_MAINNET.DAI, BASE_MAINNET.POOL_FEE_LOWEST)).wait();
     await (await buySellModule.setPoolFee(BASE_MAINNET.WBTC, BASE_MAINNET.USDC, BASE_MAINNET.POOL_FEE_LOW)).wait();
     
-    const registry = await ethers.getContractAt("ModuleRegistry", state.moduleRegistry);
+    const registry = await ethers.getContractAt("contracts/v3/mainnet/core/ModuleRegistry.sol:ModuleRegistry", state.moduleRegistry);
     await (await registry.setBuySellModule(state.buySellModuleV3)).wait();
     
     state.lastStep = "buySellModuleV3";
     saveState(state);
     console.log("✅ BuySellModuleV3:", state.buySellModuleV3);
   } else {
-    console.log("\n[6/7] ✅ BuySellModuleV3:", state.buySellModuleV3);
+    console.log("\n[6/9] ✅ BuySellModuleV3:", state.buySellModuleV3);
   }
 
-  // ========== STEP 7: Test Vault ==========
-  if (!state.testVault) {
-    console.log("\n[7/7] Creating Test Vault (IndexSwapV3)...");
+  // ========== STEP 7: FeeCollector ==========
+  if (!state.feeCollector) {
+    console.log("\n[7/9] Deploying FeeCollector...");
+    const FeeCollector = await ethers.getContractFactory("contracts/v3/mainnet/core/FeeCollector.sol:FeeCollector");
+    const feeCollector = await FeeCollector.deploy(state.protocolCore, deployer.address);
+    await feeCollector.waitForDeployment();
+    state.feeCollector = await feeCollector.getAddress();
     
-    const VaultSafe = await ethers.getContractFactory("VaultSafe");
+    state.lastStep = "feeCollector";
+    saveState(state);
+    console.log("✅ FeeCollector:", state.feeCollector);
+  } else {
+    console.log("\n[7/9] ✅ FeeCollector:", state.feeCollector);
+  }
+
+  // ========== STEP 8: ProtocolMetrics (DeFi Llama) ==========
+  if (!state.protocolMetrics) {
+    console.log("\n[8/9] Deploying ProtocolMetrics (DeFi Llama compatible)...");
+    const ProtocolMetrics = await ethers.getContractFactory("contracts/v3/mainnet/core/ProtocolMetrics.sol:ProtocolMetrics");
+    const metrics = await ProtocolMetrics.deploy(state.chainlinkOracle, state.feeCollector);
+    await metrics.waitForDeployment();
+    state.protocolMetrics = await metrics.getAddress();
+    
+    await (await metrics.trackToken(BASE_MAINNET.USDC)).wait();
+    await (await metrics.trackToken(BASE_MAINNET.WETH)).wait();
+    await (await metrics.trackToken(BASE_MAINNET.WBTC)).wait();
+    await (await metrics.trackToken(BASE_MAINNET.DAI)).wait();
+    
+    state.lastStep = "protocolMetrics";
+    saveState(state);
+    console.log("✅ ProtocolMetrics:", state.protocolMetrics);
+  } else {
+    console.log("\n[8/9] ✅ ProtocolMetrics:", state.protocolMetrics);
+  }
+
+  // ========== STEP 9: Test Vault ==========
+  if (!state.testVault) {
+    console.log("\n[9/9] Creating Test Vault (IndexSwapV3)...");
+    
+    const VaultSafe = await ethers.getContractFactory("contracts/v3/mainnet/vault/VaultSafe.sol:VaultSafe");
     const safe = await VaultSafe.deploy(state.protocolCore, [deployer.address], 1);
     await safe.waitForDeployment();
     const safeAddress = await safe.getAddress();
@@ -250,7 +287,7 @@ async function main() {
       { token: BASE_MAINNET.WBTC, weightBps: 2000 },
     ];
     
-    const IndexSwapV3 = await ethers.getContractFactory("IndexSwapV3");
+    const IndexSwapV3 = await ethers.getContractFactory("contracts/v3/mainnet/vault/IndexSwapV3.sol:IndexSwapV3");
     const vault = await IndexSwapV3.deploy(
       state.protocolCore,
       safeAddress,
@@ -268,12 +305,21 @@ async function main() {
     await (await vault.setPoolFee(BASE_MAINNET.WBTC, BASE_MAINNET.POOL_FEE_LOW)).wait();
     await (await vault.setPoolFee(BASE_MAINNET.USDC, BASE_MAINNET.POOL_FEE_LOWEST)).wait();
     
+    if (state.feeCollector) {
+      await (await vault.setFeeCollector(state.feeCollector)).wait();
+      console.log("  FeeCollector set on vault");
+    }
+    
+    const metrics = await ethers.getContractAt("contracts/v3/mainnet/core/ProtocolMetrics.sol:ProtocolMetrics", state.protocolMetrics!);
+    await (await metrics.registerVault(vaultAddress)).wait();
+    console.log("  Vault registered in ProtocolMetrics");
+    
     state.testVault = { safe: safeAddress, indexSwap: vaultAddress };
     state.lastStep = "testVault";
     saveState(state);
     console.log("✅ IndexSwapV3:", vaultAddress);
   } else {
-    console.log("\n[7/7] ✅ Test Vault already created");
+    console.log("\n[9/9] ✅ Test Vault already created");
     console.log("  VaultSafe:", state.testVault.safe);
     console.log("  IndexSwapV3:", state.testVault.indexSwap);
   }
@@ -289,6 +335,10 @@ async function main() {
   console.log("  ChainlinkOracle:", state.chainlinkOracle);
   console.log("  ModuleRegistry:", state.moduleRegistry);
   
+  console.log("\n📦 Fee & Metrics (DeFi Llama):");
+  console.log("  FeeCollector:", state.feeCollector);
+  console.log("  ProtocolMetrics:", state.protocolMetrics);
+  
   console.log("\n📦 Modules (V3 - Mainnet Ready):");
   console.log("  SwapModuleV3:", state.swapModuleV3);
   console.log("  BuySellModuleV3:", state.buySellModuleV3);
@@ -301,10 +351,10 @@ async function main() {
   console.log("  Uniswap V3 Router:", BASE_MAINNET.SWAP_ROUTER);
   console.log("  Chainlink ETH/USD:", BASE_MAINNET.CHAINLINK_ETH_USD);
   
-  console.log("\n📝 Next Steps:");
-  console.log("  1. Deposit USDC to vault: vault.depositSingle(USDC, amount)");
-  console.log("  2. Buy WETH: vault.buyToken(USDC, WETH, amount)");
-  console.log("  3. Check TVL: vault.getTotalValueUsd()");
+  console.log("\n📝 DeFi Llama Integration:");
+  console.log("  - Call protocolMetrics.getTotalTVL() for total TVL");
+  console.log("  - Call protocolMetrics.getTotalFeesCollectedUsd() for total fees");
+  console.log("  - Call protocolMetrics.getProtocolStats() for full stats");
   
   console.log("\n💾 Deployment saved to:", getDeploymentPath());
 }
