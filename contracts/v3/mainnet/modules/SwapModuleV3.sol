@@ -53,18 +53,21 @@ contract SwapModuleV3 is Ownable {
     }
     
     modifier onlyAuthorized(address vault) {
+        bool isVaultItself = (msg.sender == vault);
         bool isSafeOwner = false;
         bool isProtocolOwner = false;
         
-        try IVaultSafe(vault).isOwner(msg.sender) returns (bool result) {
-            isSafeOwner = result;
-        } catch {}
+        if (!isVaultItself) {
+            try IVaultSafe(vault).isOwner(msg.sender) returns (bool result) {
+                isSafeOwner = result;
+            } catch {}
+        }
         
         try IProtocolCore(protocolCore).owner() returns (address po) {
             isProtocolOwner = (msg.sender == po);
         } catch {}
         
-        if (!isSafeOwner && !isProtocolOwner) revert NotAuthorized();
+        if (!isVaultItself && !isSafeOwner && !isProtocolOwner) revert NotAuthorized();
         _;
     }
     

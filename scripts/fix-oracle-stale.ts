@@ -16,6 +16,8 @@ async function main() {
   const deploymentPath = path.join(__dirname, "..", "deployments", "v3-latest", "base-mainnet.json");
   const state = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
   
+  console.log("Using oracle:", state.chainlinkOracle);
+  
   const oracle = await ethers.getContractAt(
     "contracts/v3/mainnet/oracles/ChainlinkOracle.sol:ChainlinkOracle",
     state.chainlinkOracle,

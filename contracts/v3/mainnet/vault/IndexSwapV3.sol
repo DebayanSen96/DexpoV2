@@ -8,7 +8,6 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "../../interfaces/IProtocolCoreOwnable.sol";
 import "../../interfaces/IOracle.sol";
-import "../../interfaces/ISwapRouter.sol";
 
 interface IVaultSafe {
     function isOwner(address account) external view returns (bool);
@@ -23,13 +22,26 @@ interface IFeeCollector {
     function protocolCutBps() external view returns (uint16);
 }
 
+interface IModuleRegistry {
+    function getSwapModule() external view returns (address);
+    function getStakingModule() external view returns (address);
+    function getLendModule() external view returns (address);
+    function getBorrowModule() external view returns (address);
+    function getOracle() external view returns (address);
+}
+
+interface ISwapModule {
+    function swap(address vault, address tokenIn, address tokenOut, uint256 amountIn) external returns (uint256 amountOut);
+    function swapWithSlippage(address vault, address tokenIn, address tokenOut, uint256 amountIn, uint256 slippageBps) external returns (uint256 amountOut);
+}
+
 contract IndexSwapV3 is ERC20, ReentrancyGuard {
     using SafeERC20 for IERC20;
     
     address public immutable protocolCore;
     address public immutable safe;
+    address public moduleRegistry;
     address public oracle;
-    address public swapRouter;
     
     struct TokenWeight {
         address token;
@@ -39,8 +51,6 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
     TokenWeight[] public portfolio;
     mapping(address => bool) public isPortfolioToken;
     mapping(address => uint256) public tokenIndex;
-    mapping(address => uint24) public tokenPoolFee;
-    
     address public lendModule;
     address public borrowModule;
     address public feeCollector;
@@ -55,7 +65,6 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
     uint256 public minDepositAmount;
     uint256 public lockupSeconds;
     uint256 public maxSlippageBps = 100;
-    uint24 public defaultPoolFee = 3000;
     
     mapping(address => uint256) public userDepositTimestamp;
     
@@ -64,7 +73,7 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
     event PortfolioUpdated(TokenWeight[] newPortfolio);
     event Rebalanced(address indexed caller);
     event OracleUpdated(address indexed newOracle);
-    event SwapRouterUpdated(address indexed newRouter);
+    event ModuleRegistryUpdated(address indexed newRegistry);
     event ModulesUpdated(address lendModule, address borrowModule);
     event LockupUpdated(uint256 newLockupSeconds);
     event MaxSlippageUpdated(uint256 newSlippageBps);
@@ -105,8 +114,7 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
     constructor(
         address _protocolCore,
         address _safe,
-        address _oracle,
-        address _swapRouter,
+        address _moduleRegistry,
         string memory _name,
         string memory _symbol,
         TokenWeight[] memory _portfolio,
@@ -114,14 +122,13 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
     ) ERC20(_name, _symbol) {
         require(_protocolCore != address(0), "Invalid core");
         require(_safe != address(0), "Invalid safe");
-        require(_oracle != address(0), "Invalid oracle");
-        require(_swapRouter != address(0), "Invalid router");
+        require(_moduleRegistry != address(0), "Invalid registry");
         require(_portfolio.length > 0, "Empty portfolio");
         
         protocolCore = _protocolCore;
         safe = _safe;
-        oracle = _oracle;
-        swapRouter = _swapRouter;
+        moduleRegistry = _moduleRegistry;
+        oracle = IModuleRegistry(_moduleRegistry).getOracle();
         lockupSeconds = _lockupSeconds;
         
         _setPortfolio(_portfolio);
@@ -249,23 +256,17 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
     {
         if (amountBase == 0) revert ZeroAmount();
         
-        uint256 amountOutMin = _calculateMinOutput(baseToken, tokenToBuy, amountBase);
+        address swapModule = IModuleRegistry(moduleRegistry).getSwapModule();
+        require(swapModule != address(0), "Swap module not set");
         
-        IERC20(baseToken).forceApprove(swapRouter, amountBase);
-        
-        uint24 fee = _getPoolFee(tokenToBuy);
-        
-        ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
-            tokenIn: baseToken,
-            tokenOut: tokenToBuy,
-            fee: fee,
-            recipient: address(this),
-            amountIn: amountBase,
-            amountOutMinimum: amountOutMin,
-            sqrtPriceLimitX96: 0
-        });
-        
-        amountOut = ISwapRouter(swapRouter).exactInputSingle(params);
+        IERC20(baseToken).forceApprove(swapModule, amountBase);
+        amountOut = ISwapModule(swapModule).swapWithSlippage(
+            address(this),
+            baseToken,
+            tokenToBuy,
+            amountBase,
+            maxSlippageBps
+        );
     }
     
     function sellToken(address tokenToSell, address baseToken, uint256 amountToken) 
@@ -276,43 +277,17 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
     {
         if (amountToken == 0) revert ZeroAmount();
         
-        uint256 amountOutMin = _calculateMinOutput(tokenToSell, baseToken, amountToken);
+        address swapModule = IModuleRegistry(moduleRegistry).getSwapModule();
+        require(swapModule != address(0), "Swap module not set");
         
-        IERC20(tokenToSell).forceApprove(swapRouter, amountToken);
-        
-        uint24 fee = _getPoolFee(tokenToSell);
-        
-        ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
-            tokenIn: tokenToSell,
-            tokenOut: baseToken,
-            fee: fee,
-            recipient: address(this),
-            amountIn: amountToken,
-            amountOutMinimum: amountOutMin,
-            sqrtPriceLimitX96: 0
-        });
-        
-        amountOut = ISwapRouter(swapRouter).exactInputSingle(params);
-    }
-    
-    function _calculateMinOutput(address tokenIn, address tokenOut, uint256 amountIn) internal view returns (uint256) {
-        uint256 priceIn = IOracle(oracle).priceUsdE18(tokenIn);
-        uint256 priceOut = IOracle(oracle).priceUsdE18(tokenOut);
-        
-        if (priceIn == 0 || priceOut == 0) return 0;
-        
-        uint8 decimalsIn = IERC20Metadata(tokenIn).decimals();
-        uint8 decimalsOut = IERC20Metadata(tokenOut).decimals();
-        
-        uint256 valueUsd = (amountIn * priceIn) / (10 ** decimalsIn);
-        uint256 expectedOut = (valueUsd * (10 ** decimalsOut)) / priceOut;
-        
-        return (expectedOut * (10000 - maxSlippageBps)) / 10000;
-    }
-    
-    function _getPoolFee(address token) internal view returns (uint24) {
-        uint24 fee = tokenPoolFee[token];
-        return fee > 0 ? fee : defaultPoolFee;
+        IERC20(tokenToSell).forceApprove(swapModule, amountToken);
+        amountOut = ISwapModule(swapModule).swapWithSlippage(
+            address(this),
+            tokenToSell,
+            baseToken,
+            amountToken,
+            maxSlippageBps
+        );
     }
     
     function setPortfolio(TokenWeight[] calldata _portfolio) external onlySafeOrProtocolOwner {
@@ -348,10 +323,11 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
         emit OracleUpdated(_oracle);
     }
     
-    function setSwapRouter(address _router) external onlySafeOrProtocolOwner {
-        require(_router != address(0), "Invalid router");
-        swapRouter = _router;
-        emit SwapRouterUpdated(_router);
+    function setModuleRegistry(address _registry) external onlySafeOrProtocolOwner {
+        require(_registry != address(0), "Invalid registry");
+        moduleRegistry = _registry;
+        oracle = IModuleRegistry(_registry).getOracle();
+        emit ModuleRegistryUpdated(_registry);
     }
     
     function setModules(address _lendModule, address _borrowModule) external onlySafeOrProtocolOwner {
@@ -443,14 +419,6 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
         require(_slippageBps <= 1000, "Slippage too high");
         maxSlippageBps = _slippageBps;
         emit MaxSlippageUpdated(_slippageBps);
-    }
-    
-    function setPoolFee(address token, uint24 fee) external onlySafeOrProtocolOwner {
-        tokenPoolFee[token] = fee;
-    }
-    
-    function setDefaultPoolFee(uint24 fee) external onlySafeOrProtocolOwner {
-        defaultPoolFee = fee;
     }
     
     function approveToken(address token, address spender, uint256 amount) external onlySafeOrProtocolOwner {

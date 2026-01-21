@@ -325,7 +325,7 @@ async function main() {
       deployer,
       "IndexSwapV3",
       "contracts/v3/mainnet/vault/IndexSwapV3.sol:IndexSwapV3",
-      [state.protocolCore, safeAddress, state.chainlinkOracle, BASE_MAINNET.SWAP_ROUTER, "Test Index Vault", "TIV", portfolio, 0]
+      [state.protocolCore, safeAddress, state.moduleRegistry, "Test Index Vault", "TIV", portfolio, 0]
     );
     
     state.testVault = { safe: safeAddress, indexSwap: vaultAddress };
@@ -336,9 +336,6 @@ async function main() {
       vaultAddress,
       deployer
     );
-    await sendTx(vault, "setPoolFee", [BASE_MAINNET.WETH, BASE_MAINNET.POOL_FEE_LOW], deployer, "Setting WETH pool fee");
-    await sendTx(vault, "setPoolFee", [BASE_MAINNET.WBTC, BASE_MAINNET.POOL_FEE_LOW], deployer, "Setting WBTC pool fee");
-    await sendTx(vault, "setPoolFee", [BASE_MAINNET.USDC, BASE_MAINNET.POOL_FEE_LOWEST], deployer, "Setting USDC pool fee");
     await sendTx(vault, "setFeeCollector", [state.feeCollector], deployer, "Setting fee collector");
     await sendTx(vault, "setPerformanceFee", [1000], deployer, "Setting 10% performance fee");
     await sendTx(vault, "setVaultOwner", [deployer.address], deployer, "Setting vault owner");
