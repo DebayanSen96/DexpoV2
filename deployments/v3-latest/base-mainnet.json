@@ -14,5 +14,11 @@
   "testVault": {
     "safe": "0x6bf728b4692451DAFCde310125C28954A5a7dd1B",
     "indexSwap": "0x0950BcB022992026fc093d20b90c4bd4A1E49Dc7"
+  },
+  "lendModuleV3": "0xD9a1D67f700a4215729B2c24C2e5b4fA46c43500",
+  "lastStep": "lendModuleV3",
+  "lendingVault": {
+    "safe": "0xbbe8DBBCDC2419c80EB139672B6AAA5F073D9246",
+    "indexSwap": "0x972021416b393c106f8846C5088AEfF8d031F28b"
   }
 }

@@ -427,6 +427,31 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
         IERC20(token).forceApprove(spender, amount);
     }
     
+    function executeModuleAction(
+        address module,
+        bytes calldata data
+    ) external onlySafeOrProtocolOwner nonReentrant returns (bytes memory) {
+        require(module != address(0), "Invalid module");
+        
+        address registeredLend = IModuleRegistry(moduleRegistry).getLendModule();
+        address registeredBorrow = IModuleRegistry(moduleRegistry).getBorrowModule();
+        address registeredStaking = IModuleRegistry(moduleRegistry).getStakingModule();
+        address registeredSwap = IModuleRegistry(moduleRegistry).getSwapModule();
+        
+        require(
+            module == registeredLend || 
+            module == registeredBorrow || 
+            module == registeredStaking ||
+            module == registeredSwap,
+            "Module not registered"
+        );
+        
+        (bool success, bytes memory result) = module.call(data);
+        require(success, "Module call failed");
+        
+        return result;
+    }
+    
     function getTotalValueUsd() public view returns (uint256 totalUsd) {
         for (uint256 i = 0; i < portfolio.length; i++) {
             address token = portfolio[i].token;

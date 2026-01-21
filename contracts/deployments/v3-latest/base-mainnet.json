@@ -1,0 +1,13 @@
+{
+  "chainId": 8453,
+  "network": "base-mainnet",
+  "deployer": "0xB0D95c09558A18c4e66E56AcB57a6b868D9CaA6C",
+  "timestamp": "2026-01-20T04:53:43.799Z",
+  "contracts": {
+    "ChainlinkOracle": "0x2dD0b46aD39C6716f822Db71e997f1911F927630",
+    "ModuleRegistry": "0x68bE399Ccb87f52a76f3eAc0154eBbbBD84AcBA0",
+    "SwapModuleV3": "0xc4A7362cf0354e1f8E6AEA4aAFfF9a24Eb2DF07c",
+    "BuySellModuleV3": "0x67EfC2488f0E24ea70Ce540678C3B40ebe5B8E8F",
+    "LendModuleV3": "0xc7fcb87E25f236220a3E1e4e878a8e66E895e2Ef"
+  }
+}
