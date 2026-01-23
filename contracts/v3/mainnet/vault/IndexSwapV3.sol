@@ -67,6 +67,7 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
     uint256 public maxSlippageBps = 100;
     
     mapping(address => uint256) public userDepositTimestamp;
+    mapping(address => uint256) public userCostBasisUsd;
     
     event Deposit(address indexed user, uint256 shares, uint256 valueUsd);
     event Withdrawal(address indexed user, uint256 shares, uint256[] amounts);
@@ -171,6 +172,7 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
         }
         
         userDepositTimestamp[msg.sender] = block.timestamp;
+        userCostBasisUsd[msg.sender] += totalValueUsd;
         
         emit Deposit(msg.sender, shares, totalValueUsd);
     }
@@ -207,6 +209,7 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
         }
         
         userDepositTimestamp[msg.sender] = block.timestamp;
+        userCostBasisUsd[msg.sender] += depositValueUsd;
         
         emit Deposit(msg.sender, shares, depositValueUsd);
     }
@@ -222,7 +225,12 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
         }
         
         uint256 supply = totalSupply();
+        uint256 userTotalShares = balanceOf(msg.sender);
+        
+        uint256 userProportionalCostBasis = (userCostBasisUsd[msg.sender] * shares) / userTotalShares;
+        
         amounts = new uint256[](portfolio.length);
+        uint256 withdrawValueUsd = 0;
         
         for (uint256 i = 0; i < portfolio.length; i++) {
             address token = portfolio[i].token;
@@ -231,16 +239,40 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
             
             if (amount > 0) {
                 amounts[i] = amount;
-                IERC20(token).safeTransfer(msg.sender, amount);
+                withdrawValueUsd += _getTokenValueUsd(token, amount);
             }
         }
         
-        uint256 withdrawValueUsd = 0;
-        for (uint256 i = 0; i < amounts.length; i++) {
+        uint256 feeAmountUsd = 0;
+        if (withdrawValueUsd > userProportionalCostBasis && performanceFeeBps > 0 && feeCollector != address(0)) {
+            uint256 profitUsd = withdrawValueUsd - userProportionalCostBasis;
+            feeAmountUsd = (profitUsd * performanceFeeBps) / BPS_DIVISOR;
+        }
+        
+        for (uint256 i = 0; i < portfolio.length; i++) {
             if (amounts[i] > 0) {
-                withdrawValueUsd += _getTokenValueUsd(portfolio[i].token, amounts[i]);
+                address token = portfolio[i].token;
+                uint256 feeAmount = 0;
+                
+                if (feeAmountUsd > 0 && withdrawValueUsd > 0) {
+                    feeAmount = (amounts[i] * feeAmountUsd) / withdrawValueUsd;
+                    if (feeAmount > 0 && vaultOwner != address(0)) {
+                        IERC20(token).forceApprove(feeCollector, feeAmount);
+                        IFeeCollector(feeCollector).distributePerformanceFee(
+                            token,
+                            feeAmount,
+                            performanceFeeBps,
+                            vaultOwner
+                        );
+                        amounts[i] -= feeAmount;
+                    }
+                }
+                
+                IERC20(token).safeTransfer(msg.sender, amounts[i]);
             }
         }
+        
+        userCostBasisUsd[msg.sender] -= userProportionalCostBasis;
         totalWithdrawalsUsd += withdrawValueUsd;
         
         _burn(msg.sender, shares);
