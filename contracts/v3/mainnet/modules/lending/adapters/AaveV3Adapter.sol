@@ -98,9 +98,10 @@ contract AaveV3Adapter is ILendingAdapter, Ownable {
 
         uint256 aTokenBalanceBefore = IAToken(aToken).balanceOf(onBehalfOf);
 
-        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-        IERC20(token).forceApprove(pool, amount);
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        require(balance >= amount, "Insufficient token balance");
         
+        IERC20(token).forceApprove(pool, amount);
         IAavePool(pool).supply(token, amount, onBehalfOf, 0);
 
         uint256 aTokenBalanceAfter = IAToken(aToken).balanceOf(onBehalfOf);
@@ -115,11 +116,11 @@ contract AaveV3Adapter is ILendingAdapter, Ownable {
         if (!supportedTokens[token]) revert TokenNotSupported();
         
         address pool = IPoolAddressesProvider(poolAddressesProvider).getPool();
-        address aToken = tokenToAToken[token];
-
-        IERC20(aToken).safeTransferFrom(msg.sender, address(this), shares);
         
-        amountWithdrawn = IAavePool(pool).withdraw(token, shares, to);
+        uint256 aTokenBalance = IAToken(tokenToAToken[token]).balanceOf(address(this));
+        require(aTokenBalance >= shares, "Insufficient aToken balance");
+        
+        amountWithdrawn = IAavePool(pool).withdraw(token, aTokenBalance, to);
     }
 
     function getSharesValue(address, uint256 shares) external pure override returns (uint256) {

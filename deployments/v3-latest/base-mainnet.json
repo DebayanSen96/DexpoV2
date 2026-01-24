@@ -1,26 +1,25 @@
 {
-  "network": "base-mainnet",
   "deployer": "0xB0D95c09558A18c4e66E56AcB57a6b868D9CaA6C",
-  "timestamp": 1769063396820,
-  "lastStep": "indexSwapFactory",
-  "dxpToken": "0x71d98206a5e52e10DC00049C376E19AD950951e3",
-  "protocolCore": "0x9051222E2F5adf04186a37eC9f28d68bcc8dBd48",
-  "oracle": "0xd2afa14cfe0790479A65b8EB42a43E4C4a09D11E",
-  "feeCollector": "0x55A4B7Ec5A236Ca6dFF68D74b17A578D3cf43aBa",
-  "moduleRegistry": "0x3c74137900aB70E65e1a3879Dff8ee25623a21a3",
-  "swapHub": "0x4da3F04722f5EDEaed4bFBA369C8Bdf9D27ce765",
-  "aerodromeAdapter": "0xf7d02A9667202cbB45aD554c5FA15c9a23EE8816",
+  "timestamp": "2026-01-24T10:59:44.219Z",
+  "dxpToken": "0x277e3f789Eeb25B4a43fdA815d761aF1462Db57B",
+  "protocolCore": "0xf0A5851F4dBE86d89eBACF01071944Ed7462779f",
+  "chainlinkOracle": "0x29dC06727fBf5c525AB808069fA18BB2c6c07259",
+  "lastStep": "complete",
+  "feeCollector": "0x2781Acd79016577a0d0514eab834C39b95Ea9114",
+  "moduleRegistry": "0xB51283FC716d89491d7373204a269BDaAF98553e",
+  "swapHub": "0x4De83cD52B9206d621f73D8e720AAF4609eCe879",
+  "aerodromeAdapter": "0x86c357d50EdeD97Cd3588cBE78644e06D9193DF4",
   "adapterIds": {
     "aerodrome": "0x7a06cdba1088a954631c25b2396564ca5f7588e130488af408a337dc37e6368b",
-    "aaveV3": "0x4ac3471c421a89f9d5f6ef6ba1e113bd137f6aec87bd169e9012a1e57356e4fc"
+    "uniswapV3": "0x3e1ba2b70880de8835e37b2821b3ca56e07c15ae583bf7dfa6888e3bd39bb5ca",
+    "aaveV3": "0xfbd78add4f08e125712f0f5839071e2475e179aaa0ab4b25787479d24bfbb2a9"
   },
-  "lendingHub": "0x23F4ad60e80a65c35F0D5C017178349509395117",
-  "aaveV3Adapter": "0x5829d32fd30a71E98a934a15aBEBA36357f2995C",
-  "buySellModule": "0x99d595893B5F5b68ebA3AAc40f6050ff56e7090b",
-  "borrowModule": "0xF113d2b0C8Fb39634ebDf91d287703a4F803E103",
-  "indexSwapFactory": "0xF08e28c2D7dfF96fd35CE45728a9Df01A0e3A869",
+  "uniswapV3Adapter": "0x1eA1dcd075d48b98c62D2E740D240dffDc6eb5e5",
+  "lendingHub": "0x25A4DEacF50Dee23ff44f168Be6F4C58AC166e49",
+  "aaveV3Adapter": "0x7b6135438638e292dF2B447255b6aAE729FEa6cc",
+  "indexSwapFactory": "0xD60bCf627431369c3F45C1A4eb6b3f10121A5080",
   "testVault": {
-    "safe": "0x3b8c697F20795C025b84fD126cFb2bAF8A8608b4",
-    "indexSwap": "0x181BEc1C35246145B6B397D20CFE970A14133f71"
+    "safe": "0x27157B7D7b2B84e5178455B97E5bE80C159daa5c",
+    "indexSwap": "0x63F2416e30890EE431252805C846741A093A36eF"
   }
 }

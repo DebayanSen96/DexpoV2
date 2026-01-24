@@ -2,12 +2,11 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "../vault/IndexSwap.sol";
+import "../mainnet/vault/IndexSwapV3.sol";
 
-interface IModuleRegistry {
+interface IModuleRegistryFactory {
     function getLendModule() external view returns (address);
     function getBorrowModule() external view returns (address);
-    function getStakingModule() external view returns (address);
 }
 
 contract IndexSwapFactory is Ownable {
@@ -50,23 +49,20 @@ contract IndexSwapFactory is Ownable {
         require(owner != address(0), "Zero owner");
         require(portfolio.length > 0, "Empty");
         
-        address router = customSwapRouter != address(0) ? customSwapRouter : defaultSwapRouter;
-        
-        IndexSwap vault = new IndexSwap(
+        IndexSwapV3 vault = new IndexSwapV3(
             protocolCore,
             owner,
-            router,
+            moduleRegistry,
             name,
             symbol,
             _toPortfolio(portfolio),
             lockupSeconds
         );
         indexSwap = address(vault);
-        
+
         vault.setModules(
-            IModuleRegistry(moduleRegistry).getLendModule(),
-            IModuleRegistry(moduleRegistry).getBorrowModule(),
-            IModuleRegistry(moduleRegistry).getStakingModule()
+            IModuleRegistryFactory(moduleRegistry).getLendModule(),
+            IModuleRegistryFactory(moduleRegistry).getBorrowModule()
         );
         
         emit VaultCreated(vaultCount++, owner, indexSwap);
@@ -77,8 +73,8 @@ contract IndexSwapFactory is Ownable {
         defaultSwapRouter = _router;
     }
     
-    function _toPortfolio(TokenWeight[] calldata p) internal pure returns (IndexSwap.TokenWeight[] memory r) {
-        r = new IndexSwap.TokenWeight[](p.length);
+    function _toPortfolio(TokenWeight[] calldata p) internal pure returns (IndexSwapV3.TokenWeight[] memory r) {
+        r = new IndexSwapV3.TokenWeight[](p.length);
         for (uint256 i; i < p.length; ++i) {
             r[i].token = p[i].token;
             r[i].weightBps = p[i].weightBps;

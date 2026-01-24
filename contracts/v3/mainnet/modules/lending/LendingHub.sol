@@ -48,6 +48,7 @@ contract LendingHub is Ownable, ReentrancyGuard {
     mapping(address => mapping(address => VaultPosition)) public positions;
     mapping(address => address[]) public vaultTokens;
     mapping(address => mapping(address => bool)) public hasPosition;
+    mapping(bytes32 => mapping(address => uint256)) public totalShares;
 
     event AdapterAdded(bytes32 indexed adapterId, address indexed adapter, string name);
     event AdapterRemoved(bytes32 indexed adapterId);
@@ -61,6 +62,7 @@ contract LendingHub is Ownable, ReentrancyGuard {
     error TokenNotSupported();
     error InsufficientPosition();
     error ZeroAmount();
+    error AdapterMismatch();
 
     constructor(address _protocolCore, address _oracle) Ownable(msg.sender) {
         protocolCore = _protocolCore;
@@ -127,12 +129,12 @@ contract LendingHub is Ownable, ReentrancyGuard {
         ILendingAdapter adapter = ILendingAdapter(adapterInfo.adapterAddress);
         if (!adapter.isTokenSupported(token)) revert TokenNotSupported();
 
-        IERC20(token).safeTransferFrom(vault, address(this), amount);
-        IERC20(token).forceApprove(adapterInfo.adapterAddress, amount);
+        IERC20(token).safeTransferFrom(vault, adapterInfo.adapterAddress, amount);
 
         shares = adapter.supply(token, amount, address(this));
 
         VaultPosition storage pos = positions[vault][token];
+        if (pos.shares > 0 && pos.adapterId != adapterId) revert AdapterMismatch();
         
         if (!hasPosition[vault][token]) {
             hasPosition[vault][token] = true;
@@ -143,6 +145,7 @@ contract LendingHub is Ownable, ReentrancyGuard {
         pos.suppliedAmount += amount;
         pos.lastUpdateTime = block.timestamp;
         pos.adapterId = adapterId;
+        totalShares[adapterId][token] += shares;
 
         emit Supplied(vault, token, adapterId, amount, shares);
     }
@@ -161,8 +164,10 @@ contract LendingHub is Ownable, ReentrancyGuard {
         if (adapterInfo.adapterAddress == address(0)) revert AdapterNotFound();
 
         ILendingAdapter adapter = ILendingAdapter(adapterInfo.adapterAddress);
-        
-        uint256 currentValue = adapter.getSharesValue(token, pos.shares);
+
+        uint256 currentValue = _getShareValue(pos.adapterId, token, pos.shares);
+        if (currentValue == 0) revert InsufficientPosition();
+        uint256 prevShares = pos.shares;
         uint256 sharesToBurn;
         
         if (amount >= currentValue) {
@@ -173,15 +178,17 @@ contract LendingHub is Ownable, ReentrancyGuard {
         }
 
         address shareToken = adapter.getShareToken(token);
-        IERC20(shareToken).forceApprove(adapterInfo.adapterAddress, sharesToBurn);
+        IERC20(shareToken).safeTransfer(adapterInfo.adapterAddress, sharesToBurn);
         
         withdrawn = adapter.withdraw(token, sharesToBurn, vault);
 
         pos.shares -= sharesToBurn;
-        if (pos.suppliedAmount > amount) {
-            pos.suppliedAmount -= amount;
-        } else {
+        totalShares[pos.adapterId][token] -= sharesToBurn;
+        uint256 principalReduction = (pos.suppliedAmount * sharesToBurn) / prevShares;
+        if (principalReduction > pos.suppliedAmount) {
             pos.suppliedAmount = 0;
+        } else {
+            pos.suppliedAmount -= principalReduction;
         }
         pos.lastUpdateTime = block.timestamp;
 
@@ -201,12 +208,13 @@ contract LendingHub is Ownable, ReentrancyGuard {
         ILendingAdapter adapter = ILendingAdapter(adapterInfo.adapterAddress);
         
         address shareToken = adapter.getShareToken(token);
-        IERC20(shareToken).forceApprove(adapterInfo.adapterAddress, pos.shares);
+        IERC20(shareToken).safeTransfer(adapterInfo.adapterAddress, pos.shares);
 
         withdrawn = adapter.withdraw(token, pos.shares, vault);
 
         uint256 burnedShares = pos.shares;
         pos.shares = 0;
+        totalShares[pos.adapterId][token] -= burnedShares;
         pos.suppliedAmount = 0;
         pos.lastUpdateTime = block.timestamp;
 
@@ -226,8 +234,7 @@ contract LendingHub is Ownable, ReentrancyGuard {
         adapterId = pos.adapterId;
 
         if (pos.shares > 0 && adapters[pos.adapterId].adapterAddress != address(0)) {
-            ILendingAdapter adapter = ILendingAdapter(adapters[pos.adapterId].adapterAddress);
-            currentBalance = adapter.getSharesValue(token, pos.shares);
+            currentBalance = _getShareValue(pos.adapterId, token, pos.shares);
             earnedInterest = currentBalance > suppliedAmount ? currentBalance - suppliedAmount : 0;
         }
     }
@@ -250,13 +257,25 @@ contract LendingHub is Ownable, ReentrancyGuard {
         AdapterInfo storage adapterInfo = adapters[pos.adapterId];
         if (adapterInfo.adapterAddress == address(0)) return 0;
 
-        ILendingAdapter adapter = ILendingAdapter(adapterInfo.adapterAddress);
-        uint256 tokenAmount = adapter.getSharesValue(token, pos.shares);
+        uint256 tokenAmount = _getShareValue(pos.adapterId, token, pos.shares);
+        if (tokenAmount == 0) return 0;
 
         uint256 priceUsd = IOracle(oracle).priceUsdE18(token);
         uint8 decimals = IERC20Metadata(token).decimals();
 
         return (tokenAmount * priceUsd) / (10 ** decimals);
+    }
+
+    function _getShareValue(bytes32 adapterId, address token, uint256 shares) internal view returns (uint256) {
+        if (shares == 0) return 0;
+        AdapterInfo storage adapterInfo = adapters[adapterId];
+        if (adapterInfo.adapterAddress == address(0)) return 0;
+
+        uint256 totalUnderlying = ILendingAdapter(adapterInfo.adapterAddress).getTotalShares(token);
+        uint256 totalSharesForToken = totalShares[adapterId][token];
+        if (totalUnderlying == 0 || totalSharesForToken == 0) return 0;
+
+        return (shares * totalUnderlying) / totalSharesForToken;
     }
 
     function getAdapterCount() external view returns (uint256) {
