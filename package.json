@@ -9,6 +9,7 @@
     "e2e:local": "hardhat run scripts/e2e-local.ts --network localhost"
   },
   "dependencies": {
+    "@openzeppelin/contracts-upgradeable": "^5.4.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",

@@ -120,7 +120,7 @@ contract AaveV3Adapter is ILendingAdapter, Ownable {
         uint256 aTokenBalance = IAToken(tokenToAToken[token]).balanceOf(address(this));
         require(aTokenBalance >= shares, "Insufficient aToken balance");
         
-        amountWithdrawn = IAavePool(pool).withdraw(token, aTokenBalance, to);
+        amountWithdrawn = IAavePool(pool).withdraw(token, shares, to);
     }
 
     function getSharesValue(address, uint256 shares) external pure override returns (uint256) {

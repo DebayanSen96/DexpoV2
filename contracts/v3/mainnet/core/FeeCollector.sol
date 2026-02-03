@@ -6,13 +6,17 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
+interface IProtocolCoreOwner {
+    function owner() external view returns (address);
+}
+
 contract FeeCollector is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     address public protocolCore;
     address public feeRecipient;
     
-    uint16 public protocolCutBps = 1000;
+    uint16 public protocolCutBps = 1000; // 10% of vault owner fee goes to protocol
     uint16 public constant MAX_PROTOCOL_CUT_BPS = 5000;
     uint16 public constant BPS_DIVISOR = 10000;
     
@@ -23,8 +27,8 @@ contract FeeCollector is Ownable, ReentrancyGuard {
     event PerformanceFeeDistributed(
         address indexed vault,
         address indexed token,
-        uint256 totalProfit,
-        uint256 vaultOwnerFee,
+        uint256 totalFeeAmount,
+        uint256 vaultOwnerNet,
         uint256 protocolFee,
         address vaultOwner,
         address protocolRecipient
@@ -48,21 +52,39 @@ contract FeeCollector is Ownable, ReentrancyGuard {
         _;
     }
     
+    modifier onlyOwnerOrProtocolOwner() {
+        bool isOwner = msg.sender == owner();
+        bool isProtocolCore = msg.sender == protocolCore;
+        bool isProtocolOwner = false;
+        if (protocolCore != address(0)) {
+            try IProtocolCoreOwner(protocolCore).owner() returns (address po) {
+                isProtocolOwner = (msg.sender == po);
+            } catch {}
+        }
+        if (!isOwner && !isProtocolCore && !isProtocolOwner) revert NotAuthorized();
+        _;
+    }
+    
+    /// @notice Distribute performance fee between vault owner and protocol
+    /// @param token The token to distribute
+    /// @param feeAmount The TOTAL fee amount to distribute (already calculated as profit * performanceFeeBps)
+    /// @param vaultOwner The vault owner who receives their cut
+    /// @return vaultOwnerNet Amount sent to vault owner
+    /// @return protocolFee Amount sent to protocol
     function distributePerformanceFee(
         address token,
-        uint256 totalProfit,
-        uint16 vaultPerformanceFeeBps,
+        uint256 feeAmount,
+        uint16, // vaultPerformanceFeeBps - unused, kept for interface compatibility
         address vaultOwner
     ) external onlyAuthorizedVault nonReentrant returns (uint256 vaultOwnerNet, uint256 protocolFee) {
-        if (totalProfit == 0 || vaultPerformanceFeeBps == 0) return (0, 0);
+        if (feeAmount == 0) return (0, 0);
         
-        uint256 totalVaultOwnerFee = (totalProfit * vaultPerformanceFeeBps) / BPS_DIVISOR;
-        if (totalVaultOwnerFee == 0) return (0, 0);
+        protocolFee = (feeAmount * protocolCutBps) / BPS_DIVISOR;
+        vaultOwnerNet = feeAmount - protocolFee;
         
-        protocolFee = (totalVaultOwnerFee * protocolCutBps) / BPS_DIVISOR;
-        vaultOwnerNet = totalVaultOwnerFee - protocolFee;
-        
-        IERC20(token).safeTransferFrom(msg.sender, vaultOwner, vaultOwnerNet);
+        if (vaultOwnerNet > 0) {
+            IERC20(token).safeTransferFrom(msg.sender, vaultOwner, vaultOwnerNet);
+        }
         
         if (protocolFee > 0) {
             IERC20(token).safeTransferFrom(msg.sender, feeRecipient, protocolFee);
@@ -73,7 +95,7 @@ contract FeeCollector is Ownable, ReentrancyGuard {
         emit PerformanceFeeDistributed(
             msg.sender,
             token,
-            totalProfit,
+            feeAmount,
             vaultOwnerNet,
             protocolFee,
             vaultOwner,
@@ -83,7 +105,7 @@ contract FeeCollector is Ownable, ReentrancyGuard {
         return (vaultOwnerNet, protocolFee);
     }
     
-    function setAuthorizedVault(address vault, bool authorized) external onlyOwner {
+    function setAuthorizedVault(address vault, bool authorized) external onlyOwnerOrProtocolOwner {
         if (vault == address(0)) revert ZeroAddress();
         authorizedVaults[vault] = authorized;
         emit VaultAuthorized(vault, authorized);
@@ -111,14 +133,20 @@ contract FeeCollector is Ownable, ReentrancyGuard {
         return vaultProtocolFees[vault][token];
     }
     
+    /// @notice Calculate how fees would be distributed for a given profit
+    /// @param lpProfit The LP's profit amount
+    /// @param vaultPerformanceFeeBps The vault owner's performance fee in bps
+    /// @return lpNet Amount LP keeps after fees
+    /// @return vaultOwnerNet Amount vault owner receives
+    /// @return protocolFee Amount protocol receives
     function calculateFeeDistribution(
-        uint256 totalProfit,
+        uint256 lpProfit,
         uint16 vaultPerformanceFeeBps
-    ) external view returns (uint256 lpProfit, uint256 vaultOwnerNet, uint256 protocolFee) {
-        uint256 totalVaultOwnerFee = (totalProfit * vaultPerformanceFeeBps) / BPS_DIVISOR;
+    ) external view returns (uint256 lpNet, uint256 vaultOwnerNet, uint256 protocolFee) {
+        uint256 totalVaultOwnerFee = (lpProfit * vaultPerformanceFeeBps) / BPS_DIVISOR;
         protocolFee = (totalVaultOwnerFee * protocolCutBps) / BPS_DIVISOR;
         vaultOwnerNet = totalVaultOwnerFee - protocolFee;
-        lpProfit = totalProfit - totalVaultOwnerFee;
-        return (lpProfit, vaultOwnerNet, protocolFee);
+        lpNet = lpProfit - totalVaultOwnerFee;
+        return (lpNet, vaultOwnerNet, protocolFee);
     }
 }

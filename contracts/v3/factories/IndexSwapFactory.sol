@@ -2,35 +2,79 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "../mainnet/vault/IndexSwapV3.sol";
+import "@openzeppelin/contracts/proxy/Clones.sol";
 
 interface IModuleRegistryFactory {
     function getLendModule() external view returns (address);
     function getBorrowModule() external view returns (address);
 }
 
+interface IIndexSwapV3Init {
+    struct TokenWeight {
+        address token;
+        uint16 weightBps;
+    }
+    
+    struct InitParams {
+        address protocolCore;
+        address vaultOwner;
+        address moduleRegistry;
+        address feeCollector;
+        address lendModule;
+        address borrowModule;
+        uint16 performanceFeeBps;
+        uint256 lockupSeconds;
+    }
+    
+    function initialize(
+        InitParams calldata params,
+        string calldata _name,
+        string calldata _symbol,
+        TokenWeight[] calldata _portfolio
+    ) external;
+}
+
 contract IndexSwapFactory is Ownable {
+    using Clones for address;
+    
     address public immutable protocolCore;
     address public immutable moduleRegistry;
-    address public defaultSwapRouter;
+    address public implementation;
+    address public feeCollector;
     
     uint256 public vaultCount;
+    mapping(uint256 => address) public vaults;
     
     event VaultCreated(
         uint256 indexed vaultId,
-        address indexed owner,
+        address indexed vaultOwner,
         address indexed indexSwap
     );
+    event FeeCollectorUpdated(address indexed newFeeCollector);
+    event ImplementationUpdated(address indexed newImplementation);
+    
+    error OnlyProtocolCore();
+    error ZeroAddress();
+    error EmptyPortfolio();
+    error FeeCollectorNotSet();
+    error ImplementationNotSet();
     
     constructor(
         address _protocolCore,
         address _moduleRegistry,
-        address _defaultSwapRouter
+        address _implementation,
+        address _feeCollector
     ) Ownable(msg.sender) {
-        require(_protocolCore != address(0) && _moduleRegistry != address(0) && _defaultSwapRouter != address(0), "Zero");
+        require(_protocolCore != address(0) && _moduleRegistry != address(0), "Zero");
         protocolCore = _protocolCore;
         moduleRegistry = _moduleRegistry;
-        defaultSwapRouter = _defaultSwapRouter;
+        implementation = _implementation;
+        feeCollector = _feeCollector;
+    }
+    
+    modifier onlyProtocolCore() {
+        if (msg.sender != protocolCore) revert OnlyProtocolCore();
+        _;
     }
     
     struct TokenWeight {
@@ -39,45 +83,52 @@ contract IndexSwapFactory is Ownable {
     }
     
     function createVault(
-        address owner,
+        address vaultOwner,
         string calldata name,
         string calldata symbol,
         TokenWeight[] calldata portfolio,
-        address customSwapRouter,
-        uint256 lockupSeconds
-    ) external returns (address indexSwap) {
-        require(owner != address(0), "Zero owner");
-        require(portfolio.length > 0, "Empty");
+        uint256 lockupSeconds,
+        uint16 performanceFeeBps
+    ) external onlyProtocolCore returns (address indexSwap) {
+        if (vaultOwner == address(0)) revert ZeroAddress();
+        if (portfolio.length == 0) revert EmptyPortfolio();
+        if (feeCollector == address(0)) revert FeeCollectorNotSet();
+        if (implementation == address(0)) revert ImplementationNotSet();
         
-        IndexSwapV3 vault = new IndexSwapV3(
-            protocolCore,
-            owner,
-            moduleRegistry,
-            name,
-            symbol,
-            _toPortfolio(portfolio),
-            lockupSeconds
-        );
-        indexSwap = address(vault);
-
-        vault.setModules(
-            IModuleRegistryFactory(moduleRegistry).getLendModule(),
-            IModuleRegistryFactory(moduleRegistry).getBorrowModule()
-        );
+        indexSwap = implementation.clone();
         
-        emit VaultCreated(vaultCount++, owner, indexSwap);
-    }
-    
-    function setDefaultSwapRouter(address _router) external onlyOwner {
-        require(_router != address(0), "Zero");
-        defaultSwapRouter = _router;
-    }
-    
-    function _toPortfolio(TokenWeight[] calldata p) internal pure returns (IndexSwapV3.TokenWeight[] memory r) {
-        r = new IndexSwapV3.TokenWeight[](p.length);
-        for (uint256 i; i < p.length; ++i) {
-            r[i].token = p[i].token;
-            r[i].weightBps = p[i].weightBps;
+        IIndexSwapV3Init.TokenWeight[] memory portfolioInit = new IIndexSwapV3Init.TokenWeight[](portfolio.length);
+        for (uint256 i; i < portfolio.length; ++i) {
+            portfolioInit[i].token = portfolio[i].token;
+            portfolioInit[i].weightBps = portfolio[i].weightBps;
         }
+        
+        IIndexSwapV3Init.InitParams memory params = IIndexSwapV3Init.InitParams({
+            protocolCore: protocolCore,
+            vaultOwner: vaultOwner,
+            moduleRegistry: moduleRegistry,
+            feeCollector: feeCollector,
+            lendModule: IModuleRegistryFactory(moduleRegistry).getLendModule(),
+            borrowModule: IModuleRegistryFactory(moduleRegistry).getBorrowModule(),
+            performanceFeeBps: performanceFeeBps,
+            lockupSeconds: lockupSeconds
+        });
+        
+        IIndexSwapV3Init(indexSwap).initialize(params, name, symbol, portfolioInit);
+        
+        vaults[vaultCount] = indexSwap;
+        emit VaultCreated(vaultCount++, vaultOwner, indexSwap);
+    }
+    
+    function setImplementation(address _implementation) external onlyOwner {
+        if (_implementation == address(0)) revert ZeroAddress();
+        implementation = _implementation;
+        emit ImplementationUpdated(_implementation);
+    }
+    
+    function setFeeCollector(address _feeCollector) external onlyOwner {
+        if (_feeCollector == address(0)) revert ZeroAddress();
+        feeCollector = _feeCollector;
+        emit FeeCollectorUpdated(_feeCollector);
     }
 }

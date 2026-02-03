@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "../../interfaces/IProtocolCoreOwnable.sol";
 import "../../interfaces/IOracle.sol";
 
@@ -35,11 +36,11 @@ interface ISwapModule {
     function swapWithSlippage(address vault, address tokenIn, address tokenOut, uint256 amountIn, uint256 slippageBps) external returns (uint256 amountOut);
 }
 
-contract IndexSwapV3 is ERC20, ReentrancyGuard {
+contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
     
-    address public immutable protocolCore;
-    address public immutable safe;
+    address public protocolCore;
+    address public safe;
     address public moduleRegistry;
     address public oracle;
     
@@ -64,7 +65,7 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
     uint256 public constant BPS_DIVISOR = 10000;
     uint256 public minDepositAmount;
     uint256 public lockupSeconds;
-    uint256 public maxSlippageBps = 100;
+    uint256 public maxSlippageBps;
     
     mapping(address => uint256) public userDepositTimestamp;
     mapping(address => uint256) public userCostBasisUsd;
@@ -78,15 +79,23 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
     event ModulesUpdated(address lendModule, address borrowModule);
     event LockupUpdated(uint256 newLockupSeconds);
     event MaxSlippageUpdated(uint256 newSlippageBps);
+    event SafeUpdated(address indexed newSafe);
     
     error NotAuthorized();
     error ZeroAmount();
     error BelowMinimum();
     error LockupActive();
     error InvalidPrice();
+    error AlreadyInitialized();
     
     modifier onlySafeOrProtocolOwner() {
-        bool isSafeOwner = IVaultSafe(safe).isOwner(msg.sender);
+        bool isSafeOwner = msg.sender == safe;
+        if (!isSafeOwner && safe != address(0)) {
+            try IVaultSafe(safe).isOwner(msg.sender) returns (bool result) {
+                isSafeOwner = result;
+            } catch {}
+        }
+        bool isVaultOwner = msg.sender == vaultOwner;
         bool isProtocolOwner = false;
         
         if (protocolCore != address(0)) {
@@ -95,7 +104,7 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
             } catch {}
         }
         
-        if (!isSafeOwner && !isProtocolOwner) revert NotAuthorized();
+        if (!isSafeOwner && !isVaultOwner && !isProtocolOwner) revert NotAuthorized();
         _;
     }
     
@@ -112,27 +121,72 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
         _;
     }
     
-    constructor(
-        address _protocolCore,
-        address _safe,
-        address _moduleRegistry,
-        string memory _name,
-        string memory _symbol,
-        TokenWeight[] memory _portfolio,
-        uint256 _lockupSeconds
-    ) ERC20(_name, _symbol) {
-        require(_protocolCore != address(0), "Invalid core");
-        require(_safe != address(0), "Invalid safe");
-        require(_moduleRegistry != address(0), "Invalid registry");
+    constructor() {
+        _disableInitializers();
+    }
+    
+    struct InitParams {
+        address protocolCore;
+        address vaultOwner;
+        address moduleRegistry;
+        address feeCollector;
+        address lendModule;
+        address borrowModule;
+        uint16 performanceFeeBps;
+        uint256 lockupSeconds;
+    }
+    
+    function initialize(
+        InitParams calldata params,
+        string calldata _name,
+        string calldata _symbol,
+        TokenWeight[] calldata _portfolio
+    ) external initializer {
+        require(params.protocolCore != address(0), "Invalid core");
+        require(params.vaultOwner != address(0), "Invalid owner");
+        require(params.moduleRegistry != address(0), "Invalid registry");
         require(_portfolio.length > 0, "Empty portfolio");
         
-        protocolCore = _protocolCore;
-        safe = _safe;
-        moduleRegistry = _moduleRegistry;
-        oracle = IModuleRegistry(_moduleRegistry).getOracle();
-        lockupSeconds = _lockupSeconds;
+        __ERC20_init(_name, _symbol);
+        __ReentrancyGuard_init();
         
-        _setPortfolio(_portfolio);
+        protocolCore = params.protocolCore;
+        safe = params.vaultOwner;
+        vaultOwner = params.vaultOwner;
+        moduleRegistry = params.moduleRegistry;
+        oracle = IModuleRegistry(params.moduleRegistry).getOracle();
+        lockupSeconds = params.lockupSeconds;
+        maxSlippageBps = 100;
+        
+        feeCollector = params.feeCollector;
+        lendModule = params.lendModule;
+        borrowModule = params.borrowModule;
+        performanceFeeBps = params.performanceFeeBps;
+        
+        _setPortfolioInternal(_portfolio);
+    }
+    
+    function _setPortfolioInternal(TokenWeight[] calldata _portfolio) internal {
+        require(_portfolio.length > 0, "Empty portfolio");
+        
+        uint256 totalWeight = 0;
+        for (uint256 i = 0; i < _portfolio.length; i++) {
+            totalWeight += _portfolio[i].weightBps;
+        }
+        require(totalWeight == BPS_DIVISOR, "Weights must sum to 100%");
+        
+        for (uint256 i = 0; i < portfolio.length; i++) {
+            isPortfolioToken[portfolio[i].token] = false;
+        }
+        delete portfolio;
+        
+        for (uint256 i = 0; i < _portfolio.length; i++) {
+            portfolio.push(_portfolio[i]);
+            isPortfolioToken[_portfolio[i].token] = true;
+            tokenIndex[_portfolio[i].token] = i;
+        }
+        
+        emit PortfolioUpdated(_portfolio);
     }
     
     function deposit(uint256[] calldata amounts) external nonReentrant whenNotPaused returns (uint256 shares) {
@@ -323,30 +377,7 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
     }
     
     function setPortfolio(TokenWeight[] calldata _portfolio) external onlySafeOrProtocolOwner {
-        _setPortfolio(_portfolio);
-    }
-    
-    function _setPortfolio(TokenWeight[] memory _portfolio) internal {
-        require(_portfolio.length > 0, "Empty portfolio");
-        
-        uint256 totalWeight = 0;
-        for (uint256 i = 0; i < _portfolio.length; i++) {
-            totalWeight += _portfolio[i].weightBps;
-        }
-        require(totalWeight == BPS_DIVISOR, "Weights must sum to 100%");
-        
-        for (uint256 i = 0; i < portfolio.length; i++) {
-            isPortfolioToken[portfolio[i].token] = false;
-        }
-        delete portfolio;
-        
-        for (uint256 i = 0; i < _portfolio.length; i++) {
-            portfolio.push(_portfolio[i]);
-            isPortfolioToken[_portfolio[i].token] = true;
-            tokenIndex[_portfolio[i].token] = i;
-        }
-        
-        emit PortfolioUpdated(_portfolio);
+        _setPortfolioInternal(_portfolio);
     }
     
     function setOracle(address _oracle) external onlySafeOrProtocolOwner {
@@ -432,6 +463,12 @@ contract IndexSwapV3 is ERC20, ReentrancyGuard {
     function setVaultOwner(address _owner) external onlySafeOrProtocolOwner {
         require(_owner != address(0), "Invalid owner");
         vaultOwner = _owner;
+    }
+
+    function setSafe(address _safe) external onlySafeOrProtocolOwner {
+        require(_safe != address(0), "Invalid safe");
+        safe = _safe;
+        emit SafeUpdated(_safe);
     }
     
     function resetHighWaterMark() external onlySafeOrProtocolOwner {

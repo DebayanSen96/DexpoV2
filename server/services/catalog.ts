@@ -13,7 +13,7 @@ export type StrategyTemplate = {
   postDeploy?: {
     setters?: Array<{ fn: string; arg: string }>;
   };
-};
+}; 
 
 export type StrategyCatalog = {
   version: string;

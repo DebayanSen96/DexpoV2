@@ -84,13 +84,19 @@ interface IIndexSwapFactory {
     }
     
     function createVault(
-        address owner,
+        address vaultOwner,
         string calldata name,
         string calldata symbol,
         TokenWeight[] calldata portfolio,
-        address customSwapRouter,
-        uint256 lockupSeconds
+        uint256 lockupSeconds,
+        uint16 performanceFeeBps
     ) external returns (address indexSwap);
+    
+    function feeCollector() external view returns (address);
+}
+
+interface IFeeCollectorMinimal {
+    function setAuthorizedVault(address vault, bool authorized) external;
 }
 
 interface IVault4626Config {
@@ -192,6 +198,8 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
     uint256 public minVerifierStake = 100e18; // mutable parameter
 
     // Access control handled off-chain; on-chain views are permissive
+    bool private globalPaused;
+    mapping(address => bool) private vaultPaused;
 
     // ───────────────────────────────────────────────────────────
     //              PROTOCOL-WIDE FINANCIAL STATE
@@ -215,6 +223,8 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
     IFarmFactory public farmFactory; // v3 farm stack factory
     address public vaultFactory; // v3 minimal vault factory (deprecated)
     address public indexSwapFactory; // v3 IndexSwap modular vault factory
+    address public feeCollector; // v3 FeeCollector for vault performance fees
+    uint16 public defaultVaultPerformanceFeeBps = 1000; // 10% default vault owner fee on profits
     IBridgeAdapter public bridgeAdapter;
     IConsensus public consensus; // pulls verifier rounds
     address public farmCreationModule; // external thin module to create farms (optional)
@@ -330,6 +340,9 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
         bool approved
     );
 
+    event GlobalPaused(bool paused);
+    event VaultPaused(address indexed vault, bool paused);
+
     event TimeScaleUpdated(uint256 num, uint256 den);
 
     // ───────────────────────────────────────────────────────────
@@ -408,6 +421,20 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
         indexSwapFactory = f;
         emit IndexSwapFactorySet(f);
     }
+    
+    /// @notice Set the FeeCollector contract for vault performance fees.
+    /// @param f Address of the FeeCollector contract.
+    function setFeeCollector(address f) external onlyOwner {
+        require(f != address(0), "zero address");
+        feeCollector = f;
+    }
+    
+    /// @notice Set the default vault owner performance fee (bps).
+    /// @param feeBps Fee in basis points (e.g., 1000 = 10%).
+    function setDefaultVaultPerformanceFeeBps(uint16 feeBps) external onlyOwner {
+        require(feeBps <= 3000, "Fee too high");
+        defaultVaultPerformanceFeeBps = feeBps;
+    }
 
     function createVaultViaCore(
         address asset,
@@ -459,33 +486,38 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
     }
 
     /// @notice Create a new IndexSwap vault via the registered IndexSwapFactory
-    /// @param owner Owner address of the vault (can be EOA or VaultSafe)
+    /// @param vaultOwner Owner address who manages the vault and receives performance fees
     /// @param name Vault name (ERC20 share token)
     /// @param symbol Vault symbol (ERC20 share token)
     /// @param portfolio Array of token weights (must sum to 10000)
-    /// @param customSwapRouter Custom swap router (address(0) = use factory default)
     /// @param lockupSeconds Lockup period in seconds
+    /// @param performanceFeeBps Performance fee in bps (0 = use default). This is the vault owner's cut of LP profits
     /// @return indexSwap Address of deployed IndexSwap vault
     function createIndexSwapVault(
-        address owner,
+        address vaultOwner,
         string calldata name,
         string calldata symbol,
         IIndexSwapFactory.TokenWeight[] calldata portfolio,
-        address customSwapRouter,
-        uint256 lockupSeconds
+        uint256 lockupSeconds,
+        uint16 performanceFeeBps
     ) external onlyOwner returns (address indexSwap) {
         require(indexSwapFactory != address(0), "Factory not set");
+        require(feeCollector != address(0), "FeeCollector not set");
+        
+        uint16 feeBps = performanceFeeBps > 0 ? performanceFeeBps : defaultVaultPerformanceFeeBps;
         
         indexSwap = IIndexSwapFactory(indexSwapFactory).createVault(
-            owner,
+            vaultOwner,
             name,
             symbol,
             portfolio,
-            customSwapRouter,
-            lockupSeconds
+            lockupSeconds,
+            feeBps
         );
         
-        emit IndexSwapVaultCreated(owner, indexSwap, 0);
+        IFeeCollectorMinimal(feeCollector).setAuthorizedVault(indexSwap, true);
+        
+        emit IndexSwapVaultCreated(vaultOwner, indexSwap, 0);
     }
     
     /// @notice Set the external FarmCreationModule used to create farms (reduces core bytecode/stack usage)
@@ -669,8 +701,8 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
     function canOperate(address /*vault*/, address /*caller*/) external pure override returns (bool) {
         return true;
     }
-    function isGlobalPaused() external pure override returns (bool) { return false; }
-    function isVaultPaused(address /*vault*/) external pure override returns (bool) { return false; }
+    function isGlobalPaused() external view override returns (bool) { return globalPaused; }
+    function isVaultPaused(address vault) external view override returns (bool) { return vaultPaused[vault]; }
     function isActionAllowed(address /*vault*/, address /*target*/) external pure override returns (bool) {
         return true;
     }
@@ -686,6 +718,17 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
     ) external onlyOwner {
         approvedFarmOwners[who] = approved;
         emit FarmOwnerApproved(who, approved);
+    }
+
+    function setGlobalPaused(bool paused) external onlyOwner {
+        globalPaused = paused;
+        emit GlobalPaused(paused);
+    }
+
+    function setVaultPaused(address vault, bool paused) external onlyOwner {
+        require(vault != address(0), "zero address");
+        vaultPaused[vault] = paused;
+        emit VaultPaused(vault, paused);
     }
 
     // ───────────────────────────────────────────────────────────

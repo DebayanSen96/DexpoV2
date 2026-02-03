@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@openzeppelin/contracts-upgradeable':
+        specifier: ^5.4.0
+        version: 5.4.0(@openzeppelin/contracts@5.4.0)
       cors:
         specifier: ^2.8.5
         version: 2.8.5

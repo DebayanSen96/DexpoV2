@@ -76,7 +76,12 @@ contract LendingHub is Ownable, ReentrancyGuard {
 
         if (!isVaultItself) {
             address safeAddress = IIndexSwap(vault).safe();
-            isSafeOwner = IVaultSafe(safeAddress).isOwner(msg.sender);
+            isSafeOwner = (msg.sender == safeAddress);
+            if (!isSafeOwner) {
+                try IVaultSafe(safeAddress).isOwner(msg.sender) returns (bool result) {
+                    isSafeOwner = result;
+                } catch {}
+            }
         }
 
         address protocolOwner = IProtocolCore(protocolCore).owner();

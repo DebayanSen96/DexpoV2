@@ -26,6 +26,7 @@ interface DeploymentState {
   uniswapV3Adapter?: string;
   lendingHub?: string;
   aaveV3Adapter?: string;
+  indexSwapImplementation?: string;
   indexSwapFactory?: string;
   adapterIds?: {
     aerodrome?: string;
@@ -458,14 +459,27 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 12: Index Swap Factory
+  // STEP 12: IndexSwapV3 Implementation (for clone pattern)
   // ═══════════════════════════════════════════════════════════════════════
-  console.log("\n[12/14] Index Swap Factory");
+  console.log("\n[12/15] IndexSwapV3 Implementation");
+  const indexSwapImplementation = await deployContract(
+    deployer,
+    "IndexSwapV3 (Implementation)",
+    "contracts/v3/mainnet/vault/IndexSwapV3.sol:IndexSwapV3",
+    [],
+    state,
+    "indexSwapImplementation"
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // STEP 13: Index Swap Factory
+  // ═══════════════════════════════════════════════════════════════════════
+  console.log("\n[13/15] Index Swap Factory");
   const indexSwapFactory = await deployContract(
     deployer,
     "IndexSwapFactory",
     "contracts/v3/factories/IndexSwapFactory.sol:IndexSwapFactory",
-    [protocolCore, moduleRegistry, swapHub],
+    [protocolCore, moduleRegistry, indexSwapImplementation, feeCollector],
     state,
     "indexSwapFactory"
   );
@@ -477,9 +491,15 @@ async function main() {
       protocolCore
     );
 
-    const nonce = await deployer.getNonce();
+    let nonce = await deployer.getNonce();
     await (await core.setIndexSwapFactory(indexSwapFactory)).wait();
     console.log("  ✅ Factory registered in ProtocolCore");
+    await waitForNonce(deployer, nonce + 1);
+    await delay(1500);
+
+    nonce = await deployer.getNonce();
+    await (await core.setFeeCollector(feeCollector)).wait();
+    console.log("  ✅ FeeCollector registered in ProtocolCore");
     await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
@@ -488,94 +508,65 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // STEP 13: Deploy Test Vault
+  // STEP 14: Deploy Test Vault via ProtocolCore
   // ═══════════════════════════════════════════════════════════════════════
-  console.log("\n[13/14] Test Vault");
+  console.log("\n[14/15] Test Vault via ProtocolCore");
   
   if (!state.testVault) {
-    console.log("  Deploying VaultSafe...");
-    let nonce = await deployer.getNonce();
-    
-    const VaultSafe = await ethers.getContractFactory(
-      "contracts/v3/mainnet/vault/VaultSafe.sol:VaultSafe"
+    const core = await ethers.getContractAt(
+      "contracts/ProtocolCore.sol:ProtocolCore",
+      protocolCore
     );
-    const vaultSafe = await VaultSafe.deploy(protocolCore, [deployer.address], 1);
-    await vaultSafe.waitForDeployment();
-    const safeAddress = await vaultSafe.getAddress();
-    console.log("  ✅ VaultSafe:", safeAddress);
     
-    await waitForNonce(deployer, nonce + 1);
-    await delay(1500);
-
-    console.log("  Deploying IndexSwapV3...");
-    nonce = await deployer.getNonce();
-    
-    const IndexSwapV3 = await ethers.getContractFactory(
-      "contracts/v3/mainnet/vault/IndexSwapV3.sol:IndexSwapV3"
-    );
     const portfolio = [
       { token: BASE_MAINNET.USDC, weightBps: 5000 },
       { token: BASE_MAINNET.WETH, weightBps: 5000 },
     ];
-    const indexSwap = await IndexSwapV3.deploy(
-      protocolCore,
-      safeAddress,
-      moduleRegistry,
+    
+    console.log("  Creating vault via ProtocolCore.createIndexSwapVault()...");
+    let nonce = await deployer.getNonce();
+    
+    const tx = await core.createIndexSwapVault(
+      deployer.address,
       "Test Index Vault",
       "TIV",
       portfolio,
-      0
+      0,
+      1000
     );
-    await indexSwap.waitForDeployment();
-    const vaultAddress = await indexSwap.getAddress();
-    console.log("  ✅ IndexSwapV3:", vaultAddress);
+    const receipt = await tx.wait();
+    
+    const vaultCreatedEvent = receipt?.logs.find((log: any) => {
+      try {
+        const parsed = core.interface.parseLog({ topics: log.topics as string[], data: log.data });
+        return parsed?.name === "IndexSwapVaultCreated";
+      } catch { return false; }
+    });
+    
+    let vaultAddress: string;
+    if (vaultCreatedEvent) {
+      const parsed = core.interface.parseLog({ 
+        topics: vaultCreatedEvent.topics as string[], 
+        data: vaultCreatedEvent.data 
+      });
+      vaultAddress = parsed?.args[1];
+    } else {
+      const factory = await ethers.getContractAt(
+        "contracts/v3/factories/IndexSwapFactory.sol:IndexSwapFactory",
+        indexSwapFactory
+      );
+      const vaultCount = await factory.vaultCount();
+      vaultAddress = await factory.vaults(vaultCount - 1n);
+    }
+    
+    console.log("  ✅ IndexSwapV3 (clone):", vaultAddress);
     
     state.testVault = {
-      safe: safeAddress,
+      safe: deployer.address,
       indexSwap: vaultAddress,
     };
     saveState(state);
     
-    await waitForNonce(deployer, nonce + 1);
-    await delay(1500);
-
-    console.log("  Configuring vault...");
-    const vault = await ethers.getContractAt(
-      "contracts/v3/mainnet/vault/IndexSwapV3.sol:IndexSwapV3",
-      vaultAddress
-    );
-
-    nonce = await deployer.getNonce();
-    await (await vault.setModules(lendingHub, ethers.ZeroAddress)).wait();
-    console.log("  ✅ Modules set");
-    await waitForNonce(deployer, nonce + 1);
-    await delay(1500);
-
-    nonce = await deployer.getNonce();
-    await (await vault.setFeeCollector(feeCollector)).wait();
-    console.log("  ✅ Fee collector set");
-    await waitForNonce(deployer, nonce + 1);
-    await delay(1500);
-
-    nonce = await deployer.getNonce();
-    await (await vault.setPerformanceFee(1000)).wait();
-    console.log("  ✅ Performance fee set to 10%");
-    await waitForNonce(deployer, nonce + 1);
-    await delay(1500);
-
-    nonce = await deployer.getNonce();
-    await (await vault.setVaultOwner(deployer.address)).wait();
-    console.log("  ✅ Vault owner set");
-    await waitForNonce(deployer, nonce + 1);
-    await delay(1500);
-
-    const feeCollectorContract = await ethers.getContractAt(
-      "contracts/v3/mainnet/core/FeeCollector.sol:FeeCollector",
-      feeCollector
-    );
-    nonce = await deployer.getNonce();
-    await (await feeCollectorContract.setAuthorizedVault(vaultAddress, true)).wait();
-    console.log("  ✅ Vault authorized in FeeCollector");
     await waitForNonce(deployer, nonce + 1);
     await delay(1500);
   }
@@ -608,11 +599,12 @@ async function main() {
   console.log("  AaveV3Adapter:   ", state.aaveV3Adapter);
   console.log("  Adapter ID:      ", state.adapterIds?.aaveV3);
   
-  console.log("\n📦 Factory:");
+  console.log("\n📦 Factory & Implementation:");
+  console.log("  IndexSwapV3 Impl:", state.indexSwapImplementation);
   console.log("  IndexSwapFactory:", state.indexSwapFactory);
   
   console.log("\n📦 Test Vault:");
-  console.log("  VaultSafe:       ", state.testVault?.safe);
+  console.log("  VaultOwner:      ", state.testVault?.safe);
   console.log("  IndexSwapV3:     ", state.testVault?.indexSwap);
   
   console.log("\n✅ State saved to:", getStatePath());
