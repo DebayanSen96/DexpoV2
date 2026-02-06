@@ -80,6 +80,11 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     event LockupUpdated(uint256 newLockupSeconds);
     event MaxSlippageUpdated(uint256 newSlippageBps);
     event SafeUpdated(address indexed newSafe);
+    event FeeCollectorUpdated(address indexed oldCollector, address indexed newCollector);
+    event VaultOwnerUpdated(address indexed oldOwner, address indexed newOwner);
+    event PerformanceFeeUpdated(uint16 oldFeeBps, uint16 newFeeBps);
+    event MinDepositUpdated(uint256 oldAmount, uint256 newAmount);
+    event HighWaterMarkReset(uint256 newHighWaterMark);
     
     error NotAuthorized();
     error ZeroAmount();
@@ -400,7 +405,9 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     }
     
     function setFeeCollector(address _feeCollector) external onlySafeOrProtocolOwner {
+        address old = feeCollector;
         feeCollector = _feeCollector;
+        emit FeeCollectorUpdated(old, _feeCollector);
     }
     
     function getProfitUsd() public view returns (uint256 profitUsd) {
@@ -457,12 +464,16 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     
     function setPerformanceFee(uint16 _feeBps) external onlySafeOrProtocolOwner {
         require(_feeBps <= 3000, "Fee too high");
+        uint16 old = performanceFeeBps;
         performanceFeeBps = _feeBps;
+        emit PerformanceFeeUpdated(old, _feeBps);
     }
     
     function setVaultOwner(address _owner) external onlySafeOrProtocolOwner {
         require(_owner != address(0), "Invalid owner");
+        address old = vaultOwner;
         vaultOwner = _owner;
+        emit VaultOwnerUpdated(old, _owner);
     }
 
     function setSafe(address _safe) external onlySafeOrProtocolOwner {
@@ -473,10 +484,13 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     
     function resetHighWaterMark() external onlySafeOrProtocolOwner {
         highWaterMarkUsd = getTotalValueUsd();
+        emit HighWaterMarkReset(highWaterMarkUsd);
     }
     
     function setMinDepositAmount(uint256 _minAmount) external onlySafeOrProtocolOwner {
+        uint256 old = minDepositAmount;
         minDepositAmount = _minAmount;
+        emit MinDepositUpdated(old, _minAmount);
     }
     
     function setLockupSeconds(uint256 _lockupSeconds) external onlySafeOrProtocolOwner {

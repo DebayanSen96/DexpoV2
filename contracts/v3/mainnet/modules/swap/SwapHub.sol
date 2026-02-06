@@ -29,6 +29,7 @@ contract SwapHub is Ownable, ReentrancyGuard {
     address public immutable protocolCore;
     address public oracle;
     uint256 public defaultSlippageBps = 100;
+    uint256 public constant MAX_ADAPTERS_TO_CHECK = 10;
 
     struct AdapterInfo {
         address adapterAddress;
@@ -52,6 +53,8 @@ contract SwapHub is Ownable, ReentrancyGuard {
     error RouteNotSupported();
     error ZeroAmount();
     error SlippageExceeded();
+    error SwapExpired();
+    error InsufficientOutput();
 
     constructor(address _protocolCore, address _oracle) Ownable(msg.sender) {
         protocolCore = _protocolCore;
@@ -132,6 +135,31 @@ contract SwapHub is Ownable, ReentrancyGuard {
         uint256 minAmountOut,
         bytes32 adapterId
     ) external onlyAuthorized(vault) nonReentrant returns (uint256 amountOut) {
+        return _swap(vault, tokenIn, tokenOut, amountIn, minAmountOut, adapterId, block.timestamp);
+    }
+
+    function swapWithDeadline(
+        address vault,
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        bytes32 adapterId,
+        uint256 deadline
+    ) external onlyAuthorized(vault) nonReentrant returns (uint256 amountOut) {
+        return _swap(vault, tokenIn, tokenOut, amountIn, minAmountOut, adapterId, deadline);
+    }
+
+    function _swap(
+        address vault,
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        bytes32 adapterId,
+        uint256 deadline
+    ) internal returns (uint256 amountOut) {
+        if (block.timestamp > deadline) revert SwapExpired();
         if (amountIn == 0) revert ZeroAmount();
         
         bytes32 selectedAdapter = adapterId == bytes32(0) ? defaultAdapterId : adapterId;
@@ -143,12 +171,25 @@ contract SwapHub is Ownable, ReentrancyGuard {
         ISwapAdapter adapter = ISwapAdapter(adapterInfo.adapterAddress);
         if (!adapter.isRouteSupported(tokenIn, tokenOut)) revert RouteNotSupported();
 
+        uint256 balanceInBefore = IERC20(tokenIn).balanceOf(address(this));
+        uint256 balanceOutBefore = IERC20(tokenOut).balanceOf(vault);
+
         IERC20(tokenIn).safeTransferFrom(vault, address(this), amountIn);
         IERC20(tokenIn).forceApprove(adapterInfo.adapterAddress, amountIn);
 
         amountOut = adapter.swap(tokenIn, tokenOut, amountIn, minAmountOut, vault);
 
-        if (amountOut < minAmountOut) revert SlippageExceeded();
+        uint256 balanceOutAfter = IERC20(tokenOut).balanceOf(vault);
+        uint256 actualReceived = balanceOutAfter - balanceOutBefore;
+        
+        if (actualReceived < minAmountOut) revert InsufficientOutput();
+        amountOut = actualReceived;
+
+        uint256 balanceInAfter = IERC20(tokenIn).balanceOf(address(this));
+        uint256 excess = balanceInAfter - balanceInBefore;
+        if (excess > 0) {
+            IERC20(tokenIn).safeTransfer(vault, excess);
+        }
 
         emit Swapped(vault, selectedAdapter, tokenIn, tokenOut, amountIn, amountOut);
     }
@@ -160,6 +201,29 @@ contract SwapHub is Ownable, ReentrancyGuard {
         uint256 amountIn,
         uint256 slippageBps
     ) external onlyAuthorized(vault) nonReentrant returns (uint256 amountOut) {
+        return _swapWithSlippage(vault, tokenIn, tokenOut, amountIn, slippageBps, block.timestamp);
+    }
+
+    function swapWithSlippageAndDeadline(
+        address vault,
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 slippageBps,
+        uint256 deadline
+    ) external onlyAuthorized(vault) nonReentrant returns (uint256 amountOut) {
+        return _swapWithSlippage(vault, tokenIn, tokenOut, amountIn, slippageBps, deadline);
+    }
+
+    function _swapWithSlippage(
+        address vault,
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 slippageBps,
+        uint256 deadline
+    ) internal returns (uint256 amountOut) {
+        if (block.timestamp > deadline) revert SwapExpired();
         if (amountIn == 0) revert ZeroAmount();
         
         AdapterInfo storage adapterInfo = adapters[defaultAdapterId];
@@ -172,10 +236,25 @@ contract SwapHub is Ownable, ReentrancyGuard {
         uint256 quote = adapter.getQuote(tokenIn, tokenOut, amountIn);
         uint256 minAmountOut = (quote * (10000 - slippageBps)) / 10000;
 
+        uint256 balanceInBefore = IERC20(tokenIn).balanceOf(address(this));
+        uint256 balanceOutBefore = IERC20(tokenOut).balanceOf(vault);
+
         IERC20(tokenIn).safeTransferFrom(vault, address(this), amountIn);
         IERC20(tokenIn).forceApprove(adapterInfo.adapterAddress, amountIn);
 
         amountOut = adapter.swap(tokenIn, tokenOut, amountIn, minAmountOut, vault);
+
+        uint256 balanceOutAfter = IERC20(tokenOut).balanceOf(vault);
+        uint256 actualReceived = balanceOutAfter - balanceOutBefore;
+        
+        if (actualReceived < minAmountOut) revert InsufficientOutput();
+        amountOut = actualReceived;
+
+        uint256 balanceInAfter = IERC20(tokenIn).balanceOf(address(this));
+        uint256 excess = balanceInAfter - balanceInBefore;
+        if (excess > 0) {
+            IERC20(tokenIn).safeTransfer(vault, excess);
+        }
 
         emit Swapped(vault, defaultAdapterId, tokenIn, tokenOut, amountIn, amountOut);
     }
@@ -199,7 +278,11 @@ contract SwapHub is Ownable, ReentrancyGuard {
         address tokenOut,
         uint256 amountIn
     ) external view returns (uint256 bestAmountOut, bytes32 bestAdapterId) {
-        for (uint256 i = 0; i < adapterIds.length; i++) {
+        uint256 checkCount = adapterIds.length > MAX_ADAPTERS_TO_CHECK 
+            ? MAX_ADAPTERS_TO_CHECK 
+            : adapterIds.length;
+            
+        for (uint256 i = 0; i < checkCount; i++) {
             bytes32 adapterId = adapterIds[i];
             AdapterInfo storage adapterInfo = adapters[adapterId];
             

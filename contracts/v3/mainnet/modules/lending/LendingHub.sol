@@ -49,6 +49,10 @@ contract LendingHub is Ownable, ReentrancyGuard {
     mapping(address => address[]) public vaultTokens;
     mapping(address => mapping(address => bool)) public hasPosition;
     mapping(bytes32 => mapping(address => uint256)) public totalShares;
+    mapping(bytes32 => mapping(address => uint256)) public totalSuppliedAmount;
+    
+    uint256 private constant VIRTUAL_SHARES = 1e6;
+    uint256 private constant VIRTUAL_ASSETS = 1;
 
     event AdapterAdded(bytes32 indexed adapterId, address indexed adapter, string name);
     event AdapterRemoved(bytes32 indexed adapterId);
@@ -151,6 +155,7 @@ contract LendingHub is Ownable, ReentrancyGuard {
         pos.lastUpdateTime = block.timestamp;
         pos.adapterId = adapterId;
         totalShares[adapterId][token] += shares;
+        totalSuppliedAmount[adapterId][token] += amount;
 
         emit Supplied(vault, token, adapterId, amount, shares);
     }
@@ -191,9 +196,14 @@ contract LendingHub is Ownable, ReentrancyGuard {
         totalShares[pos.adapterId][token] -= sharesToBurn;
         uint256 principalReduction = (pos.suppliedAmount * sharesToBurn) / prevShares;
         if (principalReduction > pos.suppliedAmount) {
-            pos.suppliedAmount = 0;
+            principalReduction = pos.suppliedAmount;
+        }
+        pos.suppliedAmount -= principalReduction;
+        
+        if (totalSuppliedAmount[pos.adapterId][token] >= principalReduction) {
+            totalSuppliedAmount[pos.adapterId][token] -= principalReduction;
         } else {
-            pos.suppliedAmount -= principalReduction;
+            totalSuppliedAmount[pos.adapterId][token] = 0;
         }
         pos.lastUpdateTime = block.timestamp;
 
@@ -218,9 +228,16 @@ contract LendingHub is Ownable, ReentrancyGuard {
         withdrawn = adapter.withdraw(token, pos.shares, vault);
 
         uint256 burnedShares = pos.shares;
+        uint256 suppliedToRemove = pos.suppliedAmount;
         pos.shares = 0;
         totalShares[pos.adapterId][token] -= burnedShares;
         pos.suppliedAmount = 0;
+        
+        if (totalSuppliedAmount[pos.adapterId][token] >= suppliedToRemove) {
+            totalSuppliedAmount[pos.adapterId][token] -= suppliedToRemove;
+        } else {
+            totalSuppliedAmount[pos.adapterId][token] = 0;
+        }
         pos.lastUpdateTime = block.timestamp;
 
         emit Withdrawn(vault, token, withdrawn, burnedShares);
@@ -278,9 +295,13 @@ contract LendingHub is Ownable, ReentrancyGuard {
 
         uint256 totalUnderlying = ILendingAdapter(adapterInfo.adapterAddress).getTotalShares(token);
         uint256 totalSharesForToken = totalShares[adapterId][token];
-        if (totalUnderlying == 0 || totalSharesForToken == 0) return 0;
+        
+        uint256 totalSharesWithVirtual = totalSharesForToken + VIRTUAL_SHARES;
+        uint256 totalUnderlyingWithVirtual = totalUnderlying + VIRTUAL_ASSETS;
+        
+        if (totalUnderlyingWithVirtual == 0 || totalSharesWithVirtual == 0) return 0;
 
-        return (shares * totalUnderlying) / totalSharesForToken;
+        return (shares * totalUnderlyingWithVirtual) / totalSharesWithVirtual;
     }
 
     function getAdapterCount() external view returns (uint256) {

@@ -10,8 +10,38 @@ const BASE_MAINNET = {
   AERODROME_FACTORY: "0x420DD381b31aEf6683db6B902084cB0FFECe40Da",
   UNISWAP_SWAP_ROUTER: "0x2626664c2603336E57B271c5C0b26F421741e481",
   UNISWAP_QUOTER: "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a",
+  UNISWAP_V3_FACTORY: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
   CHAINLINK_USDC_USD: "0x7e860098F58bBFC8648a4311b374B1D669a2bc6B",
   CHAINLINK_ETH_USD: "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70",
+  CHAINLINK_BTC_USD: "0x64c911996D3c6aC71f9b455B1E8E7266BcbD848F",
+  CHAINLINK_LINK_USD: "0x17caB8fe31CA45e4684a1C8A1c8A441957d06D6E",
+};
+
+const SUPPORTED_TOKENS: Record<string, { address: string; symbol: string; hasChainlink: boolean; chainlinkFeed?: string; twapPool?: string; twapQuoteToken?: string }> = {
+  eth:   { address: "0x4200000000000000000000000000000000000006", symbol: "ETH",    hasChainlink: true,  chainlinkFeed: BASE_MAINNET.CHAINLINK_ETH_USD },
+  weth:  { address: "0x4200000000000000000000000000000000000006", symbol: "WETH",   hasChainlink: true,  chainlinkFeed: BASE_MAINNET.CHAINLINK_ETH_USD },
+  btc:   { address: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf", symbol: "cbBTC",  hasChainlink: true,  chainlinkFeed: BASE_MAINNET.CHAINLINK_BTC_USD },
+  cbbtc: { address: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf", symbol: "cbBTC",  hasChainlink: true,  chainlinkFeed: BASE_MAINNET.CHAINLINK_BTC_USD },
+  wbtc:  { address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", symbol: "WBTC",   hasChainlink: true,  chainlinkFeed: BASE_MAINNET.CHAINLINK_BTC_USD },
+  link:  { address: "0x88f0b784B31630811181f670AEA7a7bEd803eAeD", symbol: "LINK",   hasChainlink: true,  chainlinkFeed: BASE_MAINNET.CHAINLINK_LINK_USD },
+  xrp:   { address: "0xcb585250f852C6c6bf90434AB21A00f02833a4af", symbol: "cbXRP",  hasChainlink: false },  // already lowercase = valid
+  sol:   { address: "0x311935Cd80B76769bF2ecC9D8Ab7635b2139cf82", symbol: "SOL",    hasChainlink: false },
+  steth: { address: "0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452", symbol: "wstETH", hasChainlink: false },
+  doge:  { address: "0xcbD06E5A2B0C65597161de254AA074E489dEb510", symbol: "cbDOGE", hasChainlink: false },
+  ada:   { address: "0xcbADA732173e39521CDBE8bf59a6Dc85A9fc7b8c", symbol: "cbADA",  hasChainlink: false },
+  hype:  { address: "0x2a65b29Dd6933fAf82c5C642aC7468AC72C60749", symbol: "HYPE",   hasChainlink: false },
+  weeth: { address: "0x02f92800F57BCD74066F5709F1Daa1A4302Df875", symbol: "weETH",  hasChainlink: false },
+  ltc:   { address: "0xcb17C9Db87B595717C857a08468793f5bAb6445F", symbol: "cbLTC",  hasChainlink: false },
+  dot:   { address: "0x8d010bf9C26881788b4e6bf5Fd1bdC358c8F90b8", symbol: "DOT",    hasChainlink: false },
+  uni:   { address: "0x8f187aA05619a017077f5308904739877ce9eA21", symbol: "UNI",    hasChainlink: false },
+  ena:   { address: "0x58538e6A46E07434d7E7375Bc268D3cb839C0133", symbol: "ENA",    hasChainlink: false },
+  aave:  { address: "0xba5DdD1f9d7F570dc94a51479a000E3BCE967196", symbol: "AAVE",   hasChainlink: false },
+  pepe:  { address: "0xCc59f89bB06eFff90ed8FeC9c10cbF6cf743f40a", symbol: "PEPE",   hasChainlink: false },
+  wld:   { address: "0xdC6fF44d5d932Cbd77B52E5612Ba0529DC6226F1", symbol: "WLD",    hasChainlink: false },
+  ondo:  { address: "0xbd6dEffBE9834D0510cbDA8E31229cb3DfD41FA1", symbol: "ONDO",   hasChainlink: false },
+  arb:   { address: "0x9e5A52f57b3038F1B8EeE45F28b3C1967e22799C", symbol: "ARB",    hasChainlink: false },
+  reth:  { address: "0xB6fe221Fe9EeF5aBa221c348bA20A1Bf5e73624c", symbol: "rETH",   hasChainlink: false },
+  sky:   { address: "0x33E387c126ec67E584f23e71D33DE146817Ee8Af", symbol: "SKY",    hasChainlink: false },
 };
 
 interface DeploymentState {
@@ -19,6 +49,8 @@ interface DeploymentState {
   dxpToken?: string;
   protocolCore?: string;
   chainlinkOracle?: string;
+  twapOracle?: string;
+  hybridOracle?: string;
   feeCollector?: string;
   moduleRegistry?: string;
   swapHub?: string;
@@ -151,7 +183,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 3: Chainlink Oracle
   // ═══════════════════════════════════════════════════════════════════════
-  console.log("\n[3/12] Chainlink Oracle");
+  console.log("\n[3/17] Chainlink Oracle");
   const chainlinkOracle = await deployContract(
     deployer,
     "ChainlinkOracle",
@@ -161,19 +193,29 @@ async function main() {
     "chainlinkOracle"
   );
 
-  if (state.lastStep !== "oracleConfigured" && state.lastStep !== "feeCollector") {
-    console.log("  Configuring price feeds...");
+  if (state.lastStep !== "chainlinkConfigured" && !state.twapOracle) {
+    console.log("  Configuring Chainlink price feeds...");
     const oracle = await ethers.getContractAt(
       "contracts/v3/mainnet/oracles/ChainlinkOracle.sol:ChainlinkOracle",
       chainlinkOracle
     );
-    
+
+    const chainlinkTokens: string[] = [];
+    const chainlinkFeeds: string[] = [];
+    const seen = new Set<string>();
+    for (const [, info] of Object.entries(SUPPORTED_TOKENS)) {
+      if (info.hasChainlink && info.chainlinkFeed && !seen.has(info.address.toLowerCase())) {
+        seen.add(info.address.toLowerCase());
+        chainlinkTokens.push(info.address);
+        chainlinkFeeds.push(info.chainlinkFeed);
+      }
+    }
+    chainlinkTokens.push(BASE_MAINNET.USDC);
+    chainlinkFeeds.push(BASE_MAINNET.CHAINLINK_USDC_USD);
+
     let nonce = await deployer.getNonce();
-    await (await oracle.setPriceFeeds(
-      [BASE_MAINNET.USDC, BASE_MAINNET.WETH],
-      [BASE_MAINNET.CHAINLINK_USDC_USD, BASE_MAINNET.CHAINLINK_ETH_USD]
-    )).wait();
-    console.log("  ✅ Price feeds configured");
+    await (await oracle.setPriceFeeds(chainlinkTokens, chainlinkFeeds)).wait();
+    console.log(`  ✅ ${chainlinkTokens.length} Chainlink price feeds configured`);
     await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
@@ -181,17 +223,108 @@ async function main() {
     const ONE_DAY = 24 * 60 * 60;
     await (await oracle.setStaleThreshold(BASE_MAINNET.USDC, ONE_DAY)).wait();
     console.log("  ✅ USDC stale threshold set to 24 hours");
-    
-    state.lastStep = "oracleConfigured";
-    saveState(state);
     await waitForNonce(deployer, nonce + 1);
     await delay(1500);
+
+    state.lastStep = "chainlinkConfigured";
+    saveState(state);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // STEP 3b: Uniswap V3 TWAP Oracle
+  // ═══════════════════════════════════════════════════════════════════════
+  console.log("\n[3b/17] UniswapV3 TWAP Oracle");
+  const twapOracle = await deployContract(
+    deployer,
+    "UniswapV3TWAPOracle",
+    "contracts/v3/mainnet/oracles/UniswapV3TWAPOracle.sol:UniswapV3TWAPOracle",
+    [BASE_MAINNET.WETH, BASE_MAINNET.USDC, BASE_MAINNET.CHAINLINK_ETH_USD],
+    state,
+    "twapOracle"
+  );
+
+  if (state.lastStep !== "twapConfigured" && !state.hybridOracle) {
+    console.log("  Lowering TWAP min cardinality for initial deployment...");
+    const twap = await ethers.getContractAt(
+      "contracts/v3/mainnet/oracles/UniswapV3TWAPOracle.sol:UniswapV3TWAPOracle",
+      twapOracle
+    );
+
+    let nonce = await deployer.getNonce();
+    await (await twap.setMinCardinality(10)).wait();
+    console.log("  ✅ Min cardinality set to 10");
+    await waitForNonce(deployer, nonce + 1);
+    await delay(1500);
+
+    nonce = await deployer.getNonce();
+    await (await twap.setMinLiquidity(0)).wait();
+    console.log("  ✅ Min liquidity set to 0 (permissive for initial setup)");
+    await waitForNonce(deployer, nonce + 1);
+    await delay(1500);
+
+    state.lastStep = "twapConfigured";
+    saveState(state);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // STEP 3c: Hybrid Oracle
+  // ═══════════════════════════════════════════════════════════════════════
+  console.log("\n[3c/17] Hybrid Oracle");
+  const hybridOracle = await deployContract(
+    deployer,
+    "HybridOracle",
+    "contracts/v3/mainnet/oracles/HybridOracle.sol:HybridOracle",
+    [chainlinkOracle, twapOracle],
+    state,
+    "hybridOracle"
+  );
+
+  if (state.lastStep !== "hybridConfigured" && state.lastStep !== "feeCollector") {
+    console.log("  Configuring HybridOracle token sources...");
+    const hybrid = await ethers.getContractAt(
+      "contracts/v3/mainnet/oracles/HybridOracle.sol:HybridOracle",
+      hybridOracle
+    );
+
+    const tokens: string[] = [];
+    const useChainlink: boolean[] = [];
+    const useTWAP: boolean[] = [];
+    const maxDeviation: number[] = [];
+    const requireBoth: boolean[] = [];
+    const seen = new Set<string>();
+
+    for (const [, info] of Object.entries(SUPPORTED_TOKENS)) {
+      const addr = info.address.toLowerCase();
+      if (seen.has(addr)) continue;
+      seen.add(addr);
+      tokens.push(info.address);
+      useChainlink.push(info.hasChainlink);
+      useTWAP.push(true);
+      maxDeviation.push(info.hasChainlink ? 500 : 0);
+      requireBoth.push(false);
+    }
+    tokens.push(BASE_MAINNET.USDC);
+    useChainlink.push(true);
+    useTWAP.push(false);
+    maxDeviation.push(0);
+    requireBoth.push(false);
+
+    let nonce = await deployer.getNonce();
+    await (await hybrid.configureTokensBatch(
+      tokens, useChainlink, useTWAP, maxDeviation, requireBoth
+    )).wait();
+    console.log(`  ✅ ${tokens.length} tokens configured in HybridOracle`);
+    await waitForNonce(deployer, nonce + 1);
+    await delay(1500);
+
+    state.lastStep = "hybridConfigured";
+    saveState(state);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 4: Fee Collector
   // ═══════════════════════════════════════════════════════════════════════
-  console.log("\n[4/12] Fee Collector");
+  console.log("\n[4/17] Fee Collector");
   const feeCollector = await deployContract(
     deployer,
     "FeeCollector",
@@ -204,7 +337,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 5: Module Registry
   // ═══════════════════════════════════════════════════════════════════════
-  console.log("\n[5/12] Module Registry");
+  console.log("\n[5/17] Module Registry");
   const moduleRegistry = await deployContract(
     deployer,
     "ModuleRegistry",
@@ -222,7 +355,7 @@ async function main() {
     );
     
     const nonce = await deployer.getNonce();
-    await (await registry.setOracle(chainlinkOracle)).wait();
+    await (await registry.setOracle(hybridOracle)).wait();
     console.log("  ✅ Oracle set in registry");
     
     state.lastStep = "registryOracleSet";
@@ -234,12 +367,12 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 6: Swap Hub
   // ═══════════════════════════════════════════════════════════════════════
-  console.log("\n[6/12] Swap Hub");
+  console.log("\n[6/17] Swap Hub");
   const swapHub = await deployContract(
     deployer,
     "SwapHub",
     "contracts/v3/mainnet/modules/swap/SwapHub.sol:SwapHub",
-    [protocolCore, chainlinkOracle],
+    [protocolCore, hybridOracle],
     state,
     "swapHub"
   );
@@ -247,7 +380,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 7: Aerodrome Adapter
   // ═══════════════════════════════════════════════════════════════════════
-  console.log("\n[7/12] Aerodrome Adapter");
+  console.log("\n[7/17] Aerodrome Adapter");
   const aerodromeAdapter = await deployContract(
     deployer,
     "AerodromeAdapter",
@@ -309,7 +442,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 8: Uniswap V3 Adapter
   // ═══════════════════════════════════════════════════════════════════════
-  console.log("\n[8/14] Uniswap V3 Adapter");
+  console.log("\n[8/17] Uniswap V3 Adapter");
   const uniswapV3Adapter = await deployContract(
     deployer,
     "UniswapV3Adapter",
@@ -365,12 +498,12 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 9: Lending Hub
   // ═══════════════════════════════════════════════════════════════════════
-  console.log("\n[9/14] Lending Hub");
+  console.log("\n[9/17] Lending Hub");
   const lendingHub = await deployContract(
     deployer,
     "LendingHub",
     "contracts/v3/mainnet/modules/lending/LendingHub.sol:LendingHub",
-    [protocolCore, chainlinkOracle],
+    [protocolCore, hybridOracle],
     state,
     "lendingHub"
   );
@@ -378,7 +511,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 10: Aave V3 Adapter
   // ═══════════════════════════════════════════════════════════════════════
-  console.log("\n[10/14] Aave V3 Adapter");
+  console.log("\n[10/17] Aave V3 Adapter");
   const aaveV3Adapter = await deployContract(
     deployer,
     "AaveV3Adapter",
@@ -434,7 +567,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 11: Register Modules in Registry
   // ═══════════════════════════════════════════════════════════════════════
-  console.log("\n[11/14] Registering modules in ModuleRegistry");
+  console.log("\n[11/17] Registering modules in ModuleRegistry");
   
   if (state.lastStep !== "modulesRegistered" && !state.indexSwapFactory) {
     const registry = await ethers.getContractAt(
@@ -461,7 +594,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 12: IndexSwapV3 Implementation (for clone pattern)
   // ═══════════════════════════════════════════════════════════════════════
-  console.log("\n[12/15] IndexSwapV3 Implementation");
+  console.log("\n[12/17] IndexSwapV3 Implementation");
   const indexSwapImplementation = await deployContract(
     deployer,
     "IndexSwapV3 (Implementation)",
@@ -474,7 +607,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 13: Index Swap Factory
   // ═══════════════════════════════════════════════════════════════════════
-  console.log("\n[13/15] Index Swap Factory");
+  console.log("\n[13/17] Index Swap Factory");
   const indexSwapFactory = await deployContract(
     deployer,
     "IndexSwapFactory",
@@ -510,7 +643,7 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════
   // STEP 14: Deploy Test Vault via ProtocolCore
   // ═══════════════════════════════════════════════════════════════════════
-  console.log("\n[14/15] Test Vault via ProtocolCore");
+  console.log("\n[14/17] Test Vault via ProtocolCore");
   
   if (!state.testVault) {
     const core = await ethers.getContractAt(
@@ -580,34 +713,45 @@ async function main() {
   console.log("\n" + "=".repeat(70));
   console.log("DEPLOYMENT COMPLETE");
   console.log("=".repeat(70));
-  console.log("\n📦 Core Contracts:");
-  console.log("  DXPToken:        ", state.dxpToken);
-  console.log("  ProtocolCore:    ", state.protocolCore);
-  console.log("  ChainlinkOracle: ", state.chainlinkOracle);
-  console.log("  FeeCollector:    ", state.feeCollector);
-  console.log("  ModuleRegistry:  ", state.moduleRegistry);
+  console.log("\n Core Contracts:");
+  console.log("  DXPToken:         ", state.dxpToken);
+  console.log("  ProtocolCore:     ", state.protocolCore);
+  console.log("  ChainlinkOracle:  ", state.chainlinkOracle);
+  console.log("  TWAPOracle:       ", state.twapOracle);
+  console.log("  HybridOracle:     ", state.hybridOracle);
+  console.log("  FeeCollector:     ", state.feeCollector);
+  console.log("  ModuleRegistry:   ", state.moduleRegistry);
   
-  console.log("\n📦 Swap Infrastructure:");
+  console.log("\n Swap Infrastructure:");
   console.log("  SwapHub:          ", state.swapHub);
   console.log("  AerodromeAdapter: ", state.aerodromeAdapter);
   console.log("  Aerodrome ID:     ", state.adapterIds?.aerodrome);
   console.log("  UniswapV3Adapter: ", state.uniswapV3Adapter);
   console.log("  Uniswap ID:       ", state.adapterIds?.uniswapV3);
   
-  console.log("\n📦 Lending Infrastructure:");
-  console.log("  LendingHub:      ", state.lendingHub);
-  console.log("  AaveV3Adapter:   ", state.aaveV3Adapter);
-  console.log("  Adapter ID:      ", state.adapterIds?.aaveV3);
+  console.log("\n Lending Infrastructure:");
+  console.log("  LendingHub:       ", state.lendingHub);
+  console.log("  AaveV3Adapter:    ", state.aaveV3Adapter);
+  console.log("  Adapter ID:       ", state.adapterIds?.aaveV3);
   
-  console.log("\n📦 Factory & Implementation:");
-  console.log("  IndexSwapV3 Impl:", state.indexSwapImplementation);
-  console.log("  IndexSwapFactory:", state.indexSwapFactory);
+  console.log("\n Factory & Implementation:");
+  console.log("  IndexSwapV3 Impl: ", state.indexSwapImplementation);
+  console.log("  IndexSwapFactory: ", state.indexSwapFactory);
   
-  console.log("\n📦 Test Vault:");
-  console.log("  VaultOwner:      ", state.testVault?.safe);
-  console.log("  IndexSwapV3:     ", state.testVault?.indexSwap);
+  console.log("\n Test Vault:");
+  console.log("  VaultOwner:       ", state.testVault?.safe);
+  console.log("  IndexSwapV3:      ", state.testVault?.indexSwap);
   
-  console.log("\n✅ State saved to:", getStatePath());
+  console.log("\n Supported Tokens:");
+  const uniqueTokens = new Set<string>();
+  for (const [key, info] of Object.entries(SUPPORTED_TOKENS)) {
+    if (!uniqueTokens.has(info.address.toLowerCase())) {
+      uniqueTokens.add(info.address.toLowerCase());
+      console.log(`  ${info.symbol.padEnd(8)} ${info.address} ${info.hasChainlink ? "[Chainlink+TWAP]" : "[TWAP]"}`); 
+    }
+  }
+  
+  console.log("\n State saved to:", getStatePath());
   console.log("=".repeat(70));
 }
 
