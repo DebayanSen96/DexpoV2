@@ -32,8 +32,14 @@ interface IModuleRegistry {
 }
 
 interface ISwapModule {
-    function swap(address vault, address tokenIn, address tokenOut, uint256 amountIn) external returns (uint256 amountOut);
+    function swap(address vault, address tokenIn, address tokenOut, uint256 amountIn, uint256 minAmountOut, bytes32 adapterId) external returns (uint256 amountOut);
     function swapWithSlippage(address vault, address tokenIn, address tokenOut, uint256 amountIn, uint256 slippageBps) external returns (uint256 amountOut);
+}
+
+interface ILendingModule {
+    function supply(address vault, address token, uint256 amount, bytes32 adapterId) external returns (uint256 shares);
+    function withdraw(address vault, address token, uint256 amount) external returns (uint256 withdrawn);
+    function withdrawAll(address vault, address token) external returns (uint256 withdrawn);
 }
 
 contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable {
@@ -63,6 +69,8 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     uint256 public totalWithdrawalsUsd;
     
     uint256 public constant BPS_DIVISOR = 10000;
+    uint256 private constant DEAD_SHARES = 1e3;
+    address private constant DEAD_ADDRESS = address(1);
     uint256 public minDepositAmount;
     uint256 public lockupSeconds;
     uint256 public maxSlippageBps;
@@ -85,6 +93,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     event PerformanceFeeUpdated(uint16 oldFeeBps, uint16 newFeeBps);
     event MinDepositUpdated(uint256 oldAmount, uint256 newAmount);
     event HighWaterMarkReset(uint256 newHighWaterMark);
+    event TokenRescued(address indexed token, address indexed to, uint256 amount);
     
     error NotAuthorized();
     error ZeroAmount();
@@ -92,6 +101,18 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     error LockupActive();
     error InvalidPrice();
     error AlreadyInitialized();
+    error TokenNotInPortfolio();
+    error StrandedTokenBalance(address token, uint256 balance);
+    error InvalidCommand();
+    error CannotRescuePortfolioToken();
+
+    enum ModuleCommand {
+        LEND_SUPPLY,
+        LEND_WITHDRAW,
+        LEND_WITHDRAW_ALL,
+        SWAP,
+        SWAP_WITH_SLIPPAGE
+    }
     
     modifier onlySafeOrProtocolOwner() {
         bool isSafeOwner = msg.sender == safe;
@@ -181,7 +202,19 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         require(totalWeight == BPS_DIVISOR, "Weights must sum to 100%");
         
         for (uint256 i = 0; i < portfolio.length; i++) {
-            isPortfolioToken[portfolio[i].token] = false;
+            address oldToken = portfolio[i].token;
+            bool stillPresent = false;
+            for (uint256 j = 0; j < _portfolio.length; j++) {
+                if (_portfolio[j].token == oldToken) {
+                    stillPresent = true;
+                    break;
+                }
+            }
+            if (!stillPresent) {
+                uint256 bal = IERC20(oldToken).balanceOf(address(this));
+                if (bal > 0) revert StrandedTokenBalance(oldToken, bal);
+            }
+            isPortfolioToken[oldToken] = false;
         }
         delete portfolio;
         
@@ -216,6 +249,9 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         uint256 supply = totalSupply();
         if (supply == 0) {
             shares = totalValueUsd;
+            require(shares > DEAD_SHARES, "Below dead shares minimum");
+            _mint(DEAD_ADDRESS, DEAD_SHARES);
+            shares -= DEAD_SHARES;
         } else {
             uint256 currentTvlUsd = getTotalValueUsd();
             require(currentTvlUsd > 0, "Zero TVL");
@@ -243,6 +279,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         returns (uint256 shares) 
     {
         if (depositAmount == 0) revert ZeroAmount();
+        if (!isPortfolioToken[depositToken]) revert TokenNotInPortfolio();
         
         IERC20(depositToken).safeTransferFrom(msg.sender, address(this), depositAmount);
         
@@ -254,6 +291,9 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         uint256 supply = totalSupply();
         if (supply == 0) {
             shares = depositValueUsd;
+            require(shares > DEAD_SHARES, "Below dead shares minimum");
+            _mint(DEAD_ADDRESS, DEAD_SHARES);
+            shares -= DEAD_SHARES;
         } else {
             uint256 currentTvlUsd = getTotalValueUsd();
             shares = (depositValueUsd * supply) / currentTvlUsd;
@@ -307,6 +347,10 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
             uint256 profitUsd = withdrawValueUsd - userProportionalCostBasis;
             feeAmountUsd = (profitUsd * performanceFeeBps) / BPS_DIVISOR;
         }
+
+        _burn(msg.sender, shares);
+        userCostBasisUsd[msg.sender] -= userProportionalCostBasis;
+        totalWithdrawalsUsd += withdrawValueUsd;
         
         for (uint256 i = 0; i < portfolio.length; i++) {
             if (amounts[i] > 0) {
@@ -330,11 +374,6 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
                 IERC20(token).safeTransfer(msg.sender, amounts[i]);
             }
         }
-        
-        userCostBasisUsd[msg.sender] -= userProportionalCostBasis;
-        totalWithdrawalsUsd += withdrawValueUsd;
-        
-        _burn(msg.sender, shares);
         
         emit Withdrawal(msg.sender, shares, amounts);
     }
@@ -509,30 +548,55 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         require(spender != address(0), "Invalid spender");
         IERC20(token).forceApprove(spender, amount);
     }
+
+    function rescueToken(address token, address to, uint256 amount) external onlySafeOrProtocolOwner {
+        if (isPortfolioToken[token]) revert CannotRescuePortfolioToken();
+        require(to != address(0), "Invalid recipient");
+        require(amount > 0, "Zero amount");
+        IERC20(token).safeTransfer(to, amount);
+        emit TokenRescued(token, to, amount);
+    }
     
     function executeModuleAction(
-        address module,
-        bytes calldata data
+        ModuleCommand command,
+        bytes calldata params
     ) external onlySafeOrProtocolOwner nonReentrant returns (bytes memory) {
-        require(module != address(0), "Invalid module");
-        
-        address registeredLend = IModuleRegistry(moduleRegistry).getLendModule();
-        address registeredBorrow = IModuleRegistry(moduleRegistry).getBorrowModule();
-        address registeredStaking = IModuleRegistry(moduleRegistry).getStakingModule();
-        address registeredSwap = IModuleRegistry(moduleRegistry).getSwapModule();
-        
-        require(
-            module == registeredLend || 
-            module == registeredBorrow || 
-            module == registeredStaking ||
-            module == registeredSwap,
-            "Module not registered"
-        );
-        
-        (bool success, bytes memory result) = module.call(data);
-        require(success, "Module call failed");
-        
-        return result;
+        if (command == ModuleCommand.LEND_SUPPLY) {
+            (address token, uint256 amount, bytes32 adapterId) = abi.decode(params, (address, uint256, bytes32));
+            address lend = IModuleRegistry(moduleRegistry).getLendModule();
+            require(lend != address(0), "Lend module not set");
+            IERC20(token).forceApprove(lend, amount);
+            uint256 shares = ILendingModule(lend).supply(address(this), token, amount, adapterId);
+            return abi.encode(shares);
+        } else if (command == ModuleCommand.LEND_WITHDRAW) {
+            (address token, uint256 amount) = abi.decode(params, (address, uint256));
+            address lend = IModuleRegistry(moduleRegistry).getLendModule();
+            require(lend != address(0), "Lend module not set");
+            uint256 withdrawn = ILendingModule(lend).withdraw(address(this), token, amount);
+            return abi.encode(withdrawn);
+        } else if (command == ModuleCommand.LEND_WITHDRAW_ALL) {
+            address token = abi.decode(params, (address));
+            address lend = IModuleRegistry(moduleRegistry).getLendModule();
+            require(lend != address(0), "Lend module not set");
+            uint256 withdrawn = ILendingModule(lend).withdrawAll(address(this), token);
+            return abi.encode(withdrawn);
+        } else if (command == ModuleCommand.SWAP) {
+            (address tokenIn, address tokenOut, uint256 amountIn, uint256 minAmountOut, bytes32 adapterId) = abi.decode(params, (address, address, uint256, uint256, bytes32));
+            address swap = IModuleRegistry(moduleRegistry).getSwapModule();
+            require(swap != address(0), "Swap module not set");
+            IERC20(tokenIn).forceApprove(swap, amountIn);
+            uint256 amountOut = ISwapModule(swap).swap(address(this), tokenIn, tokenOut, amountIn, minAmountOut, adapterId);
+            return abi.encode(amountOut);
+        } else if (command == ModuleCommand.SWAP_WITH_SLIPPAGE) {
+            (address tokenIn, address tokenOut, uint256 amountIn, uint256 slippageBps) = abi.decode(params, (address, address, uint256, uint256));
+            address swap = IModuleRegistry(moduleRegistry).getSwapModule();
+            require(swap != address(0), "Swap module not set");
+            IERC20(tokenIn).forceApprove(swap, amountIn);
+            uint256 amountOut = ISwapModule(swap).swapWithSlippage(address(this), tokenIn, tokenOut, amountIn, slippageBps);
+            return abi.encode(amountOut);
+        } else {
+            revert InvalidCommand();
+        }
     }
     
     function getTotalValueUsd() public view returns (uint256 totalUsd) {

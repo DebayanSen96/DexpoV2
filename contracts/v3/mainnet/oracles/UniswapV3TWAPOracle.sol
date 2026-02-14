@@ -236,23 +236,19 @@ contract UniswapV3TWAPOracle is IOracle, Ownable {
         uint256 twapPrice,
         uint256 ethPriceUsd,
         uint8 tokenDecimals,
-        uint8 /* quoteDecimals */
+        uint8 quoteDecimals
     ) internal pure returns (uint256) {
-        // twapPrice is token price in WETH (scaled by 1e18 from _getTWAP)
-        // ethPriceUsd is ETH price in USD (scaled by 1e18)
-        // Result should be token price in USD (scaled by 1e18)
-        
-        // price_usd = twapPrice * ethPriceUsd / 1e18
-        // Adjust for decimal differences
+        // twapPrice = raw Uniswap price in smallest-units ratio, scaled by 1e18
+        //   i.e. (quoteSmallestUnits per baseSmallestUnit) * 1e18
+        // ethPriceUsd = price of 1 whole WETH in USD, scaled by 1e18
+        // We want: price of 1 whole base token in USD, scaled by 1e18
+        //
+        // Formula: priceUsdE18 = twapPrice * ethPriceUsd * 10^quoteDecimals
+        //                        / (10^tokenDecimals * 1e18)
+        //
+        // To avoid overflow, reorder: (twapPrice * ethPriceUsd / 1e18) * 10^quoteDecimals / 10^tokenDecimals
         uint256 priceUsd = (twapPrice * ethPriceUsd) / 1e18;
-        
-        // Adjust for token decimals if needed
-        if (tokenDecimals < 18) {
-            priceUsd = priceUsd * (10 ** (18 - tokenDecimals));
-        } else if (tokenDecimals > 18) {
-            priceUsd = priceUsd / (10 ** (tokenDecimals - 18));
-        }
-        
+        priceUsd = (priceUsd * (10 ** quoteDecimals)) / (10 ** tokenDecimals);
         return priceUsd;
     }
 
@@ -261,20 +257,14 @@ contract UniswapV3TWAPOracle is IOracle, Ownable {
         uint8 tokenDecimals,
         uint8 usdcDecimals
     ) internal pure returns (uint256) {
-        // twapPrice is token price in USDC (scaled by 1e18 from _getTWAP)
-        // USDC has 6 decimals, so we need to scale up to 18
-        
-        // Scale USDC price to 18 decimals
-        uint256 priceUsd = twapPrice * (10 ** (18 - usdcDecimals));
-        
-        // Adjust for token decimals
-        if (tokenDecimals < 18) {
-            priceUsd = priceUsd * (10 ** (18 - tokenDecimals));
-        } else if (tokenDecimals > 18) {
-            priceUsd = priceUsd / (10 ** (tokenDecimals - 18));
-        }
-        
-        return priceUsd;
+        // twapPrice = raw Uniswap price in smallest-units ratio, scaled by 1e18
+        // USDC ≈ $1, so 1 USDC smallest-unit = $10^(-usdcDecimals)
+        // We want: price of 1 whole base token in USD, scaled by 1e18
+        //
+        // Formula: priceUsdE18 = twapPrice * 1e18 (USDC=$1) * 10^usdcDecimals
+        //                        / (10^tokenDecimals * 1e18)
+        //        = twapPrice * 10^usdcDecimals / 10^tokenDecimals
+        return (twapPrice * (10 ** usdcDecimals)) / (10 ** tokenDecimals);
     }
 
     function _getSqrtRatioAtTick(int24 tick) internal pure returns (uint160 sqrtPriceX96) {

@@ -1,28 +1,28 @@
 {
   "deployer": "0xB0D95c09558A18c4e66E56AcB57a6b868D9CaA6C",
-  "timestamp": "2026-02-06T01:28:43.338Z",
-  "dxpToken": "0xffb81AEd8e72ef60DCE85aC2E7C9cdface443330",
-  "protocolCore": "0xaee0f99e223607dcE279fd31b0c007065AF6D576",
-  "chainlinkOracle": "0x7458Bb58A67B15fDaA65F1Ce1772DA20B4E9B076",
+  "timestamp": "2026-02-07T03:49:59.823Z",
+  "dxpToken": "0x10D4e5eC73500bFcAB793B9378979f2556B92281",
+  "protocolCore": "0x521BF367Eaa4763Fb2A298b27dD3327F646865dE",
+  "chainlinkOracle": "0x35e0875d5C8F2D17bFD1c77AE04745D33b69345F",
   "lastStep": "complete",
-  "twapOracle": "0x586eD7D7590a09A9995d8e734Ba7fE42fda5ad1C",
-  "hybridOracle": "0x5A07D1c43d1B7C6D41AEee453707e2d1F387C2F3",
-  "feeCollector": "0xBc7F6d34226d7FdEa4445eAcD1255a9221b24312",
-  "moduleRegistry": "0x04a2214CfDbFf0C5E7A1E1CDC13357423b0edcb3",
-  "swapHub": "0x7ca9142EDF8c7aDD24ddfC230fE4Fe2d0d1A1bae",
-  "aerodromeAdapter": "0xb1eAAF0f5f9AA011c0b858d6e02cb0B8d5aAC996",
+  "twapOracle": "0x64AcCf6BA98180fcc87a9f4d7E41A4ea56cc4B55",
+  "hybridOracle": "0xFB8D5337cAfbCA63F7e0B1Ac06B57Ad0a8E5156D",
+  "feeCollector": "0x32Bf3E79D8fcC02a70D456a075e1bba3c1d39b0E",
+  "moduleRegistry": "0x2E94b5978b2Cb112355bfBf13D99e4700D4F2BD3",
+  "swapHub": "0x944E8aCd27BF53dC99f556c16a2bD69a34FE8AD3",
+  "aerodromeAdapter": "0xF64A2f96Ea9a8dF8a0e8733579368DD7Df6c4090",
   "adapterIds": {
     "aerodrome": "0x7a06cdba1088a954631c25b2396564ca5f7588e130488af408a337dc37e6368b",
     "uniswapV3": "0x3e1ba2b70880de8835e37b2821b3ca56e07c15ae583bf7dfa6888e3bd39bb5ca",
     "aaveV3": "0x4ac3471c421a89f9d5f6ef6ba1e113bd137f6aec87bd169e9012a1e57356e4fc"
   },
-  "uniswapV3Adapter": "0x33dF638c778b733aa30eDfa52eF43416B3bb01E3",
-  "lendingHub": "0x7639c8812aA4617f47bF3aF5EBbDd5Bf46F031CC",
-  "aaveV3Adapter": "0x21b39D91a962Db24DFC102AF3d5a7d39a332C711",
-  "indexSwapImplementation": "0x1963Ac232BB3fb7a8C02b9017334981AF76e7590",
-  "indexSwapFactory": "0x0791aD7e3cA7A6E4074cF122b24967E2C1905A9C",
+  "uniswapV3Adapter": "0x4B50D1e2485af5D3EB3dCd50CBA5f696F66a8975",
+  "lendingHub": "0xCF441EC457B47f3A33A9C358e14bD92CD45aB4C4",
+  "aaveV3Adapter": "0x326A20F35cf495487B1447E1A498438667669c18",
+  "indexSwapImplementation": "0x59f23Dae466626728aa836f5b7C6f57B15f1c159",
+  "indexSwapFactory": "0xB56fF34781192C707bd88a907a22c22685723968",
   "testVault": {
     "safe": "0xB0D95c09558A18c4e66E56AcB57a6b868D9CaA6C",
-    "indexSwap": "0x40b9FA99D7Abd63480ed2824325306ADb380062f"
+    "indexSwap": "0x4758d4c0e01224d30EACEfb9fE16F14eE4F298D6"
   }
 }
