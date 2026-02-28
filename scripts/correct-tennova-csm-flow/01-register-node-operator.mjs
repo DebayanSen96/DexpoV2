@@ -84,7 +84,7 @@ async function main() {
   const sigHex = bytesToHex(sig);
   console.log("pk:", (pkHex.length - 2) / 2, "bytes, sig:", (sigHex.length - 2) / 2, "bytes");
 
-  // Step 4: Register new NO via PermissionlessGate (5-param version, no eaProof)
+  // Step 4: Register new NO via PermissionlessGate 
   const managementProperties = {
     managerAddress: walletAddress,
     rewardAddress: walletAddress,
@@ -139,7 +139,7 @@ async function main() {
   if (Number(no[3]) === 0) {
     console.warn("\n⚠ WARNING: Key is NOT vetted. Withdrawal credentials or signature may still be wrong.");
   } else {
-    console.log("\n✅ Key is VETTED. Waiting for Lido deposit bot to pick it up from queue.");
+    console.log("\n Key is VETTED. Waiting for Lido deposit bot to pick it up from queue.");
   }
 }
 

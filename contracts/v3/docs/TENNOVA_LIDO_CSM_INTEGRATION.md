@@ -19,6 +19,7 @@ The partnership: Dexponent collects ETH from LPs → posts it as **bond** to Lid
 ---
 
 ## 2. How Lido CSM Actually Works
+Lido csm doestn automatically doepostthe etherium data to the csm sstaking moduel adn make the final call to the lidao contract to generate the valid bls signature.
 
 ### 2.1 The Bond ≠ Stake Model
 

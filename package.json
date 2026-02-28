@@ -16,6 +16,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.998.0",
     "@chainsafe/bls": "^8.2.0",
     "@chainsafe/ssz": "^1.3.0",
     "@layerzerolabs/hyperliquid-composer": "^1.0.2",

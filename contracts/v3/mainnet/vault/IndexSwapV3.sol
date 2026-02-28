@@ -42,6 +42,12 @@ interface ILendingModule {
     function withdrawAll(address vault, address token) external returns (uint256 withdrawn);
 }
 
+interface IStakingModule {
+    function depositBond(address vault, uint256 amount, bytes calldata validatorData) external;
+    function claimRewards(address vault) external returns (uint256);
+    function getPositionValue(address vault, address token) external view returns (uint256);
+}
+
 contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
     
@@ -111,7 +117,9 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         LEND_WITHDRAW,
         LEND_WITHDRAW_ALL,
         SWAP,
-        SWAP_WITH_SLIPPAGE
+        SWAP_WITH_SLIPPAGE,
+        STAKE_BOND,
+        STAKE_CLAIM
     }
     
     modifier onlySafeOrProtocolOwner() {
@@ -594,6 +602,18 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
             IERC20(tokenIn).forceApprove(swap, amountIn);
             uint256 amountOut = ISwapModule(swap).swapWithSlippage(address(this), tokenIn, tokenOut, amountIn, slippageBps);
             return abi.encode(amountOut);
+        } else if (command == ModuleCommand.STAKE_BOND) {
+            (address token, uint256 amount, bytes memory validatorData) = abi.decode(params, (address, uint256, bytes));
+            address staking = IModuleRegistry(moduleRegistry).getStakingModule();
+            require(staking != address(0), "Staking module not set");
+            IERC20(token).forceApprove(staking, amount);
+            IStakingModule(staking).depositBond(address(this), amount, validatorData);
+            return abi.encode(amount);
+        } else if (command == ModuleCommand.STAKE_CLAIM) {
+            address staking = IModuleRegistry(moduleRegistry).getStakingModule();
+            require(staking != address(0), "Staking module not set");
+            uint256 claimed = IStakingModule(staking).claimRewards(address(this));
+            return abi.encode(claimed);
         } else {
             revert InvalidCommand();
         }
@@ -619,6 +639,16 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
                     totalUsd -= borrowValue;
                 } else {
                     totalUsd = 0;
+                }
+            } catch {}
+        }
+
+        if (moduleRegistry != address(0)) {
+            try IModuleRegistry(moduleRegistry).getStakingModule() returns (address staking) {
+                if (staking != address(0)) {
+                    try IStakingModule(staking).getPositionValue(address(this), address(0)) returns (uint256 stakingValue) {
+                        totalUsd += stakingValue;
+                    } catch {}
                 }
             } catch {}
         }
