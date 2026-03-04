@@ -697,16 +697,16 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
         return verifierStakes[farmId][who] > 0;
     }
 
-    // ICoreAccessControl views (permissive defaults)
-    function canOperate(address /*vault*/, address /*caller*/) external pure override returns (bool) {
-        return true;
+    // ICoreAccessControl views
+    function canOperate(address /*vault*/, address caller) external view override returns (bool) {
+        return caller == owner();
     }
     function isGlobalPaused() external view override returns (bool) { return globalPaused; }
     function isVaultPaused(address vault) external view override returns (bool) { return vaultPaused[vault]; }
     function isActionAllowed(address /*vault*/, address /*target*/) external pure override returns (bool) {
-        return true;
+        return false;
     }
-    function tvlCapOf(address /*vault*/) external pure override returns (uint256) { return 0; }
+    function tvlCapOf(address /*vault*/) external pure override returns (uint256) { return type(uint256).max; }
 
     // No on-chain role or policy mutators; enforced off-chain
     /// @notice Approve or revoke an address to create farms via this core.

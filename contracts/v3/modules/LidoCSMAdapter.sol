@@ -56,11 +56,14 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
 
     mapping(address => uint256) public vaultNodeOperatorId;
     mapping(address => uint256) public vaultBondedEth;
+    mapping(address => uint256) public vaultAccruedRewardsEth;
     mapping(address => bool) public vaultRegistered;
 
     event VaultRegistered(address indexed vault, uint256 noId);
     event BondDeposited(address indexed vault, uint256 amount, uint256 noId);
     event RewardsClaimed(address indexed vault, uint256 amount);
+    event EmergencyETHRescued(address indexed to, uint256 amount);
+    event EmergencyTokenRescued(address indexed token, address indexed to, uint256 amount);
 
     constructor(
         address _csModule,
@@ -76,15 +79,23 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
         weth = _weth;
     }
 
-    function depositBond(address vault, uint256 amount, bytes calldata validatorData) external override {
+    modifier onlyVaultCaller(address vault) {
+        require(msg.sender == vault, "Not vault caller");
+        _;
+    }
+
+    function _pullAndUnwrap(address vault, uint256 amount) internal {
+        require(amount > 0, "Zero amount");
+        IERC20(weth).safeTransferFrom(vault, address(this), amount);
+        IWETH(weth).withdraw(amount);
+    }
+
+    function depositBond(address vault, uint256 amount, bytes calldata validatorData) external override onlyVaultCaller(vault) {
         require(amount > 0, "Zero amount");
 
         (bytes memory pubkey, bytes memory signature) = abi.decode(validatorData, (bytes, bytes));
         require(pubkey.length == 48, "Invalid pubkey length");
         require(signature.length == 96, "Invalid signature length");
-
-        IERC20(weth).safeTransferFrom(vault, address(this), amount);
-        IWETH(weth).withdraw(amount);
 
         tuple_ManagementProperties memory mgmt = tuple_ManagementProperties({
             managerAddress: vault,
@@ -93,6 +104,7 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
         });
 
         if (!vaultRegistered[vault]) {
+            _pullAndUnwrap(vault, amount);
             (bool ok, bytes memory ret) = permissionlessGate.call{value: amount}(
                 abi.encodeWithSignature(
                     "addNodeOperatorETH(uint256,bytes,bytes,(address,address,bool),address)",
@@ -103,28 +115,46 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
             uint256 noId = abi.decode(ret, (uint256));
             vaultNodeOperatorId[vault] = noId;
             vaultRegistered[vault] = true;
-            vaultBondedEth[vault] = amount;
+            vaultBondedEth[vault] += amount;
             emit VaultRegistered(vault, noId);
         } else {
             uint256 noId = vaultNodeOperatorId[vault];
             (uint256 current, uint256 required) = ICSAccounting(csAccounting).getBondSummary(noId);
             if (current >= required) return;
 
+            uint256 depositAmount = amount;
             uint256 needed = required - current;
-            if (amount > needed) amount = needed;
+            if (depositAmount > needed) depositAmount = needed;
 
-            (bool ok, ) = csAccounting.call{value: amount}(
+            _pullAndUnwrap(vault, depositAmount);
+
+            (bool ok, ) = csAccounting.call{value: depositAmount}(
                 abi.encodeWithSignature("depositETH(address,uint256)", vault, noId)
             );
             require(ok, "depositETH failed");
-            vaultBondedEth[vault] += amount;
+            vaultBondedEth[vault] += depositAmount;
+            amount = depositAmount;
         }
 
         emit BondDeposited(vault, amount, vaultNodeOperatorId[vault]);
     }
 
-    function claimRewards(address vault) external override returns (uint256) {
-        return 0;
+    function claimRewards(address vault) external override onlyVaultCaller(vault) returns (uint256) {
+        if (!vaultRegistered[vault]) return 0;
+
+        uint256 noId = vaultNodeOperatorId[vault];
+        (uint256 current, ) = ICSAccounting(csAccounting).getBondSummary(noId);
+        uint256 principal = vaultBondedEth[vault];
+        if (current <= principal) return 0;
+
+        uint256 accruedNow = current - principal;
+        uint256 alreadyAccounted = vaultAccruedRewardsEth[vault];
+        if (accruedNow <= alreadyAccounted) return 0;
+
+        uint256 newlyAccrued = accruedNow - alreadyAccounted;
+        vaultAccruedRewardsEth[vault] = accruedNow;
+        emit RewardsClaimed(vault, newlyAccrued);
+        return newlyAccrued;
     }
 
     function getPositionValue(address vault, address) external view override returns (uint256) {
@@ -146,8 +176,38 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
         return vaultBondedEth[vault];
     }
 
+    function getAccruedRewardsEth(address vault) external view returns (uint256) {
+        if (!vaultRegistered[vault]) return 0;
+        uint256 noId = vaultNodeOperatorId[vault];
+        (uint256 current, ) = ICSAccounting(csAccounting).getBondSummary(noId);
+        uint256 principal = vaultBondedEth[vault];
+        if (current <= principal) return 0;
+        return current - principal;
+    }
+
     function setOracle(address _oracle) external onlyOwner {
         oracle = _oracle;
+    }
+
+    function emergencyWithdrawETH(address to, uint256 amount) external onlyOwner {
+        require(to != address(0), "Invalid recipient");
+        uint256 available = address(this).balance;
+        uint256 withdrawAmount = amount == 0 ? available : amount;
+        require(withdrawAmount <= available, "Insufficient ETH");
+
+        (bool ok, ) = to.call{value: withdrawAmount}("");
+        require(ok, "ETH transfer failed");
+        emit EmergencyETHRescued(to, withdrawAmount);
+    }
+
+    function emergencyRescueToken(address token, address to, uint256 amount) external onlyOwner {
+        require(token != address(0), "Invalid token");
+        require(to != address(0), "Invalid recipient");
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        uint256 rescueAmount = amount == 0 ? balance : amount;
+        require(rescueAmount <= balance, "Insufficient balance");
+        IERC20(token).safeTransfer(to, rescueAmount);
+        emit EmergencyTokenRescued(token, to, rescueAmount);
     }
 
     receive() external payable {}

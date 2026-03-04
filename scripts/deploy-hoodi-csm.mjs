@@ -1,4 +1,3 @@
-import * as bls from "@noble/bls12-381";
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
@@ -13,10 +12,10 @@ const CS_MODULE    = "0x79CEf36D84743222f37765204Bec41E92a93E59d";
 const CS_ACCOUNTING= "0xA54b90BA34C5f326BC1485054080994e38FB4C60";
 const PERMISSIONLESS_GATE = "0x5553077102322689876A6AdFd48D75014c28acfb";
 const STAKING_ROUTER = "0xCc820558B39ee15C7C45B59390B503b83fb499A8";
-const GENESIS_FORK_VERSION = "0x10000910";
 const ETH_SENTINEL = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const BOND_AMOUNT = ethers.parseEther("2.4");
 const ETH_PRICE    = ethers.parseEther("2000"); // $2000 fixed
+const VALIDATORS_JSON_PATH = join(ROOT, "keys", "depost_data_1_march_2026.json");
 
 const STATE_PATH = join(ROOT, "deployments", "v3-latest", "ethereum-hoodi.json");
 
@@ -64,22 +63,21 @@ async function sendTx(wallet, provider, label, to, abi, method, args, valueOrOve
   }
   const tx = await contract[method](...args, overrides);
   process.stdout.write("  Waiting " + tx.hash + " ...");
-  await tx.wait();
+  const receipt = await tx.wait();
   console.log(" ✅");
   await sleep(1500);
+  return { hash: tx.hash, receipt };
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-function hexToBytes(hex) {
-  hex = hex.startsWith("0x") ? hex.slice(2) : hex;
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
-  return bytes;
+function normalizeHex(hex) {
+  if (!hex) return "0x";
+  return hex.startsWith("0x") ? hex : `0x${hex}`;
 }
 
-function bytesToHex(bytes) {
-  return "0x" + Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+function pickNextValidator(entries) {
+  return entries.find((entry) => !entry.used && !entry.usedAt);
 }
 
 async function main() {
@@ -262,6 +260,12 @@ async function main() {
   console.log("\nState:", STATE_PATH);
   console.log("=".repeat(60));
 
+  const net = await provider.getNetwork();
+  if (Number(net.chainId) !== 560048) {
+    console.log("\nSkipping Stage 2: non-Hoodi network");
+    return;
+  }
+
   // ════════════════════════════════════════════════════════════════════════════
   // STAGE 2: E2E Test — LP Deposit → STAKE_BOND via Vault → Verify on CSM
   // ════════════════════════════════════════════════════════════════════════════
@@ -273,6 +277,30 @@ async function main() {
   const wethArt  = artifact("v3/test/MockWETH.sol", "MockWETH");
   const vault    = new ethers.Contract(s.csmVault, vaultArt.abi, wallet);
   const wethC    = new ethers.Contract(s.mockWETH, wethArt.abi, wallet);
+
+  console.log("\n[2x] Selecting validator from JSON:", VALIDATORS_JSON_PATH);
+  const validators = JSON.parse(readFileSync(VALIDATORS_JSON_PATH, "utf8"));
+  if (!Array.isArray(validators) || validators.length === 0) {
+    throw new Error("Validator JSON is empty or invalid");
+  }
+  const selected = pickNextValidator(validators);
+  if (!selected) {
+    console.log("No unused validators found. Stopping Stage 2 as requested.");
+    return;
+  }
+
+  const pubkey = normalizeHex(selected.pubkey);
+  const signature = normalizeHex(selected.signature);
+  if (pubkey.length !== 98) throw new Error("Invalid pubkey length in selected JSON entry");
+  if (signature.length !== 194) throw new Error("Invalid signature length in selected JSON entry");
+
+  const sr = new ethers.Contract(STAKING_ROUTER, ["function getWithdrawalCredentials() view returns (bytes32)"], provider);
+  const expectedWC = (await sr.getWithdrawalCredentials()).toLowerCase();
+  const jsonWC = normalizeHex(selected.withdrawal_credentials).toLowerCase();
+  if (expectedWC !== jsonWC) {
+    throw new Error(`withdrawal_credentials mismatch. json=${jsonWC} expected=${expectedWC}`);
+  }
+  console.log("  Using pubkey:", pubkey);
 
   // ── 2a. Wrap ETH → WETH ─────────────────────────────────────────────────
   console.log("\n[2a] Wrapping", ethers.formatEther(BOND_AMOUNT), "ETH → WETH");
@@ -294,48 +322,6 @@ async function main() {
   console.log("  LP shares:", ethers.formatEther(shares));
   console.log("  Vault WETH:", ethers.formatEther(vaultWeth));
 
-  // ── 2d. Generate BLS keys (in production, these come from Tennova via S3) ──
-  console.log("\n[2d] Generating BLS validator keys (placeholder — expecting from Tennova)");
-  const { ssz } = await import("@lodestar/types");
-
-  const sr = new ethers.Contract(STAKING_ROUTER, [
-    "function getWithdrawalCredentials() view returns (bytes32)",
-  ], provider);
-  const wcBytes32 = await sr.getWithdrawalCredentials();
-  console.log("  Lido WC:", wcBytes32);
-  const wc = hexToBytes(wcBytes32);
-
-  const sk = bls.utils.randomPrivateKey();
-  const pk = bls.getPublicKey(sk);
-  console.log("  Validator pubkey:", bytesToHex(pk));
-
-  const depositMessageRoot = ssz.phase0.DepositMessage.hashTreeRoot({
-    pubkey: pk,
-    withdrawalCredentials: wc,
-    amount: 32_000_000_000,
-  });
-  const forkVersion = hexToBytes(GENESIS_FORK_VERSION);
-  const forkDataRoot = ssz.phase0.ForkData.hashTreeRoot({
-    currentVersion: forkVersion,
-    genesisValidatorsRoot: new Uint8Array(32),
-  });
-  const domain = new Uint8Array(32);
-  domain.set([3, 0, 0, 0], 0);
-  domain.set(forkDataRoot.slice(0, 28), 4);
-  const signingRoot = ssz.phase0.SigningData.hashTreeRoot({
-    objectRoot: depositMessageRoot,
-    domain,
-  });
-
-  bls.utils.setDSTLabel("BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_");
-  const sig = await bls.sign(signingRoot, sk);
-  const valid = await bls.verify(sig, signingRoot, pk);
-  console.log("  BLS verify:", valid);
-  if (!valid) { console.error("FATAL: BLS verification failed"); process.exit(1); }
-
-  const pkHex  = bytesToHex(pk);
-  const sigHex = bytesToHex(sig);
-
   // ── 2e. Vault approves LidoCSMAdapter to pull WETH ───────────────────────
   console.log("\n[2e] Vault approves LidoCSMAdapter to pull WETH");
   await sendTx(wallet, provider, "vault.approveToken", s.csmVault, vaultArt.abi,
@@ -344,14 +330,14 @@ async function main() {
   // ── 2f. Call STAKE_BOND through vault's executeModuleAction ──────────────
   console.log("\n[2f] Calling STAKE_BOND via vault.executeModuleAction");
   const validatorData = ethers.AbiCoder.defaultAbiCoder().encode(
-    ["bytes", "bytes"], [pkHex, sigHex]
+    ["bytes", "bytes"], [pubkey, signature]
   );
   const stakeParams = ethers.AbiCoder.defaultAbiCoder().encode(
     ["address", "uint256", "bytes"],
     [s.mockWETH, BOND_AMOUNT, validatorData]
   );
   const STAKE_BOND_CMD = 5; // enum index
-  await sendTx(wallet, provider, "vault.executeModuleAction(STAKE_BOND)",
+  const stakeReceipt = await sendTx(wallet, provider, "vault.executeModuleAction(STAKE_BOND)",
     s.csmVault, vaultArt.abi, "executeModuleAction",
     [STAKE_BOND_CMD, stakeParams], { gasLimit: 3_000_000n });
 
@@ -381,8 +367,15 @@ async function main() {
     console.log("\n✅ Key VETTED! Validator registered via vault infra.");
   }
 
-  console.log("\nValidator pubkey:", pkHex);
-  console.log("Monitor: https://hoodi.beaconcha.in/validator/" + pkHex);
+  selected.used = true;
+  selected.usedAt = new Date().toISOString();
+  selected.nodeOperatorId = Number(noId);
+  selected.txHash = stakeReceipt.hash;
+  selected.vetted = Number(no[3]) > 0;
+  writeFileSync(VALIDATORS_JSON_PATH, JSON.stringify(validators, null, 2));
+
+  console.log("\nValidator pubkey:", pubkey);
+  console.log("Monitor: https://hoodi.beaconcha.in/validator/" + pubkey);
 
   const vaultWethAfter = await wethC.balanceOf(s.csmVault);
   console.log("\nVault WETH after stake:", ethers.formatEther(vaultWethAfter));

@@ -106,6 +106,22 @@ async function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function sendTxAndWait(
+  deployer: any,
+  label: string,
+  txBuilder: (nonce: number) => Promise<any>
+): Promise<any> {
+  const latestNonce = await deployer.getNonce("latest");
+  const pendingNonce = await deployer.getNonce("pending");
+  const tx = await txBuilder(latestNonce);
+  console.log(`  -> ${label} tx: ${tx.hash} (nonce: ${latestNonce}, pending: ${pendingNonce})`);
+  const receipt = await tx.wait(1, 180000);
+  if (!receipt || receipt.status !== 1) {
+    throw new Error(`${label} failed: ${tx.hash}`);
+  }
+  return receipt;
+}
+
 async function deployContract(
   deployer: any,
   name: string,
@@ -119,13 +135,55 @@ async function deployContract(
     return state[stateKey] as string;
   }
 
-  const nonceBefore = await deployer.getNonce();
-  console.log(`  Deploying ${name}... (nonce: ${nonceBefore})`);
+  const latestNonce = await deployer.getNonce("latest");
+  const pendingNonce = await deployer.getNonce("pending");
+  const forcedNonce = process.env.FORCE_NONCE ? Number(process.env.FORCE_NONCE) : null;
+  const nonceBefore = forcedNonce ?? latestNonce;
+  console.log(`  Deploying ${name}... (nonce: ${nonceBefore}, latest: ${latestNonce}, pending: ${pendingNonce})`);
+  if (pendingNonce > latestNonce) {
+    console.log(`  ⚠ Pending nonce gap detected (${pendingNonce - latestNonce}). Using latest nonce to avoid RPC pending nonce drift.`);
+  }
+  if (forcedNonce !== null) {
+    console.log(`  ⚠ FORCE_NONCE override active: ${forcedNonce}`);
+  }
 
   const Factory = await ethers.getContractFactory(factoryPath);
-  const contract = await Factory.deploy(...args);
-  await contract.waitForDeployment();
-  const address = await contract.getAddress();
+
+  let contract: any;
+  let address = "";
+  let lastErr: any;
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const attemptNonce = attempt === 1 ? nonceBefore : await deployer.getNonce("latest");
+      contract = await Factory.deploy(...args, { nonce: attemptNonce });
+      const deploymentTx = contract.deploymentTransaction();
+      if (!deploymentTx) {
+        throw new Error(`Deployment tx missing for ${name}`);
+      }
+
+      console.log(`  ↳ tx: ${deploymentTx.hash} (attempt ${attempt}/3, nonce ${attemptNonce})`);
+      const receipt = await deploymentTx.wait(1, 180000);
+      if (!receipt || receipt.status !== 1) {
+        throw new Error(`${name} deployment failed or timed out: ${deploymentTx.hash}`);
+      }
+
+      address = await contract.getAddress();
+      break;
+    } catch (err: any) {
+      lastErr = err;
+      const msg = err?.shortMessage || err?.message || String(err);
+      console.log(`  ⚠ ${name} deploy attempt ${attempt} failed: ${msg}`);
+      if (attempt < 3) {
+        console.log("  ↻ Retrying deployment...");
+        await delay(3000);
+      }
+    }
+  }
+
+  if (!address) {
+    throw lastErr || new Error(`${name} deployment failed after retries`);
+  }
 
   console.log(`  ✅ ${name}: ${address}`);
 
@@ -213,17 +271,17 @@ async function main() {
     chainlinkTokens.push(BASE_MAINNET.USDC);
     chainlinkFeeds.push(BASE_MAINNET.CHAINLINK_USDC_USD);
 
-    let nonce = await deployer.getNonce();
-    await (await oracle.setPriceFeeds(chainlinkTokens, chainlinkFeeds)).wait();
+    await sendTxAndWait(deployer, "oracle.setPriceFeeds", (nonce) =>
+      oracle.setPriceFeeds(chainlinkTokens, chainlinkFeeds, { nonce })
+    );
     console.log(`  ✅ ${chainlinkTokens.length} Chainlink price feeds configured`);
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
-    nonce = await deployer.getNonce();
     const ONE_DAY = 24 * 60 * 60;
-    await (await oracle.setStaleThreshold(BASE_MAINNET.USDC, ONE_DAY)).wait();
+    await sendTxAndWait(deployer, "oracle.setStaleThreshold", (nonce) =>
+      oracle.setStaleThreshold(BASE_MAINNET.USDC, ONE_DAY, { nonce })
+    );
     console.log("  ✅ USDC stale threshold set to 24 hours");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
     state.lastStep = "chainlinkConfigured";
@@ -250,16 +308,16 @@ async function main() {
       twapOracle
     );
 
-    let nonce = await deployer.getNonce();
-    await (await twap.setMinCardinality(10)).wait();
+    await sendTxAndWait(deployer, "twap.setMinCardinality", (nonce) =>
+      twap.setMinCardinality(10, { nonce })
+    );
     console.log("  ✅ Min cardinality set to 10");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
-    nonce = await deployer.getNonce();
-    await (await twap.setMinLiquidity(0)).wait();
+    await sendTxAndWait(deployer, "twap.setMinLiquidity", (nonce) =>
+      twap.setMinLiquidity(0, { nonce })
+    );
     console.log("  ✅ Min liquidity set to 0 (permissive for initial setup)");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
     state.lastStep = "twapConfigured";
@@ -309,12 +367,13 @@ async function main() {
     maxDeviation.push(0);
     requireBoth.push(false);
 
-    let nonce = await deployer.getNonce();
-    await (await hybrid.configureTokensBatch(
-      tokens, useChainlink, useTWAP, maxDeviation, requireBoth
-    )).wait();
+    await sendTxAndWait(deployer, "hybrid.configureTokensBatch", (nonce) =>
+      hybrid.configureTokensBatch(
+        tokens, useChainlink, useTWAP, maxDeviation, requireBoth,
+        { nonce }
+      )
+    );
     console.log(`  ✅ ${tokens.length} tokens configured in HybridOracle`);
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
     state.lastStep = "hybridConfigured";
@@ -354,13 +413,13 @@ async function main() {
       moduleRegistry
     );
     
-    const nonce = await deployer.getNonce();
-    await (await registry.setOracle(hybridOracle)).wait();
+    await sendTxAndWait(deployer, "registry.setOracle", (nonce) =>
+      registry.setOracle(hybridOracle, { nonce })
+    );
     console.log("  ✅ Oracle set in registry");
     
     state.lastStep = "registryOracleSet";
     saveState(state);
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
   }
 
@@ -405,34 +464,34 @@ async function main() {
       swapHub
     );
 
-    let nonce = await deployer.getNonce();
-    await (await adapter.setSwapHub(swapHub)).wait();
+    await sendTxAndWait(deployer, "aerodrome.setSwapHub", (nonce) =>
+      adapter.setSwapHub(swapHub, { nonce })
+    );
     console.log("  ✅ SwapHub set on adapter");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
-    nonce = await deployer.getNonce();
-    await (await adapter.configureRoute(BASE_MAINNET.USDC, BASE_MAINNET.WETH, false, true)).wait();
+    await sendTxAndWait(deployer, "aerodrome.configureRoute USDC->WETH", (nonce) =>
+      adapter.configureRoute(BASE_MAINNET.USDC, BASE_MAINNET.WETH, false, true, { nonce })
+    );
     console.log("  ✅ USDC->WETH route configured");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
-    nonce = await deployer.getNonce();
-    await (await adapter.configureRoute(BASE_MAINNET.WETH, BASE_MAINNET.USDC, false, true)).wait();
+    await sendTxAndWait(deployer, "aerodrome.configureRoute WETH->USDC", (nonce) =>
+      adapter.configureRoute(BASE_MAINNET.WETH, BASE_MAINNET.USDC, false, true, { nonce })
+    );
     console.log("  ✅ WETH->USDC route configured");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
-    nonce = await deployer.getNonce();
-    await (await hub.addAdapter(AERODROME_ADAPTER_ID, aerodromeAdapter)).wait();
+    await sendTxAndWait(deployer, "swapHub.addAdapter aerodrome", (nonce) =>
+      hub.addAdapter(AERODROME_ADAPTER_ID, aerodromeAdapter, { nonce })
+    );
     console.log("  ✅ Adapter added to SwapHub");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
-    nonce = await deployer.getNonce();
-    await (await hub.setDefaultAdapter(AERODROME_ADAPTER_ID)).wait();
+    await sendTxAndWait(deployer, "swapHub.setDefaultAdapter aerodrome", (nonce) =>
+      hub.setDefaultAdapter(AERODROME_ADAPTER_ID, { nonce })
+    );
     console.log("  ✅ Set as default adapter");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
     state.adapterIds.aerodrome = AERODROME_ADAPTER_ID;
@@ -466,28 +525,28 @@ async function main() {
       swapHub
     );
 
-    let nonce = await deployer.getNonce();
-    await (await adapter.setSwapHub(swapHub)).wait();
+    await sendTxAndWait(deployer, "uniswap.setSwapHub", (nonce) =>
+      adapter.setSwapHub(swapHub, { nonce })
+    );
     console.log("  ✅ SwapHub set on adapter");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
-    nonce = await deployer.getNonce();
-    await (await adapter.configurePool(BASE_MAINNET.USDC, BASE_MAINNET.WETH, 500, true)).wait();
+    await sendTxAndWait(deployer, "uniswap.configurePool USDC->WETH", (nonce) =>
+      adapter.configurePool(BASE_MAINNET.USDC, BASE_MAINNET.WETH, 500, true, { nonce })
+    );
     console.log("  ✅ USDC->WETH pool configured (0.05% fee)");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
-    nonce = await deployer.getNonce();
-    await (await adapter.configurePool(BASE_MAINNET.WETH, BASE_MAINNET.USDC, 500, true)).wait();
+    await sendTxAndWait(deployer, "uniswap.configurePool WETH->USDC", (nonce) =>
+      adapter.configurePool(BASE_MAINNET.WETH, BASE_MAINNET.USDC, 500, true, { nonce })
+    );
     console.log("  ✅ WETH->USDC pool configured (0.05% fee)");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
-    nonce = await deployer.getNonce();
-    await (await hub.addAdapter(UNISWAP_ADAPTER_ID, uniswapV3Adapter)).wait();
+    await sendTxAndWait(deployer, "swapHub.addAdapter uniswap", (nonce) =>
+      hub.addAdapter(UNISWAP_ADAPTER_ID, uniswapV3Adapter, { nonce })
+    );
     console.log("  ✅ Adapter added to SwapHub");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
     state.adapterIds = state.adapterIds || {};
@@ -535,28 +594,36 @@ async function main() {
       lendingHub
     );
 
-    let nonce = await deployer.getNonce();
-    await (await adapter.setLendingHub(lendingHub)).wait();
+    await sendTxAndWait(deployer, "aave.setLendingHub", (nonce) =>
+      adapter.setLendingHub(lendingHub, { nonce })
+    );
     console.log("  ✅ LendingHub set on adapter");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
-    nonce = await deployer.getNonce();
-    await (await adapter.addSupportedToken(BASE_MAINNET.USDC)).wait();
-    console.log("  ✅ USDC added as supported token");
-    await waitForNonce(deployer, nonce + 1);
+    try {
+      await sendTxAndWait(deployer, "aave.addSupportedToken USDC", (nonce) =>
+        adapter.addSupportedToken(BASE_MAINNET.USDC, { nonce })
+      );
+      console.log("  ✅ USDC added as supported token");
+    } catch (err: any) {
+      console.log(`  ⚠ Skipping USDC token listing on Aave adapter: ${err?.shortMessage || err?.message || err}`);
+    }
     await delay(1500);
 
-    nonce = await deployer.getNonce();
-    await (await adapter.addSupportedToken(BASE_MAINNET.WETH)).wait();
-    console.log("  ✅ WETH added as supported token");
-    await waitForNonce(deployer, nonce + 1);
+    try {
+      await sendTxAndWait(deployer, "aave.addSupportedToken WETH", (nonce) =>
+        adapter.addSupportedToken(BASE_MAINNET.WETH, { nonce })
+      );
+      console.log("  ✅ WETH added as supported token");
+    } catch (err: any) {
+      console.log(`  ⚠ Skipping WETH token listing on Aave adapter: ${err?.shortMessage || err?.message || err}`);
+    }
     await delay(1500);
 
-    nonce = await deployer.getNonce();
-    await (await hub.addAdapter(AAVE_ADAPTER_ID, aaveV3Adapter)).wait();
+    await sendTxAndWait(deployer, "lendingHub.addAdapter aave", (nonce) =>
+      hub.addAdapter(AAVE_ADAPTER_ID, aaveV3Adapter, { nonce })
+    );
     console.log("  ✅ Adapter added to LendingHub");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
     state.adapterIds = state.adapterIds || {};
@@ -575,16 +642,16 @@ async function main() {
       moduleRegistry
     );
 
-    let nonce = await deployer.getNonce();
-    await (await registry.setSwapModule(swapHub)).wait();
+    await sendTxAndWait(deployer, "registry.setSwapModule", (nonce) =>
+      registry.setSwapModule(swapHub, { nonce })
+    );
     console.log("  ✅ SwapHub registered as swap module");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
-    nonce = await deployer.getNonce();
-    await (await registry.setLendModule(lendingHub)).wait();
+    await sendTxAndWait(deployer, "registry.setLendModule", (nonce) =>
+      registry.setLendModule(lendingHub, { nonce })
+    );
     console.log("  ✅ LendingHub registered as lend module");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
     state.lastStep = "modulesRegistered";
@@ -624,16 +691,16 @@ async function main() {
       protocolCore
     );
 
-    let nonce = await deployer.getNonce();
-    await (await core.setIndexSwapFactory(indexSwapFactory)).wait();
+    await sendTxAndWait(deployer, "core.setIndexSwapFactory", (nonce) =>
+      core.setIndexSwapFactory(indexSwapFactory, { nonce })
+    );
     console.log("  ✅ Factory registered in ProtocolCore");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
-    nonce = await deployer.getNonce();
-    await (await core.setFeeCollector(feeCollector)).wait();
+    await sendTxAndWait(deployer, "core.setFeeCollector", (nonce) =>
+      core.setFeeCollector(feeCollector, { nonce })
+    );
     console.log("  ✅ FeeCollector registered in ProtocolCore");
-    await waitForNonce(deployer, nonce + 1);
     await delay(1500);
 
     state.lastStep = "factoryRegistered";
@@ -657,17 +724,17 @@ async function main() {
     ];
     
     console.log("  Creating vault via ProtocolCore.createIndexSwapVault()...");
-    let nonce = await deployer.getNonce();
-    
     const tx = await core.createIndexSwapVault(
       deployer.address,
       "Test Index Vault",
       "TIV",
       portfolio,
       0,
-      1000
+      1000,
+      { nonce: await deployer.getNonce("latest") }
     );
-    const receipt = await tx.wait();
+    console.log(`  -> core.createIndexSwapVault tx: ${tx.hash}`);
+    const receipt = await tx.wait(1, 180000);
     
     const vaultCreatedEvent = receipt?.logs.find((log: any) => {
       try {
@@ -699,8 +766,7 @@ async function main() {
       indexSwap: vaultAddress,
     };
     saveState(state);
-    
-    await waitForNonce(deployer, nonce + 1);
+
     await delay(1500);
   }
 
