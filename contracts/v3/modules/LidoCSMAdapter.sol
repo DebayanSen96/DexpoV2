@@ -25,6 +25,12 @@ interface ICSModule {
 
 interface ICSAccounting {
     function getBondSummary(uint256 noId) external view returns (uint256 current, uint256 required);
+    function pullFeeRewards(uint256 nodeOperatorId, uint256 cumulativeFeeShares, bytes32[] calldata rewardsProof) external;
+}
+
+interface ILidoStETH {
+    function balanceOf(address account) external view returns (uint256);
+    function transfer(address to, uint256 amount) external returns (bool);
 }
 
 interface IPermissionlessGate {
@@ -52,7 +58,7 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
     address public oracle;
     address public weth;
 
-    address private constant ETH_SENTINEL = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    address private constant ETH_SENTINEL = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE; // kept for interface compat
 
     mapping(address => uint256) public vaultNodeOperatorId;
     mapping(address => uint256) public vaultBondedEth;
@@ -143,25 +149,38 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
         if (!vaultRegistered[vault]) return 0;
 
         uint256 noId = vaultNodeOperatorId[vault];
-        (uint256 current, ) = ICSAccounting(csAccounting).getBondSummary(noId);
-        uint256 principal = vaultBondedEth[vault];
-        if (current <= principal) return 0;
+        (uint256 current, uint256 required) = ICSAccounting(csAccounting).getBondSummary(noId);
+        if (current <= required) return 0;
 
-        uint256 accruedNow = current - principal;
-        uint256 alreadyAccounted = vaultAccruedRewardsEth[vault];
-        if (accruedNow <= alreadyAccounted) return 0;
+        uint256 excess = current - required;
+        vaultAccruedRewardsEth[vault] += excess;
+        emit RewardsClaimed(vault, excess);
+        return excess;
+    }
 
-        uint256 newlyAccrued = accruedNow - alreadyAccounted;
-        vaultAccruedRewardsEth[vault] = accruedNow;
-        emit RewardsClaimed(vault, newlyAccrued);
-        return newlyAccrued;
+    function pullFeeRewardsAndClaim(
+        address vault,
+        uint256 cumulativeFeeShares,
+        bytes32[] calldata rewardsProof
+    ) external onlyVaultCaller(vault) returns (uint256 claimed) {
+        require(vaultRegistered[vault], "Not registered");
+        uint256 noId = vaultNodeOperatorId[vault];
+
+        ICSAccounting(csAccounting).pullFeeRewards(noId, cumulativeFeeShares, rewardsProof);
+
+        (uint256 current, uint256 required) = ICSAccounting(csAccounting).getBondSummary(noId);
+        if (current <= required) return 0;
+
+        claimed = current - required;
+        vaultAccruedRewardsEth[vault] += claimed;
+        emit RewardsClaimed(vault, claimed);
     }
 
     function getPositionValue(address vault, address) external view override returns (uint256) {
         if (!vaultRegistered[vault]) return 0;
         uint256 noId = vaultNodeOperatorId[vault];
         try ICSAccounting(csAccounting).getBondSummary(noId) returns (uint256 current, uint256) {
-            uint256 ethPrice = IOracle(oracle).priceUsdE18(ETH_SENTINEL);
+            uint256 ethPrice = IOracle(oracle).priceUsdE18(weth);
             return (current * ethPrice) / 1e18;
         } catch {
             return 0;

@@ -4,6 +4,10 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "../../interfaces/IOracle.sol";
 
+interface IERC20Decimals {
+    function decimals() external view returns (uint8);
+}
+
 interface IVault {
     function getTotalValueUsd() external view returns (uint256);
 }
@@ -107,7 +111,8 @@ contract ProtocolMetrics is Ownable {
             
             if (feeAmount > 0) {
                 try IOracle(oracle).priceUsdE18(token) returns (uint256 price) {
-                    totalFees += (feeAmount * price) / 1e18;
+                    uint8 decimals = IERC20Decimals(token).decimals();
+                    totalFees += (feeAmount * price) / (10 ** decimals);
                 } catch {}
             }
         }
@@ -142,7 +147,8 @@ contract ProtocolMetrics is Ownable {
                 
                 if (feeAmount > 0) {
                     try IOracle(oracle).priceUsdE18(token) returns (uint256 price) {
-                        totalFees += (feeAmount * price) / 1e18;
+                        uint8 decimals = IERC20Decimals(token).decimals();
+                        totalFees += (feeAmount * price) / (10 ** decimals);
                     } catch {}
                 }
             }

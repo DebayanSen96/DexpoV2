@@ -58,7 +58,7 @@ const CSA_ABI = [
 ];
 
 function loadDeployment() {
-  const p = join(__dirname, "..", "deployments", "v3-latest", "ethereum-hoodi.json");
+  const p = join(__dirname, "..", "..", "..", "deployments", "v3-latest", "ethereum-hoodi.json");
   return JSON.parse(readFileSync(p, "utf8"));
 }
 

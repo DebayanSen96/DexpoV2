@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "../../interfaces/IProtocolCoreOwnable.sol";
 import "../../interfaces/IOracle.sol";
 
@@ -48,7 +49,7 @@ interface IStakingModule {
     function getPositionValue(address vault, address token) external view returns (uint256);
 }
 
-contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable {
+contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
     
     address public protocolCore;
@@ -158,6 +159,16 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     constructor() {
         _disableInitializers();
     }
+
+    function _authorizeUpgrade(address newImplementation) internal override {
+        bool isProtocolOwner = false;
+        if (protocolCore != address(0)) {
+            try IProtocolCoreOwnable(protocolCore).owner() returns (address po) {
+                isProtocolOwner = (msg.sender == po);
+            } catch {}
+        }
+        if (!isProtocolOwner) revert NotAuthorized();
+    }
     
     struct InitParams {
         address protocolCore;
@@ -183,6 +194,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         
         __ERC20_init(_name, _symbol);
         __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
         
         protocolCore = params.protocolCore;
         safe = params.vaultOwner;
@@ -267,6 +279,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         }
         
         require(shares > 0, "Zero shares");
+        uint256 existingShares = balanceOf(msg.sender);
         _mint(msg.sender, shares);
         
         totalDepositsUsd += totalValueUsd;
@@ -274,7 +287,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
             highWaterMarkUsd = getTotalValueUsd();
         }
         
-        userDepositTimestamp[msg.sender] = block.timestamp;
+        _updateWeightedTimestamp(msg.sender, existingShares, shares);
         userCostBasisUsd[msg.sender] += totalValueUsd;
         
         emit Deposit(msg.sender, shares, totalValueUsd);
@@ -308,6 +321,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         }
         
         require(shares > 0, "Zero shares");
+        uint256 existingShares = balanceOf(msg.sender);
         _mint(msg.sender, shares);
         
         totalDepositsUsd += depositValueUsd;
@@ -315,10 +329,23 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
             highWaterMarkUsd = getTotalValueUsd();
         }
         
-        userDepositTimestamp[msg.sender] = block.timestamp;
         userCostBasisUsd[msg.sender] += depositValueUsd;
+        _updateWeightedTimestamp(msg.sender, existingShares, shares);
         
         emit Deposit(msg.sender, shares, depositValueUsd);
+    }
+    
+    function _updateWeightedTimestamp(address user, uint256 existingShares, uint256 newShares) internal {
+        uint256 existingTimestamp = userDepositTimestamp[user];
+        uint256 newTimestamp = block.timestamp;
+        
+        if (existingShares == 0) {
+            userDepositTimestamp[user] = newTimestamp;
+        } else {
+            uint256 totalShares = existingShares + newShares;
+            uint256 weightedTimestamp = (existingTimestamp * existingShares + newTimestamp * newShares) / totalShares;
+            userDepositTimestamp[user] = weightedTimestamp;
+        }
     }
     
     function withdraw(uint256 shares) external nonReentrant whenNotPaused returns (uint256[] memory amounts) {
@@ -492,8 +519,9 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         uint256 feeTokenAmount = (feeAmountUsd * (10 ** feeTokenDecimals)) / feeTokenPrice;
         
         uint256 feeTokenBalance = IERC20(feeToken).balanceOf(address(this));
-        if (feeTokenAmount > feeTokenBalance) {
-            feeTokenAmount = feeTokenBalance;
+        uint256 maxExtractable = feeTokenBalance / 2;
+        if (feeTokenAmount > maxExtractable) {
+            feeTokenAmount = maxExtractable;
         }
         
         if (feeTokenAmount > 0) {
@@ -550,11 +578,24 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         maxSlippageBps = _slippageBps;
         emit MaxSlippageUpdated(_slippageBps);
     }
-    
+
+    error SpenderNotRegisteredModule();
+
     function approveToken(address token, address spender, uint256 amount) external onlySafeOrProtocolOwner {
         require(token != address(0), "Invalid token");
         require(spender != address(0), "Invalid spender");
+        if (!_isRegisteredSpender(spender)) revert SpenderNotRegisteredModule();
         IERC20(token).forceApprove(spender, amount);
+    }
+
+    function _isRegisteredSpender(address spender) internal view returns (bool) {
+        if (spender == feeCollector) return true;
+        if (moduleRegistry == address(0)) return false;
+        if (spender == IModuleRegistry(moduleRegistry).getSwapModule()) return true;
+        if (spender == IModuleRegistry(moduleRegistry).getLendModule()) return true;
+        if (spender == IModuleRegistry(moduleRegistry).getBorrowModule()) return true;
+        if (spender == IModuleRegistry(moduleRegistry).getStakingModule()) return true;
+        return false;
     }
 
     function rescueToken(address token, address to, uint256 amount) external onlySafeOrProtocolOwner {
@@ -664,6 +705,13 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         return portfolio;
     }
     
+    error ShareTransfersDisabled();
+
+    function _update(address from, address to, uint256 value) internal override {
+        if (from != address(0) && to != address(0)) revert ShareTransfersDisabled();
+        super._update(from, to, value);
+    }
+
     function _getTokenValueUsd(address token, uint256 amount) internal view returns (uint256) {
         if (amount == 0) return 0;
         
@@ -673,5 +721,14 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         return (amount * priceUsd) / (10 ** decimals);
     }
     
+    function emergencyRescueETH(address to, uint256 amount) external onlySafeOrProtocolOwner {
+        require(to != address(0), "Invalid recipient");
+        uint256 available = address(this).balance;
+        uint256 rescueAmount = amount == 0 ? available : amount;
+        require(rescueAmount <= available, "Insufficient ETH");
+        (bool ok, ) = to.call{value: rescueAmount}("");
+        require(ok, "ETH transfer failed");
+    }
+
     receive() external payable {}
 }

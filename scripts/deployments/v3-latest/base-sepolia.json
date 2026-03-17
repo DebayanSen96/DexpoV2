@@ -1,0 +1,28 @@
+{
+  "deployer": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+  "timestamp": "2026-03-17T03:12:42.057Z",
+  "dxpToken": "0xA09B4d976b7b4DFCF50775A9af083903696F5823",
+  "protocolCore": "0x564744a1c1e5dEB992d257471cf9A828783D60Cf",
+  "chainlinkOracle": "0x2351d927B6Fc1660054f5e5dDC93c1506a95Ec8A",
+  "lastStep": "complete",
+  "twapOracle": "0x82a10018F9A5a0CA77d729AfC551bFD63cBc30BB",
+  "hybridOracle": "0x97aC9964D96621Cf0E64ef1628b444C60CFaaBC4",
+  "feeCollector": "0x717f000Cd605Dda2ba21D09bEc76320A5756A100",
+  "moduleRegistry": "0xD7D661c9890C2df2ddd9bd25d0518A615529AA57",
+  "swapHub": "0x529Fa6845A2E24D2627444c2ee1f0A98861cd010",
+  "aerodromeAdapter": "0xF448771cA0C4dE446dF38e1386e67116862f0e5d",
+  "adapterIds": {
+    "aerodrome": "0x7a06cdba1088a954631c25b2396564ca5f7588e130488af408a337dc37e6368b",
+    "uniswapV3": "0x3e1ba2b70880de8835e37b2821b3ca56e07c15ae583bf7dfa6888e3bd39bb5ca",
+    "aaveV3": "0x4ac3471c421a89f9d5f6ef6ba1e113bd137f6aec87bd169e9012a1e57356e4fc"
+  },
+  "uniswapV3Adapter": "0x727D971FDeD33c7b58e1a2350036Be0d2f67FCdb",
+  "lendingHub": "0xCB0A97191023A4F2c4a6306D7f46a6B43F4620b7",
+  "aaveV3Adapter": "0x9428083f61Fd6FC9eb83e69B42c66363131601a0",
+  "indexSwapImplementation": "0x03E0b07c13706509730daA518A1780C02D849A71",
+  "indexSwapFactory": "0x2e4428B7Bed2d88713F9E28ffe0d86433D8459c5",
+  "testVault": {
+    "safe": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+    "indexSwap": "0xCe5F619423f4F87e278d6016fB98235467941715"
+  }
+}

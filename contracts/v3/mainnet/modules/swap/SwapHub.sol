@@ -225,8 +225,26 @@ contract SwapHub is Ownable, ReentrancyGuard {
     ) internal returns (uint256 amountOut) {
         if (block.timestamp > deadline) revert SwapExpired();
         if (amountIn == 0) revert ZeroAmount();
-        
-        AdapterInfo storage adapterInfo = adapters[defaultAdapterId];
+
+        bytes32 selectedAdapter = defaultAdapterId;
+        uint256 bestQuote = 0;
+        uint256 checkCount = adapterIds.length > MAX_ADAPTERS_TO_CHECK 
+            ? MAX_ADAPTERS_TO_CHECK 
+            : adapterIds.length;
+        for (uint256 i = 0; i < checkCount; i++) {
+            bytes32 aid = adapterIds[i];
+            AdapterInfo storage info = adapters[aid];
+            if (!info.active || info.adapterAddress == address(0)) continue;
+            ISwapAdapter a = ISwapAdapter(info.adapterAddress);
+            if (!a.isRouteSupported(tokenIn, tokenOut)) continue;
+            uint256 q = a.getQuote(tokenIn, tokenOut, amountIn);
+            if (q > bestQuote) {
+                bestQuote = q;
+                selectedAdapter = aid;
+            }
+        }
+
+        AdapterInfo storage adapterInfo = adapters[selectedAdapter];
         if (adapterInfo.adapterAddress == address(0)) revert AdapterNotFound();
         if (!adapterInfo.active) revert AdapterNotActive();
 
@@ -256,7 +274,7 @@ contract SwapHub is Ownable, ReentrancyGuard {
             IERC20(tokenIn).safeTransfer(vault, excess);
         }
 
-        emit Swapped(vault, defaultAdapterId, tokenIn, tokenOut, amountIn, amountOut);
+        emit Swapped(vault, selectedAdapter, tokenIn, tokenOut, amountIn, amountOut);
     }
 
     function getQuote(
@@ -301,5 +319,13 @@ contract SwapHub is Ownable, ReentrancyGuard {
 
     function getAdapterCount() external view returns (uint256) {
         return adapterIds.length;
+    }
+
+    function emergencyRescueToken(address token, address to, uint256 amount) external onlyOwner {
+        require(to != address(0), "Invalid recipient");
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        uint256 rescueAmount = amount == 0 ? balance : amount;
+        require(rescueAmount <= balance, "Insufficient balance");
+        IERC20(token).safeTransfer(to, rescueAmount);
     }
 }

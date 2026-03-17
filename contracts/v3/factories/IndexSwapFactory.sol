@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/proxy/Clones.sol";
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 interface IModuleRegistryFactory {
     function getLendModule() external view returns (address);
@@ -35,7 +35,6 @@ interface IIndexSwapV3Init {
 }
 
 contract IndexSwapFactory is Ownable {
-    using Clones for address;
     
     address public immutable protocolCore;
     address public immutable moduleRegistry;
@@ -95,26 +94,31 @@ contract IndexSwapFactory is Ownable {
         if (feeCollector == address(0)) revert FeeCollectorNotSet();
         if (implementation == address(0)) revert ImplementationNotSet();
         
-        indexSwap = implementation.clone();
-        
         IIndexSwapV3Init.TokenWeight[] memory portfolioInit = new IIndexSwapV3Init.TokenWeight[](portfolio.length);
         for (uint256 i; i < portfolio.length; ++i) {
             portfolioInit[i].token = portfolio[i].token;
             portfolioInit[i].weightBps = portfolio[i].weightBps;
         }
         
-        IIndexSwapV3Init.InitParams memory params = IIndexSwapV3Init.InitParams({
-            protocolCore: protocolCore,
-            vaultOwner: vaultOwner,
-            moduleRegistry: moduleRegistry,
-            feeCollector: feeCollector,
-            lendModule: IModuleRegistryFactory(moduleRegistry).getLendModule(),
-            borrowModule: IModuleRegistryFactory(moduleRegistry).getBorrowModule(),
-            performanceFeeBps: performanceFeeBps,
-            lockupSeconds: lockupSeconds
-        });
-        
-        IIndexSwapV3Init(indexSwap).initialize(params, name, symbol, portfolioInit);
+        bytes memory initData = abi.encodeCall(
+            IIndexSwapV3Init.initialize,
+            (
+                IIndexSwapV3Init.InitParams({
+                    protocolCore: protocolCore,
+                    vaultOwner: vaultOwner,
+                    moduleRegistry: moduleRegistry,
+                    feeCollector: feeCollector,
+                    lendModule: IModuleRegistryFactory(moduleRegistry).getLendModule(),
+                    borrowModule: IModuleRegistryFactory(moduleRegistry).getBorrowModule(),
+                    performanceFeeBps: performanceFeeBps,
+                    lockupSeconds: lockupSeconds
+                }),
+                name,
+                symbol,
+                portfolioInit
+            )
+        );
+        indexSwap = address(new ERC1967Proxy(implementation, initData));
         
         vaults[vaultCount] = indexSwap;
         emit VaultCreated(vaultCount++, vaultOwner, indexSwap);

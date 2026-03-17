@@ -311,6 +311,14 @@ contract LendingHub is Ownable, ReentrancyGuard {
     function getVaultTokens(address vault) external view returns (address[] memory) {
         return vaultTokens[vault];
     }
+
+    function emergencyRescueToken(address token, address to, uint256 amount) external onlyOwner {
+        require(to != address(0), "Invalid recipient");
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        uint256 rescueAmount = amount == 0 ? balance : amount;
+        require(rescueAmount <= balance, "Insufficient balance");
+        IERC20(token).safeTransfer(to, rescueAmount);
+    }
 }
 
 interface IERC20Metadata {
