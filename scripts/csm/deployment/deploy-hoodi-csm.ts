@@ -5,6 +5,7 @@ import * as path from "path";
 const HOODI = {
   CS_MODULE:    "0x79CEf36D84743222f37765204Bec41E92a93E59d",
   CS_ACCOUNTING:"0xA54b90BA34C5f326BC1485054080994e38FB4C60",
+  STETH:        "0x3508A952176b3c15387C97BE809eaffB1982176a",
   ETH_PRICE_USD: ethers.parseEther("2000"), // $2000/ETH fixed mock price
 };
 
@@ -130,7 +131,7 @@ async function main() {
     s.lidoCSMAdapter = await deploy(
       "LidoCSMAdapter",
       "contracts/v3/modules/LidoCSMAdapter.sol:LidoCSMAdapter",
-      [HOODI.CS_MODULE, HOODI.CS_ACCOUNTING, s.mockOracle, deployer.address],
+      [HOODI.CS_MODULE, HOODI.CS_ACCOUNTING, "0x5553077102322689876A6AdFd48D75014c28acfb", s.mockOracle, s.mockWETH, HOODI.STETH],
       deployer
     );
     saveState(s);

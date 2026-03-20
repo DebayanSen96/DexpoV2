@@ -23,6 +23,8 @@ const CSM_ABI = [
 const CSA_ABI = [
   "function getBondSummary(uint256 nodeOperatorId) view returns (uint256 current, uint256 required)",
   "function pullFeeRewards(uint256 nodeOperatorId, uint256 cumulativeFeeShares, bytes32[] rewardsProof)",
+  "function getClaimableRewardsAndBondShares(uint256 nodeOperatorId, uint256 cumulativeFeeShares, bytes32[] rewardsProof) view returns (uint256)",
+  "function claimRewardsStETH(uint256 nodeOperatorId, uint256 stETHAmount, uint256 cumulativeFeeShares, bytes32[] rewardsProof) returns (uint256)",
 ];
 
 const ERC20_ABI = [
@@ -193,15 +195,20 @@ async function main() {
   console.log("staticCall pullFeeRewards: OK");
 
   let claimPreviewError = null;
+  let claimableShares = 0n;
+  let claimPreviewShares = 0n;
   if (!PULL_ONLY) {
-    console.log("\nstaticCall claimRewardsStETH...");
+    console.log("\nstaticCall CSAccounting claimRewardsStETH...");
     if (!canUseCsmClaim) {
       claimPreviewError = new Error("wallet is neither manager nor rewardAddress for this node operator");
       console.log("staticCall claimRewardsStETH failed:", claimPreviewError.message);
     } else {
       try {
-        await csm.claimRewardsStETH.staticCall(NO_ID, ethers.MaxUint256, cumulative, proof);
+        claimableShares = await csa.getClaimableRewardsAndBondShares(NO_ID, cumulative, proof);
+        console.log("claimable reward shares:", claimableShares.toString());
+        claimPreviewShares = await csa.claimRewardsStETH.staticCall(NO_ID, claimableShares, cumulative, proof);
         console.log("staticCall claimRewardsStETH: OK");
+        console.log("preview returned stETH amount:", ethers.formatEther(claimPreviewShares));
       } catch (err) {
         claimPreviewError = err;
         const msg = err?.shortMessage || err?.message || String(err);
@@ -241,9 +248,13 @@ async function main() {
     throw new Error("wallet is neither manager nor rewardAddress for this node operator; cannot send claimRewardsStETH via CSModule");
   }
 
-  console.log("\nSending claimRewardsStETH tx...");
+  if (claimableShares === 0n) {
+    claimableShares = await csa.getClaimableRewardsAndBondShares(NO_ID, cumulative, proof);
+  }
+
+  console.log("\nSending CSAccounting.claimRewardsStETH tx...");
   await sendTx(provider, wallet, "claimRewardsStETH", (nonce) =>
-    csm.claimRewardsStETH(NO_ID, ethers.MaxUint256, cumulative, proof, { nonce, gasLimit: 1_000_000n })
+    csa.claimRewardsStETH(NO_ID, claimableShares, cumulative, proof, { nonce, gasLimit: 1_000_000n })
   );
 
   const stethBalAfter = await steth.balanceOf(rewardAddr);

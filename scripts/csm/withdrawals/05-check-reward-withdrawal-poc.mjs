@@ -3,12 +3,12 @@ import { ethers } from "ethers";
 
 const HOODI_RPC = "https://hoodi.drpc.org";
 const PRIVATE_KEY = "2f9c39ab3295bc5d0efa10ab6a042a7486d25724f2bd35135088b402880e5eca";
+const TREE_URL = "https://raw.githubusercontent.com/lidofinance/csm-rewards/hoodi/tree.json";
 
 const CS_MODULE = "0x79CEf36D84743222f37765204Bec41E92a93E59d";
 const CS_ACCOUNTING = "0xA54b90BA34C5f326BC1485054080994e38FB4C60";
 
 const DEPLOYMENT_PATH = "c:/Work/DexpoV2/deployments/v3-latest/ethereum-hoodi.json";
-const DEPOSIT_JSON_PATH = "c:/Work/DexpoV2/keys/depost_data_1_march_2026.json";
 
 const VAULT_ABI = [
   "function executeModuleAction(uint8 command, bytes params) returns (bytes)",
@@ -29,89 +29,108 @@ const CSA_ABI = [
   "function getBondSummary(uint256 nodeOperatorId) view returns (uint256 current, uint256 required)",
 ];
 
-function toNum(v) {
-  return Number(v);
+function hashNode(a, b) {
+  if (a > b) [a, b] = [b, a];
+  return ethers.keccak256(ethers.concat([a, b]));
 }
 
-function findByNoId(entries, noId) {
-  return entries.find((e) => Number(e.nodeOperatorId) === Number(noId));
+function getProofFromTree(treeArray, index) {
+  const proof = [];
+  let i = index;
+  while (i > 0) {
+    const sibling = i % 2 === 0 ? i - 1 : i + 1;
+    if (treeArray[sibling]) proof.push(treeArray[sibling]);
+    i = Math.floor((i - 1) / 2);
+  }
+  return proof;
+}
+
+function verifyProof(root, leaf, proof) {
+  let acc = leaf;
+  for (const p of proof) acc = hashNode(acc, p);
+  return acc.toLowerCase() === root.toLowerCase();
+}
+
+async function fetchJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`);
+  return await res.json();
 }
 
 async function main() {
+  const SHOULD_SEND = process.argv.includes("--send");
   const provider = new ethers.JsonRpcProvider(HOODI_RPC);
   const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
 
   const deployment = JSON.parse(readFileSync(DEPLOYMENT_PATH, "utf8"));
-  const entries = JSON.parse(readFileSync(DEPOSIT_JSON_PATH, "utf8"));
-
+  const vault = new ethers.Contract(deployment.csmVault, VAULT_ABI, wallet);
+  const adapter = new ethers.Contract(deployment.lidoCSMAdapter, ADAPTER_ABI, provider);
   const csm = new ethers.Contract(CS_MODULE, CSM_ABI, provider);
   const csa = new ethers.Contract(CS_ACCOUNTING, CSA_ABI, provider);
 
-  const no410 = findByNoId(entries, 410);
-  const no411 = findByNoId(entries, 411);
-
-  if (!no410) throw new Error("Could not find nodeOperatorId=410 in deposit JSON");
-  if (!no411) throw new Error("Could not find nodeOperatorId=411 in deposit JSON");
+  const registered = await adapter.vaultRegistered(deployment.csmVault);
+  const noId = await adapter.vaultNodeOperatorId(deployment.csmVault);
+  const trackedPrincipal = await adapter.vaultBondedEth(deployment.csmVault);
+  const accruedView = await adapter.getAccruedRewardsEth(deployment.csmVault);
+  const [current, required] = await csa.getBondSummary(noId);
+  const info = await csm.getNodeOperator(noId);
 
   console.log("Wallet:", wallet.address);
   console.log("Vault:", deployment.csmVault);
   console.log("Adapter:", deployment.lidoCSMAdapter);
-
-  console.log("\n=== NO 410 (direct script path) ===");
-  const [current410, required410] = await csa.getBondSummary(410);
-  const info410 = await csm.getNodeOperator(410);
-  console.log("pubkey:", `0x${no410.pubkey}`);
-  console.log("manager:", info410[10]);
-  console.log("rewardAddress:", info410[11]);
-  console.log("vetted:", toNum(info410[3]));
-  console.log("deposited:", toNum(info410[2]));
-  console.log("current bond:", ethers.formatEther(current410), "ETH");
-  console.log("required bond:", ethers.formatEther(required410), "ETH");
-  console.log("potential reward over required:", ethers.formatEther(current410 > required410 ? current410 - required410 : 0n), "ETH");
-  console.log("Note: direct NO reward withdrawal requires Lido Merkle proof + claimRewardsStETH, not available in repo scripts yet.");
-
-  console.log("\n=== NO 411 (vault + adapter path) ===");
-  const adapter = new ethers.Contract(deployment.lidoCSMAdapter, ADAPTER_ABI, provider);
-  const vault = new ethers.Contract(deployment.csmVault, VAULT_ABI, wallet);
-
-  const registered = await adapter.vaultRegistered(deployment.csmVault);
-  const adapterNoId = await adapter.vaultNodeOperatorId(deployment.csmVault);
-  const trackedPrincipal = await adapter.vaultBondedEth(deployment.csmVault);
-  const accruedView = await adapter.getAccruedRewardsEth(deployment.csmVault);
-  const [current411, required411] = await csa.getBondSummary(411);
-  const info411 = await csm.getNodeOperator(411);
-
-  console.log("pubkey:", `0x${no411.pubkey}`);
+  console.log("NO ID:", Number(noId));
   console.log("vaultRegistered:", registered);
-  console.log("adapter NO ID:", toNum(adapterNoId));
-  console.log("manager:", info411[10]);
-  console.log("rewardAddress:", info411[11]);
-  console.log("vetted:", toNum(info411[3]));
-  console.log("deposited:", toNum(info411[2]));
-  console.log("current bond:", ethers.formatEther(current411), "ETH");
-  console.log("required bond:", ethers.formatEther(required411), "ETH");
+  console.log("manager:", info[10]);
+  console.log("rewardAddress:", info[11]);
+  console.log("current bond:", ethers.formatEther(current), "ETH");
+  console.log("required bond:", ethers.formatEther(required), "ETH");
   console.log("adapter tracked principal:", ethers.formatEther(trackedPrincipal), "ETH");
   console.log("adapter accrued view:", ethers.formatEther(accruedView), "ETH");
 
-  const STAKE_CLAIM = 6;
-  const claimPreviewBytes = await vault.executeModuleAction.staticCall(STAKE_CLAIM, "0x");
-  const [claimPreview] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], claimPreviewBytes);
-  console.log("STAKE_CLAIM preview claimable:", ethers.formatEther(claimPreview), "ETH");
-
-  if (claimPreview > 0n) {
-    console.log("\nSending on-chain STAKE_CLAIM tx...");
-    const nonce = await provider.getTransactionCount(wallet.address, "latest");
-    const tx = await vault.executeModuleAction(STAKE_CLAIM, "0x", { nonce, gasLimit: 600_000n });
-    console.log("tx:", tx.hash);
-    const receipt = await tx.wait();
-    console.log("status:", receipt.status, "gas:", receipt.gasUsed.toString());
-
-    const claimAfterBytes = await vault.executeModuleAction.staticCall(STAKE_CLAIM, "0x");
-    const [claimAfter] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], claimAfterBytes);
-    console.log("STAKE_CLAIM preview after tx:", ethers.formatEther(claimAfter), "ETH");
-  } else {
-    console.log("No claimable rewards yet on adapter path. Wait for more accrual and rerun.");
+  const treeDump = await fetchJson(TREE_URL);
+  const target = treeDump.values.find((v) => Number(v.value[0]) === Number(noId));
+  if (!target) {
+    console.log(`NO ${Number(noId)} not present in Lido rewards tree yet.`);
+    return;
   }
+
+  const cumulative = BigInt(target.value[1]);
+  const treeIndex = target.treeIndex;
+  const coder = ethers.AbiCoder.defaultAbiCoder();
+  const encoded = coder.encode(treeDump.leafEncoding, [BigInt(noId), cumulative]);
+  const leaf = ethers.keccak256(ethers.keccak256(encoded));
+  const proof = getProofFromTree(treeDump.tree, treeIndex);
+  const validProof = verifyProof(treeDump.tree[0], leaf, proof);
+
+  if (!validProof) throw new Error("Proof verification failed");
+  console.log("Merkle proof: OK");
+  console.log("cumulativeFeeShares:", cumulative.toString());
+  console.log("proof length:", proof.length);
+
+  const STAKE_CLAIM = 6;
+  const params = ethers.AbiCoder.defaultAbiCoder().encode(
+    ["uint256", "bytes32[]"],
+    [cumulative, proof]
+  );
+
+  const previewBytes = await vault.executeModuleAction.staticCall(STAKE_CLAIM, params);
+  const [claimPreview] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], previewBytes);
+  console.log("STAKE_CLAIM(proof) preview claimable:", ethers.formatEther(claimPreview), "ETH");
+
+  if (!SHOULD_SEND) {
+    console.log("Dry run complete. Re-run with --send to broadcast STAKE_CLAIM(proof).");
+    return;
+  }
+
+  const nonce = await provider.getTransactionCount(wallet.address, "pending");
+  const tx = await vault.executeModuleAction(STAKE_CLAIM, params, { nonce, gasLimit: 900_000n });
+  console.log("tx:", tx.hash);
+  const receipt = await tx.wait();
+  console.log("status:", receipt.status, "gas:", receipt.gasUsed.toString());
+
+  const afterBytes = await vault.executeModuleAction.staticCall(STAKE_CLAIM, params);
+  const [afterPreview] = ethers.AbiCoder.defaultAbiCoder().decode(["uint256"], afterBytes);
+  console.log("STAKE_CLAIM(proof) preview after tx:", ethers.formatEther(afterPreview), "ETH");
 }
 
 main().catch((e) => {

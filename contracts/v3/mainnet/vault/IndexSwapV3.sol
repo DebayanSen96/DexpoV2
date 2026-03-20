@@ -42,6 +42,7 @@ interface ILendingModule {
 interface IStakingModule {
     function depositBond(address vault, uint256 amount, bytes calldata validatorData) external;
     function claimRewards(address vault) external returns (uint256);
+    function claimRewards(address vault, uint256 cumulativeFeeShares, bytes32[] calldata rewardsProof) external returns (uint256);
     function getPositionValue(address vault, address token) external view returns (uint256);
 }
 
@@ -632,7 +633,13 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         } else if (command == ModuleCommand.STAKE_CLAIM) {
             address staking = IModuleRegistry(moduleRegistry).getStakingModule();
             require(staking != address(0), "Staking module not set");
-            uint256 claimed = IStakingModule(staking).claimRewards(address(this));
+            uint256 claimed;
+            if (params.length == 0) {
+                claimed = IStakingModule(staking).claimRewards(address(this));
+            } else {
+                (uint256 cumulativeFeeShares, bytes32[] memory rewardsProof) = abi.decode(params, (uint256, bytes32[]));
+                claimed = IStakingModule(staking).claimRewards(address(this), cumulativeFeeShares, rewardsProof);
+            }
             return abi.encode(claimed);
         } else {
             revert InvalidCommand();

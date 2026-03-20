@@ -26,6 +26,17 @@ interface ICSModule {
 interface ICSAccounting {
     function getBondSummary(uint256 noId) external view returns (uint256 current, uint256 required);
     function pullFeeRewards(uint256 nodeOperatorId, uint256 cumulativeFeeShares, bytes32[] calldata rewardsProof) external;
+    function getClaimableRewardsAndBondShares(
+        uint256 nodeOperatorId,
+        uint256 cumulativeFeeShares,
+        bytes32[] calldata rewardsProof
+    ) external view returns (uint256);
+    function claimRewardsStETH(
+        uint256 nodeOperatorId,
+        uint256 stETHAmount,
+        uint256 cumulativeFeeShares,
+        bytes32[] calldata rewardsProof
+    ) external returns (uint256);
 }
 
 interface ILidoStETH {
@@ -57,6 +68,7 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
     address public immutable permissionlessGate;
     address public oracle;
     address public weth;
+    address public steth;
 
     address private constant ETH_SENTINEL = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE; // kept for interface compat
 
@@ -76,13 +88,15 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
         address _csAccounting,
         address _permissionlessGate,
         address _oracle,
-        address _weth
+        address _weth,
+        address _steth
     ) Ownable(msg.sender) {
         csModule = _csModule;
         csAccounting = _csAccounting;
         permissionlessGate = _permissionlessGate;
         oracle = _oracle;
         weth = _weth;
+        steth = _steth;
     }
 
     modifier onlyVaultCaller(address vault) {
@@ -104,8 +118,8 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
         require(signature.length == 96, "Invalid signature length");
 
         tuple_ManagementProperties memory mgmt = tuple_ManagementProperties({
-            managerAddress: vault,
-            rewardAddress: vault,
+            managerAddress: address(this),
+            rewardAddress: address(this),
             extendedManagerPermissions: true
         });
 
@@ -158,21 +172,47 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
         return excess;
     }
 
+    function claimRewards(
+        address vault,
+        uint256 cumulativeFeeShares,
+        bytes32[] calldata rewardsProof
+    ) external override onlyVaultCaller(vault) returns (uint256 claimed) {
+        claimed = _claimRewardsWithProof(vault, cumulativeFeeShares, rewardsProof);
+    }
+
     function pullFeeRewardsAndClaim(
         address vault,
         uint256 cumulativeFeeShares,
         bytes32[] calldata rewardsProof
     ) external onlyVaultCaller(vault) returns (uint256 claimed) {
+        claimed = _claimRewardsWithProof(vault, cumulativeFeeShares, rewardsProof);
+    }
+
+    function _claimRewardsWithProof(
+        address vault,
+        uint256 cumulativeFeeShares,
+        bytes32[] calldata rewardsProof
+    ) internal returns (uint256 claimed) {
         require(vaultRegistered[vault], "Not registered");
         uint256 noId = vaultNodeOperatorId[vault];
 
-        ICSAccounting(csAccounting).pullFeeRewards(noId, cumulativeFeeShares, rewardsProof);
+        uint256 claimableShares = ICSAccounting(csAccounting).getClaimableRewardsAndBondShares(
+            noId,
+            cumulativeFeeShares,
+            rewardsProof
+        );
 
-        (uint256 current, uint256 required) = ICSAccounting(csAccounting).getBondSummary(noId);
-        if (current <= required) return 0;
+        if (claimableShares == 0) return 0;
 
-        claimed = current - required;
+        uint256 stethBefore = ILidoStETH(steth).balanceOf(address(this));
+        ICSAccounting(csAccounting).claimRewardsStETH(noId, claimableShares, cumulativeFeeShares, rewardsProof);
+        uint256 stethAfter = ILidoStETH(steth).balanceOf(address(this));
+
+        claimed = stethAfter - stethBefore;
+        if (claimed == 0) return 0;
+
         vaultAccruedRewardsEth[vault] += claimed;
+        require(ILidoStETH(steth).transfer(vault, claimed), "stETH transfer failed");
         emit RewardsClaimed(vault, claimed);
     }
 
