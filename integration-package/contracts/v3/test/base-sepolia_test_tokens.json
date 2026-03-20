@@ -1,0 +1,970 @@
+{
+  "network": "base-sepolia",
+  "mintedTo": "0x578636C1CDfd5BCA3F1e787Fa49c2ea664c7bd8C",
+  "tokens": [
+    {
+      "name": "USD Coin",
+      "symbol": "USDC",
+      "decimals": 6,
+      "address": "0x822f6bB6ba99a45F12D2d8E44CCE089B7AA47fC4",
+      "txHash": "0xd15f5f2d6c0be82c07c0645c52db807024989dd211a510f5795883abb452b4e7",
+      "initialSupplyNative": "1000000000",
+      "image": "https://coin-images.coingecko.com/coins/images/6319/large/usdc.png?1696506694"
+    },
+    {
+      "name": "Tether USD",
+      "symbol": "USDT",
+      "decimals": 6,
+      "address": "0x1D196BCE6Bbea402fEF328AB1Ac50C971497173D",
+      "txHash": "0x5a0377683b9bc2160cb95508b70c30d2dc05829ccd2a13de2d7129aa2b3e95ba",
+      "initialSupplyNative": "1000000000",
+      "image": "https://coin-images.coingecko.com/coins/images/325/large/Tether.png?1696501661"
+    },
+    {
+      "name": "Wrapped Ether",
+      "symbol": "WETH",
+      "decimals": 18,
+      "address": "0x3aAbBC9464fAA82B99c92b69A021FC8B4b639c4F",
+      "txHash": "0xb3cbc1d1cf1e80b0b64f34374455742e77f28d61587da78b4afa4c921f576cc0",
+      "initialSupplyNative": "1000000",
+      "image": "https://coin-images.coingecko.com/coins/images/2518/large/weth.png?1696503332",
+      "priceUsd": 4332.41
+    },
+    {
+      "name": "Wrapped Bitcoin",
+      "symbol": "WBTC",
+      "decimals": 8,
+      "address": "0xc9ee2c5b745A84Faf6F902d795bd8bBb02d7CC27",
+      "txHash": "0xd2c8983fb7147c606b5064db19f88121399f4ccd1baa8744889e79378440c804",
+      "initialSupplyNative": "21000000",
+      "image": "https://coin-images.coingecko.com/coins/images/7598/large/wrapped_bitcoin_wbtc.png?1696507857",
+      "priceUsd": 112419
+    },
+    {
+      "name": "Dai Stablecoin",
+      "symbol": "DAI",
+      "decimals": 18,
+      "address": "0x5355419854236B3D9c0675a87Fa560F230127663",
+      "txHash": "0x13bd63e493036926a1feb1c59e61ef82d597d9a9e73ddd76f954144167cff58f",
+      "initialSupplyNative": "1000000000",
+      "image": "https://coin-images.coingecko.com/coins/images/9956/large/Badge_Dai.png?1696509996"
+    },
+    {
+      "name": "Chainlink",
+      "symbol": "LINK",
+      "decimals": 18,
+      "address": "0x2991BAe6469e0C2eD20a76Ea8688a6049976aA8d",
+      "txHash": "0x1919feb68aada331bb36c46d116cf035f83687cfdd49608115fd8308ac3e97ea",
+      "initialSupplyNative": "1000000000",
+      "image": "https://coin-images.coingecko.com/coins/images/877/large/chainlink-new-logo.png?1696502009",
+      "priceUsd": 23.37
+    },
+    {
+      "name": "Uniswap",
+      "symbol": "UNI",
+      "decimals": 18,
+      "address": "0x5cE72C5A62866D8446ee9524b040231725172EA8",
+      "txHash": "0x982562bcff6fa2fd5494d910ba1ca2577dd1edad7f100f4de950b8424baab737",
+      "initialSupplyNative": "1000000000",
+      "image": "https://coin-images.coingecko.com/coins/images/12504/large/uniswap-logo.png?1720676669",
+      "priceUsd": 9.61
+    },
+    {
+      "name": "Aave",
+      "symbol": "AAVE",
+      "decimals": 18,
+      "address": "0x10783813b56eA6bB910824C3F3Eb13310985f9D1",
+      "txHash": "0x8f9b66e3f9b070c0ea497a914049487901e6387c6a344cf552422742f52119f1",
+      "initialSupplyNative": "16000000",
+      "image": "https://coin-images.coingecko.com/coins/images/12645/large/aave-token-round.png?1720472354",
+      "priceUsd": 298.04
+    },
+    {
+      "name": "Lido Staked Ether",
+      "symbol": "wstETH",
+      "decimals": 18,
+      "address": "0x17f17ecC042323A352e004dB5DD942E11134a9f3",
+      "txHash": "0x5bf6527b37ceafb4dd039274ce2492092bc4076579e8fb6b72827b224e96de19",
+      "initialSupplyNative": "1000000",
+      "image": "https://coin-images.coingecko.com/coins/images/18834/large/wstETH.png?1696518295"
+    },
+    {
+      "name": "Coinbase Wrapped Staked Ether",
+      "symbol": "cbETH",
+      "decimals": 18,
+      "address": "0x6F65438db63Cf86B97Dc2B63D70b9cB3fd5B6DF4",
+      "txHash": "0x2715b141a58ec9102dbd7516fc75693d5f0d45c700db4d49f6b8d642626f7a6e",
+      "initialSupplyNative": "1000000",
+      "image": "https://coin-images.coingecko.com/coins/images/27008/large/cbeth.png?1709186989"
+    },
+    {
+      "name": "USDX",
+      "symbol": "USDx",
+      "decimals": 18,
+      "address": "0xe50E303b29aB28181460D335a1186033Af24Bf82",
+      "txHash": "0x62b696893e820de6c3bd3f68c910bac42fb026770d0c82bc9f494c9628c14c12",
+      "initialSupplyNative": "10000000",
+      "image": "https://dxp-bucket.sfo3.digitaloceanspaces.com/share-token-images_1758536678313_USDx--1-.png"
+    },
+    {
+      "name": "Stellar",
+      "symbol": "XLM",
+      "decimals": 18,
+      "address": "0x2C817d381982A349d820eB4B1dB077c9Cf19E5cf",
+      "txHash": "0xba8c34ea592920527087956f968ca5a93e0f892c759d0775cef7072e369f8ff6",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/100/large/fmpFRHHQ_400x400.jpg?1735231350",
+      "priceUsd": 0.377846
+    },
+    {
+      "name": "Ondo",
+      "symbol": "ONDO",
+      "decimals": 18,
+      "address": "0x8449cF4d189C9Df1dd21b653d92d6E6959149928",
+      "txHash": "0xf27323a18db208de1cbb4aa1175a6f93b187e0441144d063c4df0d5a28117fd5",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/26580/large/ONDO.png?1696525656",
+      "priceUsd": 1.01
+    },
+    {
+      "name": "BlackRock USD Institutional Digital Liquidity Fund",
+      "symbol": "BUIDL",
+      "decimals": 18,
+      "address": "0xA8532Fb9a8A6b622Ac7f7A6a16F0D074AB1619bF",
+      "txHash": "0xc4a30b32e6410f9fd6b87f33c10ed588aa64d35b8721fcf5b526677187c7cfb0",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/36291/large/blackrock.png?1711013223",
+      "priceUsd": 1
+    },
+    {
+      "name": "Centrifuge",
+      "symbol": "CFG",
+      "decimals": 18,
+      "address": "0x80667cd61Ebf96140dE404c6F36BE15ab282BB04",
+      "txHash": "0xf74d92f8c7666e4f1903b810f6f69e6ca079bc5ebd8a893ea0c802e2cf673f56",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55913/large/centrifuge.jpg?1747707741",
+      "priceUsd": 0.281702
+    },
+    {
+      "name": "Ondo U.S. Dollar Token",
+      "symbol": "USDON",
+      "decimals": 18,
+      "address": "0x44Cd159fB75d1a32585E7f44B7c859440181cffb",
+      "txHash": "0xe9867b9836d2ff8d85aed73bd2d6dfcf37cd7af6817993ebfb110a65ca1381a5",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/68688/large/usdon_160x160.png?1756268513",
+      "priceUsd": 1
+    },
+    {
+      "name": "Tesla xStock",
+      "symbol": "TSLAX",
+      "decimals": 18,
+      "address": "0xB7C47cd1c7173D393415D6330Cb3C1c85FB3A66e",
+      "txHash": "0xede6cf25aef088ff0495572f91a5e80d27f52a7a7e9d7f951fe489b0c436eb81",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55638/large/Ticker_TSLA__Company_Name_Tesla_Inc.__size_200x200_2x.png?1746863299",
+      "priceUsd": 349.09
+    },
+    {
+      "name": "Nest Alpha Vault",
+      "symbol": "NALPHA",
+      "decimals": 18,
+      "address": "0x2712F6881f1303104F378395b29CE96745104088",
+      "txHash": "0xd2228b8ffe469aec64db5858d7e0d524f5cb79ffa09f43ff78e363cd03feff54",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55541/large/nALPHA-token.png?1746610637",
+      "priceUsd": 1.02
+    },
+    {
+      "name": "NVIDIA xStock",
+      "symbol": "NVDAX",
+      "decimals": 18,
+      "address": "0x131053Cf6211480B85Fc4dc41Db9F6098C30a0A8",
+      "txHash": "0x640e46086f79b7019a3874171de9580056faec51dc527e2f2f976884cb76ea22",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55633/large/Ticker_NVDA__Company_Name_NVIDIA_Corp__size_200x200_2x.png?1746862704",
+      "priceUsd": 175.66
+    },
+    {
+      "name": "Nest Institutional Vault",
+      "symbol": "NINSTO",
+      "decimals": 18,
+      "address": "0x51affE299bB6c079EE387EB4E9b4e7661F3d5e49",
+      "txHash": "0x236d7148ff730b2d3c19c8e92e145cb3af8a3b1dc2a6726adfef69729902d943",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55517/large/nINSTO-token.png?1746439028",
+      "priceUsd": 1.021
+    },
+    {
+      "name": "MicroStrategy xStock",
+      "symbol": "MSTRX",
+      "decimals": 18,
+      "address": "0xC748DDd33651C643321B54D4808F9c1aFA187fB6",
+      "txHash": "0x461e1da064d8c96af96c2920343122c4c77fb7c7a54861a324ade55e367132e0",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55631/large/Ticker_MSTR__Company_Name_MicroStrategy__size_200x200_2x.png?1746862528",
+      "priceUsd": 330.51
+    },
+    {
+      "name": "Circle xStock",
+      "symbol": "CRCLX",
+      "decimals": 18,
+      "address": "0x57bA6f678893eE7F5e2A81cBb53e606d83182220",
+      "txHash": "0x9091567c4f554f823c03d6ad371bcfa009f8d9c5f383372bcabde2ef9d04ec35",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/66918/large/CRCLx.png?1751052233",
+      "priceUsd": 120.04
+    },
+    {
+      "name": "Alphabet xStock",
+      "symbol": "GOOGLX",
+      "decimals": 18,
+      "address": "0x805611b65853dd2A6A72a09108D7784457F53E79",
+      "txHash": "0x47fb3b839a8aa106d8e358738d3a148fc2643941c25c90aba8b35cfd39b2f267",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55610/large/Ticker_GOOG__Company_Name_Alphabet_Inc.__size_200x200_2x.png?1746858803",
+      "priceUsd": 239.59
+    },
+    {
+      "name": "Apple xStock",
+      "symbol": "AAPLX",
+      "decimals": 18,
+      "address": "0x6c993EB22F4C37C55C67dA13127656c70AcCFaF7",
+      "txHash": "0xedb1302c05469d0cef3a5d48bb78a1eaee8e0b97e69d4900b4ff5f157aeafb0d",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55586/large/Ticker_AAPL__Company_Name_Apple_Inc.__size_200x200_2x.png?1746807196",
+      "priceUsd": 233.25
+    },
+    {
+      "name": "Meta xStock",
+      "symbol": "METAX",
+      "decimals": 18,
+      "address": "0x1b5F3914cAb7CD3b87fB62A9293950A44A0e3026",
+      "txHash": "0xe1dc57294c40b38af4b589498ca2c628afedc334758380acb380aaa759e5222a",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55628/large/Ticker_META__Company_Name_Meta_Platforms_Inc.__size_200x200_2x.png?1746862467",
+      "priceUsd": 763.51
+    },
+    {
+      "name": "Robinhood xStock",
+      "symbol": "HOODX",
+      "decimals": 18,
+      "address": "0x9D6DAd71c0e08a49EeFecEF966805CC2D63bCAdD",
+      "txHash": "0x57f98ce4bf75711be3d835dc0a7c5941c4e07c47ab3b4e52adee8b302cdb872f",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55613/large/Ticker_HOOD__Company_Name_Robinhood__size_200x200_2x.png?1746858880",
+      "priceUsd": 119.07
+    },
+    {
+      "name": "Coinbase xStock",
+      "symbol": "COINX",
+      "decimals": 18,
+      "address": "0x707d0b23845f8e9E206646F923C2B7923b05aAc9",
+      "txHash": "0xf0a22aca945d9c154211f68479a2cf96f27cca27b7b59f6fddb81c7750a6a748",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55602/large/Ticker_COIN__Company_Name_Coinbase__size_200x200_2x.png?1746858187",
+      "priceUsd": 318.86
+    },
+    {
+      "name": "DeFi Development Corp.",
+      "symbol": "DFDVX",
+      "decimals": 18,
+      "address": "0x12Ff05D3798B8855C01De4c6A5C2B420b1328157",
+      "txHash": "0xd845fd38a43c47966e3d2f5858d9b6eafbe2876a7eabba41b1793acd7352ed7b",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/66919/large/DFDVx.png?1751053171",
+      "priceUsd": 17.14
+    },
+    {
+      "name": "Amazon xStock",
+      "symbol": "AMZNX",
+      "decimals": 18,
+      "address": "0x46637e4C27F80d28950846e7393254B2238e9861",
+      "txHash": "0xeafae6d8af7182c319e80b2d1ccd6ad8393805b51e6bae92f2111a1f99eef7cc",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55590/large/Ticker_AMZN__Company_Name_Amazon.com_Inc.__size_200x200_2x.png?1746809003",
+      "priceUsd": 237.11
+    },
+    {
+      "name": "McDonald's xStock",
+      "symbol": "MCDX",
+      "decimals": 18,
+      "address": "0x5b832E541Ce74318d7E2744f73C4Cc7faf968570",
+      "txHash": "0xee9cc78b139f0339ebb51e3a67ccc1bef5f6a8be29181fb278c0f9db510829ee",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55625/large/Ticker_MCD__Company_Name_McDonalds__size_200x200_2x.png?1746862066",
+      "priceUsd": 311.51
+    },
+    {
+      "name": "Broadcom xStock",
+      "symbol": "AVGOX",
+      "decimals": 18,
+      "address": "0xa90f39b1D5Ca5c6B41c27c18CD4e8606e0006273",
+      "txHash": "0x2a37933e8aedfae6650bc136b204b28badd56ba2d4f3351a663051a35a136df5",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55592/large/Ticker_AVGO__Company_Name_Broadcom_Inc.__size_200x200_2x.png?1746809042",
+      "priceUsd": 345.05
+    },
+    {
+      "name": "Netflix xStock",
+      "symbol": "NFLXX",
+      "decimals": 18,
+      "address": "0x2fb8AEB0B5158dc27f6cB4551704B1c81A073eCF",
+      "txHash": "0x7c496de2b93ab6fb07293e6cc0ade840ac63f2d2409f1684152286e30a307585",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55632/large/Ticker_NFLX__Company_Name_Netflix_Inc.__size_200x200_2x.png?1746862692",
+      "priceUsd": 1257.78
+    },
+    {
+      "name": "UnitedHealth xStock",
+      "symbol": "UNHX",
+      "decimals": 18,
+      "address": "0xC7C8D697a6D21AAA2d1519E2695F6780c57363A2",
+      "txHash": "0xdac42d7272dcf98ff972333da9a1390b7bfca8812da2d5f2d567360944382edb",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55640/large/Ticker_UNH__Company_Name_United_Health__size_200x200_2x.png?1746863336",
+      "priceUsd": 347.06
+    },
+    {
+      "name": "Eli Lilly xStock",
+      "symbol": "LLYX",
+      "decimals": 18,
+      "address": "0x500d3f01E97f460aFDbC10Ff54efb43197D7874B",
+      "txHash": "0xe1eabae3e70ba20d510db44a31f47e91f4e2ef715e750e3a9df5bd59c4583dd4",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55623/large/Ticker_LLY__Company_Name_Lilly__size_200x200_2x.png?1746862036",
+      "priceUsd": 750.52
+    },
+    {
+      "name": "Amber xStock",
+      "symbol": "AMBRX",
+      "decimals": 18,
+      "address": "0x2c0916E5493E0E4BA5B6EF65288939DF810E3F00",
+      "txHash": "0x241dc04790f1cf818d6e47789db9d7b7cdfd6f5ab133d64cbd886bf1dea59c88",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/66917/large/amber.png?1754983963",
+      "priceUsd": 4.54
+    },
+    {
+      "name": "AbbVie xStock",
+      "symbol": "ABBVX",
+      "decimals": 18,
+      "address": "0xb2734ca66Ea8B03C697B0952178203EdCF618405",
+      "txHash": "0xa77a1e8ffbb2dc1ae5c26b17998ef7869c44b48bedc8bc6ab07b77d495922c57",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55646/large/Ticker_ABBV__Company_Name_SP500__size_200x200_2x.png?1746864179",
+      "priceUsd": 210.04
+    },
+    {
+      "name": "Honeywell xStock",
+      "symbol": "HONX",
+      "decimals": 18,
+      "address": "0x9E81ecA64097E6746cd6839f298322D9E8F40E0A",
+      "txHash": "0x2397126763cf10261b6d16a0f065b1f137840c5bf7adf32cb1ef58f269a3512d",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55649/large/Ticker_HON__Company_Name_SP500__size_200x200_2x.png?1746864269",
+      "priceUsd": 213.81
+    },
+    {
+      "name": "Comcast xStock",
+      "symbol": "CMCSAX",
+      "decimals": 18,
+      "address": "0xA247177d2dBe9206600db6B634d8Fa3534225684",
+      "txHash": "0xca01632168dfc4412fa26fec40e17ae89749eadd5218ab8e150f9a3ff4699519",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55601/large/Ticker_CMCSA__Company_Name_Comcast__size_200x200_2x.png?1746858138",
+      "priceUsd": 33.61
+    },
+    {
+      "name": "Procter & Gamble xStock",
+      "symbol": "PGX",
+      "decimals": 18,
+      "address": "0xF4A88D110Aa916646F82cc67555E1877b044442a",
+      "txHash": "0x8170bfb7780cf24c0e01e276f957802597c608dab11605957abf96418055d7fe",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55636/large/Ticker_PG__Company_Name_Proctor___Gamble__size_200x200_2x.png?1746863267",
+      "priceUsd": 158.64
+    },
+    {
+      "name": "Coca-Cola xStock",
+      "symbol": "KOX",
+      "decimals": 18,
+      "address": "0x2909C10D95F31D6dE289FE87a0df92B8e241F031",
+      "txHash": "0xd2447d951d4146d4548171f84fd706fe0c13103c773c0606242f5653de6bfd95",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55622/large/Ticker_KO__Company_Name_CokeCola__size_200x200_2x.png?1746861996",
+      "priceUsd": 67.78
+    },
+    {
+      "name": "Mastercard xStock",
+      "symbol": "MAX",
+      "decimals": 18,
+      "address": "0xF872835B9C351DB766dCBAFD64130c70a38C1cF5",
+      "txHash": "0x926fc8b7c4db0d37ffce94354343092a7ef7a39e8aa17c6a6ddd99e443dec65a",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55624/large/Ticker_MA__Company_Name_Mastercard__size_200x200_2x.png?1746862053",
+      "priceUsd": 582.79
+    },
+    {
+      "name": "AstraZeneca xStock",
+      "symbol": "AZNX",
+      "decimals": 18,
+      "address": "0xE6667BDCE7D7900e62986AEe67566891A44Ce157",
+      "txHash": "0x3d794bbaac49367edee907ae9b6c61ee6f6377c158bf4ad04271d5dffd6ce6d4",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55594/large/Ticker_AZN__Company_Name_astrazeneca__size_200x200_2x.png?1746809263",
+      "priceUsd": 81.39
+    },
+    {
+      "name": "Cisco xStock",
+      "symbol": "CSCOX",
+      "decimals": 18,
+      "address": "0x3281F798adB77Ffa13F5DCBE7184D609DC0FB8e3",
+      "txHash": "0xe0b86fd092665bd73f7dcfa46f6363e1477e13b8b63a421e892dbcf067b0df6a",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55604/large/Ticker_CSCO__Company_Name_Cisco_Systems_Inc.__size_200x200_2x.png?1746858247",
+      "priceUsd": 67.29
+    },
+    {
+      "name": "PepsiCo xStock",
+      "symbol": "PEPX",
+      "decimals": 18,
+      "address": "0x81521061904712922dbEF7193884c490baaaD26E",
+      "txHash": "0x91dc5dc205dd2a7aa2eb8db1a28bafdb4f3658573b9fc728677eb05039e665bd",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55634/large/Ticker_PEP__Company_Name_Pepsico__size_200x200_2x.png?1746862740",
+      "priceUsd": 142.81
+    },
+    {
+      "name": "Home Depot xStock",
+      "symbol": "HDX",
+      "decimals": 18,
+      "address": "0xEbEC6f1CbDf597B685D1a0D125351031bcD92b90",
+      "txHash": "0xa2f8cf6270934e6d869cdfe3283e102d52c4ea7c81e388fd0c5cd5642eaf3448",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55612/large/Ticker_HD__Company_Name_Home_Depot__size_200x200_2x.png?1746858853",
+      "priceUsd": 415.79
+    },
+    {
+      "name": "CrowdStrike xStock",
+      "symbol": "CRWDX",
+      "decimals": 18,
+      "address": "0xb1E8E83BB4623388747Bf845C8A3a830e31758E3",
+      "txHash": "0x1d2b8fe1cc2a9e548e07360d908fe1134f3bf77911ba13ed4a4de3a3ffdd1f3f",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55603/large/Ticker_CRWD__Company_Name_Crowdstrike__size_200x200_2x.png?1746858221",
+      "priceUsd": 424.76
+    },
+    {
+      "name": "Accenture xStock",
+      "symbol": "ACNX",
+      "decimals": 18,
+      "address": "0x127Ed014Aa7D952A59B2bDf512cbb628Cf3037E9",
+      "txHash": "0x789663288190bb87b26eb520e97e99848d012c8078d500f6b067325e88ac0379",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55589/large/Ticker_ACN__Company_Name_accenture__size_200x200_2x.png?1746808986",
+      "priceUsd": 252.73
+    },
+    {
+      "name": "Abbott xStock",
+      "symbol": "ABTX",
+      "decimals": 18,
+      "address": "0x9ECf0Bfd1F5c27c3601F2821642486f1A006C588",
+      "txHash": "0x6c1db9f846a7365650cfa76a9c9535a257155afb2b27a2952ad39bea36acaeee",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55587/large/Ticker_ABT__Company_Name_Abbot__size_200x200_2x.png?1746807223",
+      "priceUsd": 131.91
+    },
+    {
+      "name": "Danaher xStock",
+      "symbol": "DHRX",
+      "decimals": 18,
+      "address": "0x66E5A8e6326d6C42d4622a8339c2E5D592D397EE",
+      "txHash": "0x796333b241c5d57771e40542750b5e7a50c0f21ca05b161c4e4041c2d7f9ebd1",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55648/large/Ticker_DHR__Company_Name_SP500__size_200x200_2x.png?1746864250",
+      "priceUsd": 196.67
+    },
+    {
+      "name": "Gamestop xStock",
+      "symbol": "GMEX",
+      "decimals": 18,
+      "address": "0x00723e18fC3fb24255ccE4462De8a17C7d69C0B9",
+      "txHash": "0x09c6df5bb02a6c4ec5acf020ac7eceb4a42a18b156b35faefd0db614e408933f",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/55607/large/Ticker_GME__Company_Name_gamestop__size_200x200_2x.png?1746858467",
+      "priceUsd": 27.48
+    },
+    {
+      "name": "Bitcoin",
+      "symbol": "BTC",
+      "decimals": 18,
+      "address": "0x9796b9706BA969B43DE897E90a83Eac5f953b08B",
+      "txHash": "0xcdfbe5d88755f9a38d0caa8d8f592a9185126aaf2cab455c4d8ff25b00368d3c",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/1/large/bitcoin.png?1696501400",
+      "priceUsd": 112354
+    },
+    {
+      "name": "Ethereum",
+      "symbol": "ETH",
+      "decimals": 18,
+      "address": "0x52c967Eb518F801D232799C4517b8801CB47e89E",
+      "txHash": "0x6bc0600c46dda40071decb9cca95e8749ebafccb1c20af4a82683ef4f963f93d",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/279/large/ethereum.png?1696501628",
+      "priceUsd": 4331.94
+    },
+    {
+      "name": "XRP",
+      "symbol": "XRP",
+      "decimals": 18,
+      "address": "0x690ad1E1a589868654F2773A55a89e10B3934929",
+      "txHash": "0xa2037b01e8218fa09b19678b54d9ffd1f3cc5025f1c91b6daa59ddf18d928d6f",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/44/large/xrp-symbol-white-128.png?1696501442",
+      "priceUsd": 2.97
+    },
+    {
+      "name": "BNB",
+      "symbol": "BNB",
+      "decimals": 18,
+      "address": "0xbC2024494f65Aed6Ef30e49B1d3096b8b0F2fAbD",
+      "txHash": "0x60ada9b6ff64821e380d4f9ab1f9c93bc26b693e69bc6bd6752f58484adfdcfa",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/825/large/bnb-icon2_2x.png?1696501970",
+      "priceUsd": 884.52
+    },
+    {
+      "name": "Solana",
+      "symbol": "SOL",
+      "decimals": 18,
+      "address": "0xd47D3532f3b7aa2d25Ea7eE3B0Cc34D37681F418",
+      "txHash": "0x404b1554a7d8684e5a4a5d781d4e927417beff83174effcedd8f5ca6021cccad",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/4128/large/solana.png?1718769756",
+      "priceUsd": 220.11
+    },
+    {
+      "name": "Lido Staked Ether",
+      "symbol": "STETH",
+      "decimals": 18,
+      "address": "0x25e2Aa74C83Bc394E513bE68a8aFaC2659aFf2DF",
+      "txHash": "0xd2030d49d9c499f5b646b217903edafe96aa9c5fa2f1d72931873f5335abe525",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/13442/large/steth_logo.png?1696513206",
+      "priceUsd": 4325.58
+    },
+    {
+      "name": "Dogecoin",
+      "symbol": "DOGE",
+      "decimals": 18,
+      "address": "0x15C484d2260e6E00608C460DC411ffd5d61c8D02",
+      "txHash": "0x02185716fa7871dd742a2d3928e0b22cf9d644f8de14262fd6d727aa4c9428b2",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/5/large/dogecoin.png?1696501409",
+      "priceUsd": 0.240551
+    },
+    {
+      "name": "Cardano",
+      "symbol": "ADA",
+      "decimals": 18,
+      "address": "0xB0B561DC1beb4eacFC7998141D999fB2Bac1Fb33",
+      "txHash": "0x39fc9dd4b035cdb16e84dfed90059280db4744af9943fa8603e9c37cb447cfb9",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/975/large/cardano.png?1696502090",
+      "priceUsd": 0.876314
+    },
+    {
+      "name": "TRON",
+      "symbol": "TRX",
+      "decimals": 18,
+      "address": "0x874F9B0661B8743c5122Eb1999051946E66d6E18",
+      "txHash": "0x159edcdc033c676043da67a3034a8c901b82a2b142b34d467e066d16e7f76bcf",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/1094/large/tron-logo.png?1696502193",
+      "priceUsd": 0.336625
+    },
+    {
+      "name": "Wrapped Beacon ETH",
+      "symbol": "WBETH",
+      "decimals": 18,
+      "address": "0x6AF1D17Ed501224ac2C62bc601e7089a648BCF9F",
+      "txHash": "0x52edf39caea9e02198b3c5f0b2e51c8d88b0c6f2543d8004505ca5f4646de992",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/30061/large/wbeth-icon.png?1696528983",
+      "priceUsd": 4669.92
+    },
+    {
+      "name": "Hyperliquid",
+      "symbol": "HYPE",
+      "decimals": 18,
+      "address": "0xFdC857b1C5d0Fd4D5295dB590dDEd0f1e6c43495",
+      "txHash": "0x53ffa97c7915af49566b50100534bb91ab2922f54c29e20b6494c207b175d957",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/50882/large/hyperliquid.jpg?1729431300",
+      "priceUsd": 54.38
+    },
+    {
+      "name": "Sui",
+      "symbol": "SUI",
+      "decimals": 18,
+      "address": "0x74a6FcD333ed9A14ac45A0228Df586fCDd3b0074",
+      "txHash": "0x18aebf60110e69217f38b6101dbb06d7628e781b105f63175f46813a2c8517d9",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/26375/large/sui-ocean-square.png?1727791290",
+      "priceUsd": 3.52
+    },
+    {
+      "name": "Wrapped eETH",
+      "symbol": "WEETH",
+      "decimals": 18,
+      "address": "0x8edf794505ff74C1b05D93dC79d605B60Ef7A790",
+      "txHash": "0xe1f0e5ed7bc55ae785285835f7242388ba68e412f5a434834883a0d31af81fce",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/33033/large/weETH.png?1701438396",
+      "priceUsd": 4656.72
+    },
+    {
+      "name": "Bitcoin Cash",
+      "symbol": "BCH",
+      "decimals": 18,
+      "address": "0xA849685a5EA15590487BF33d9dA3CE8B3E936E91",
+      "txHash": "0x70c334bf9a60b6b97b00131c6a052e5dc04595ddc37a8d8b0f44c23c7a3839b3",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/780/large/bitcoin-cash-circle.png?1696501932",
+      "priceUsd": 585.84
+    },
+    {
+      "name": "Avalanche",
+      "symbol": "AVAX",
+      "decimals": 18,
+      "address": "0xb5643515c55d6a22Ac1066ec79B90261370a91e5",
+      "txHash": "0xa801e3c3584196bd737ddf2e2b6d0bd2e5fb2c1ec16d7494dd50a15ce35e5ba2",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/12559/large/Avalanche_Circle_RedWhite_Trans.png?1696512369",
+      "priceUsd": 26.95
+    },
+    {
+      "name": "Hedera",
+      "symbol": "HBAR",
+      "decimals": 18,
+      "address": "0xA4e159b9F8A9724c60CFC6430fc62d7ddCA39781",
+      "txHash": "0xc6de9a40d835dfe00b721c09ab93bc344787bc6b5792bf4bb390359162007fcb",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/3688/large/hbar.png?1696504364",
+      "priceUsd": 0.231093
+    },
+    {
+      "name": "LEO Token",
+      "symbol": "LEO",
+      "decimals": 18,
+      "address": "0x093BE6Ef2403eF120E55C8505A4586CbFc04057f",
+      "txHash": "0xb05c83255c3bf1e2628347be6d194dfe669a21f3445d9a402c97b3f9654232fd",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/8418/large/leo-token.png?1696508607",
+      "priceUsd": 9.55
+    },
+    {
+      "name": "Litecoin",
+      "symbol": "LTC",
+      "decimals": 18,
+      "address": "0xb7Ff6617BC471D26fbC16410cdB9Ba7B64D9cF35",
+      "txHash": "0x5c252eaf98b0795a395c86a53340daa179175ef26c63275d2b0639c8f1aab288",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/2/large/litecoin.png?1696501400",
+      "priceUsd": 113.04
+    },
+    {
+      "name": "Cronos",
+      "symbol": "CRO",
+      "decimals": 18,
+      "address": "0xb3D35E0d12b02a4CB4d27524356f6aB8F33e2E7e",
+      "txHash": "0x30ed808a414be2dc1a596f1c39380c35a30647a619edaf6ee94c0417baa6b316",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/7310/large/cro_token_logo.png?1696507599",
+      "priceUsd": 0.255774
+    },
+    {
+      "name": "Toncoin",
+      "symbol": "TON",
+      "decimals": 18,
+      "address": "0x985e25e3856c1D5Ef5AFefB80e44ce857a0381E9",
+      "txHash": "0xf0cfa812e916e87c4ce8afc18b095166c2e50d50f77486cbbf74912dd0a92569",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/17980/large/photo_2024-09-10_17.09.00.jpeg?1725963446",
+      "priceUsd": 3.1
+    },
+    {
+      "name": "Shiba Inu",
+      "symbol": "SHIB",
+      "decimals": 18,
+      "address": "0xB2f5DdA8Ca31e52a50d672662f6b72227DDcc5dB",
+      "txHash": "0xc0fea4e28ffc224a702a5cb56c6d9f61e3ec1cb38cb969780692335e1863bb4c",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/11939/large/shiba.png?1696511800",
+      "priceUsd": 0.0000129
+    },
+    {
+      "name": "Coinbase Wrapped BTC",
+      "symbol": "CBBTC",
+      "decimals": 18,
+      "address": "0x274f2474F29EEb9eE62bD9549138C622Af12EC3b",
+      "txHash": "0xc6f5ed3d531a218932c52c45ff8db645ab4deab0905ecc6eb13f00084e31a546",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/40143/large/cbbtc.webp?1726136727",
+      "priceUsd": 112415
+    },
+    {
+      "name": "Polkadot",
+      "symbol": "DOT",
+      "decimals": 18,
+      "address": "0xe87bF18a588c6F77544020bd690178C384381523",
+      "txHash": "0xafc417d40c7bac98b1ff80b1dfc74964037d6c732a123836b07c0ad444e8961d",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/12171/large/polkadot.png?1696512008",
+      "priceUsd": 4.08
+    },
+    {
+      "name": "World Liberty Financial",
+      "symbol": "WLFI",
+      "decimals": 18,
+      "address": "0x7D96E1118dc905f2b13F581ba0B155635d773b2D",
+      "txHash": "0xae0f8473e171ae3d7535e750803dc3a0056c1f15ed283ab577dbfb8cd4bdbb03",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/50767/large/wlfi.png?1756438915",
+      "priceUsd": 0.208502
+    },
+    {
+      "name": "Ethena",
+      "symbol": "ENA",
+      "decimals": 18,
+      "address": "0x921AaCaF498b2cb329226544e19869842aA0DDbb",
+      "txHash": "0xde57933e16dfb93f02ddf02b94b31939ba41a262219e848e1fd7ed7cc9e286fc",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/36530/large/ethena.png?1711701436",
+      "priceUsd": 0.806275
+    },
+    {
+      "name": "Monero",
+      "symbol": "XMR",
+      "decimals": 18,
+      "address": "0xc5D7Bb10b9a5c14A1027C72Ecc53bDfcD0ec60D8",
+      "txHash": "0x51a1ecdc3233dfd7db1c86fd46a2c559ea5c0a34141ed6b0907c2e64e26c8404",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/69/large/monero_logo.png?1696501460",
+      "priceUsd": 268.11
+    },
+    {
+      "name": "Mantle",
+      "symbol": "MNT",
+      "decimals": 18,
+      "address": "0xfA31827ee0dB1511C8D43b5Bc3a1B6966A13b3f2",
+      "txHash": "0x4debea0a310c86b3dd278ba7316d63a823590f80d25ae9791b14e4c270249bbd",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/30980/large/Mantle-Logo-mark.png?1739213200",
+      "priceUsd": 1.45
+    },
+    {
+      "name": "Pepe",
+      "symbol": "PEPE",
+      "decimals": 18,
+      "address": "0x907A2E8DF599fE705aA9451E024269bCCBA794eF",
+      "txHash": "0xdc6a6bc6ff49bdbe07991f40903228b459ebd40faaf704536cda349563f0691e",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/29850/large/pepe-token.jpeg?1696528776",
+      "priceUsd": 0.0000104
+    },
+    {
+      "name": "OKB",
+      "symbol": "OKB",
+      "decimals": 18,
+      "address": "0xa8e2Dd6fA422892f3b3872FDd4F24D533C572DFc",
+      "txHash": "0x93b7fac90713b3dc2c01790a68b6487e8c23d57c05d53474ca1d75bac8eea420",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/4463/large/WeChat_Image_20220118095654.png?1696505053",
+      "priceUsd": 192.04
+    },
+    {
+      "name": "Worldcoin",
+      "symbol": "WLD",
+      "decimals": 18,
+      "address": "0xF40D2b7B46cF7B1B12e93c272c1bA03a29455C9c",
+      "txHash": "0xa4a23d01b9043bb5ccf897c93a86528b69c2fc06df573c63ecf3ef75ee3f5d87",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/31069/large/worldcoin.jpeg?1696529903",
+      "priceUsd": 1.88
+    },
+    {
+      "name": "NEAR Protocol",
+      "symbol": "NEAR",
+      "decimals": 18,
+      "address": "0x89300Ca9DE165ee56f4E36D7379c1B354DD40C84",
+      "txHash": "0x318a197e1748883bdacbe567be17d83cfd5ab1678dc0201c3d57cdb45f044550",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/10365/large/near.jpg?1696510367",
+      "priceUsd": 2.66
+    },
+    {
+      "name": "Bittensor",
+      "symbol": "TAO",
+      "decimals": 18,
+      "address": "0xfaA8D80D280674202BA4c8C11abe87d504470e72",
+      "txHash": "0x03ec44e9dabca7d4ca1051a6a7146a67db5cdada846ca56a3fe9b647b0cb3779",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/28452/large/ARUsPeNQ_400x400.jpeg?1696527447",
+      "priceUsd": 334.37
+    },
+    {
+      "name": "Ethereum Classic",
+      "symbol": "ETC",
+      "decimals": 18,
+      "address": "0x160eb31459E29bdb4873e4543A74219B96B4c57D",
+      "txHash": "0xdcfca8f8123d402ea65ade2b4b4a7d486c387f438c8f3defdbf19d2b0b6343d6",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/453/large/ethereum-classic-logo.png?1696501717",
+      "priceUsd": 20.63
+    },
+    {
+      "name": "Story",
+      "symbol": "IP",
+      "decimals": 18,
+      "address": "0xcDe39140f257b13B4DB789f68f98C50d67e55C97",
+      "txHash": "0xee94d7ed9fe89eb9d28e583dc979313f18b552bbcc85e95d53d7424517f8186d",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/54035/large/Transparent_bg.png?1738075331",
+      "priceUsd": 10.22
+    },
+    {
+      "name": "Aptos",
+      "symbol": "APT",
+      "decimals": 18,
+      "address": "0xe4E548824B57EB8eb6c6Ede263C67E04157ceec9",
+      "txHash": "0xb3ef27dba48c5d4271d709d4fa97e34df269971152dd7563ad0d3f01e33a4419",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/26455/large/aptos_round.png?1696525528",
+      "priceUsd": 4.4
+    },
+    {
+      "name": "POL (ex-MATIC)",
+      "symbol": "POL",
+      "decimals": 18,
+      "address": "0xf1B65eB3d89E8424f818eD6a4335A5d03e498178",
+      "txHash": "0x48da8bc2fde5830279cb208344f4d6256750bda550264c003dcc82c2b6356aa3",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/32440/large/polygon.png?1698233684",
+      "priceUsd": 0.266793
+    },
+    {
+      "name": "Pi Network",
+      "symbol": "PI",
+      "decimals": 18,
+      "address": "0xFb2A45300Aa64AeBeC1eBCaCb7C1b81C483a3432",
+      "txHash": "0x486a939c71c7f26cd9739f2382340d10f111e6285d54884c637eac94b8384894",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/54342/large/pi_network.jpg?1739347576",
+      "priceUsd": 0.343925
+    },
+    {
+      "name": "Arbitrum",
+      "symbol": "ARB",
+      "decimals": 18,
+      "address": "0x2A4d41809898926E583e1CaFc01C2eEF598F39B4",
+      "txHash": "0x4707a414028a5b20e9352d7286e804f96bb35131bdf17c4e1b0626a057338568",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/16547/large/arb.jpg?1721358242",
+      "priceUsd": 0.505281
+    },
+    {
+      "name": "Cosmos Hub",
+      "symbol": "ATOM",
+      "decimals": 18,
+      "address": "0x8b08B314D54A7F6383895319843C609110135F90",
+      "txHash": "0x94ab729c17429ee36e4208029442ed506306d512a7e53e573d23de98cdbd9307",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/1481/large/cosmos_hub.png?1696502525",
+      "priceUsd": 4.62
+    },
+    {
+      "name": "Algorand",
+      "symbol": "ALGO",
+      "decimals": 18,
+      "address": "0x1b8AB25E9975932ab7002FFB00d2F9EcACB32536",
+      "txHash": "0x74b8d8132a2a7048a94494ed0ba1e010d651d29feae0aa54e9fb077459684c14",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/4380/large/download.png?1696504978",
+      "priceUsd": 0.234752
+    },
+    {
+      "name": "Rocket Pool ETH",
+      "symbol": "RETH",
+      "decimals": 18,
+      "address": "0xE7A466DE207A83F1D163a75033d40ee93E9e5FB9",
+      "txHash": "0x44111241ca65aa6fc1fe1a3c93f0df172430bf9677a5684f71392031da61d47b",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/20764/large/reth.png?1696520159",
+      "priceUsd": 4937.91
+    },
+    {
+      "name": "Render",
+      "symbol": "RENDER",
+      "decimals": 18,
+      "address": "0x7023FfB15F10845b274b68d1c6efF1172Cf655e9",
+      "txHash": "0xae89697f724d9ff785659fdfb864af945e382c37e2f663c1e808cf1ee0e7f2d0",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/11636/large/rndr.png?1696511529",
+      "priceUsd": 3.82
+    },
+    {
+      "name": "Bonk",
+      "symbol": "BONK",
+      "decimals": 18,
+      "address": "0x8AC271fc6929e774F25Fe240656a069Ca179e16F",
+      "txHash": "0x16fde1462ea77ea5186431eca89e85b1d0b17243fd044c5708a807c068c46442",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/28600/large/bonk.jpg?1696527587",
+      "priceUsd": 0.0000231
+    },
+    {
+      "name": "Official Trump",
+      "symbol": "TRUMP",
+      "decimals": 18,
+      "address": "0x28fC26CBDc650883ba53c6AA554417EBB71F79Ad",
+      "txHash": "0xaacbed63953d52fa33dd7b3dd03bc9168d8edcc433552f2cf1cbc697318a1d1a",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/53746/large/trump.png?1737171561",
+      "priceUsd": 8.79
+    },
+    {
+      "name": "Jupiter",
+      "symbol": "JUP",
+      "decimals": 18,
+      "address": "0x3679fF48E9Eb905Bc881CD24f4F466FD09130776",
+      "txHash": "0x32a8367480f844d7b6c539abfed6d3bcb0fc1f44dc08e78c4598627fc22061fe",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/34188/large/jup.png?1704266489",
+      "priceUsd": 0.529181
+    },
+    {
+      "name": "Sky",
+      "symbol": "SKY",
+      "decimals": 18,
+      "address": "0x5F69CBb9796Ad44635785965B46e4d8dCF5ED0Ee",
+      "txHash": "0x6d6be8b1869a25c9f7ce2e9af3a5e6b1e47f0ab78669f6cc02010f92a6103d01",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/39925/large/sky.jpg?1724827980",
+      "priceUsd": 0.070306
+    },
+    {
+      "name": "Tether Gold",
+      "symbol": "XAUT",
+      "decimals": 18,
+      "address": "0x7ACB5534FA8aF64fF8657998e185E2B43c87Ea4a",
+      "txHash": "0x0066c443942832c1742682c6ff7431b30e918ab9ffe0b33995c09a50cfde78c5",
+      "initialSupplyNative": "0",
+      "image": "https://coin-images.coingecko.com/coins/images/10481/large/Tether_Gold.png?1696510471",
+      "priceUsd": 3648.24
+    }
+  ]
+}

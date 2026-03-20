@@ -1,0 +1,104 @@
+{
+  "network": "base-sepolia",
+  "chainId": 84532,
+  "rpcUrl": "https://sepolia.base.org",
+  "deploymentTimestamp": "2026-03-17T04:51:24.474Z",
+  "deployer": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+  "protocolOwner": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+  "tokenOwner": "0x578636C1CDfd5BCA3F1e787Fa49c2ea664c7bd8C",
+  "contracts": {
+    "core": {
+      "DXPToken": {
+        "address": "0xBE83b4fe61F5186b512278c01Ac2288641339a50",
+        "owner": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+        "description": "Protocol governance token"
+      },
+      "ProtocolCore": {
+        "address": "0xd080d29eAfEe778f6E348D6B75b631674BBF9A43",
+        "owner": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+        "description": "Main protocol entry point for vault creation and management"
+      },
+      "ModuleRegistry": {
+        "address": "0xEed440bA8852a583fDBfa3B7A6C9cCF470cEE1eB",
+        "owner": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+        "description": "Registry for swap and lending modules"
+      },
+      "FeeCollector": {
+        "address": "0x14614ABC3a4688c1c040aEFd6b8b31333BCc743C",
+        "owner": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+        "description": "Protocol fee collection contract"
+      }
+    },
+    "oracle": {
+      "MockOracle": {
+        "address": "0x3c5AfF213F18DFFB2a88c97206006859ffd3677c",
+        "description": "Price oracle for test tokens (owner can set prices)"
+      }
+    },
+    "swap": {
+      "SwapHub": {
+        "address": "0xa7D29FBa9656035fc047B2FFc7b7A1A04e9Bf8bD",
+        "owner": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+        "description": "Swap routing hub"
+      },
+      "MockSwapRouter": {
+        "address": "0x706c3bA805980B692f1E48161213153c179C9dC1",
+        "owner": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+        "description": "Mock swap router for testing (price-based swaps)"
+      },
+      "MockSwapAdapter": {
+        "address": "0x580906cFc56094432c63dD0899046a8DB10860ef",
+        "adapterId": "0x0d74f745abd815b5feef2f2c654afa7af5b9f01715ff108616c30c54a29f3795",
+        "description": "Adapter connecting SwapHub to MockSwapRouter"
+      }
+    },
+    "lending": {
+      "LendingHub": {
+        "address": "0x8f1E7021512085C68b9664e5c68bC64cCf220e6F",
+        "owner": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+        "description": "Lending routing hub"
+      },
+      "MockLendingAdapter": {
+        "address": "0x088BEE6F9084A3269c13049214B935339116D0C2",
+        "adapterId": "0xe4e47c0e9e61fba434e6417b61311a8dabe6df0e65a46a4608a506448c0bd5e8",
+        "description": "Mock lending adapter for testing"
+      }
+    },
+    "vaults": {
+      "IndexSwapV3Implementation": {
+        "address": "0x15719f170B29e37a772a4a685395307782B454C5",
+        "description": "IndexSwapV3 implementation contract (used as clone template)"
+      },
+      "IndexSwapFactory": {
+        "address": "0xEa50dB92C163e395a8394ec4F3A3Fe65fb77657C",
+        "owner": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+        "description": "Factory for deploying new IndexSwapV3 vaults"
+      },
+      "TestVault": {
+        "safe": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+        "indexSwap": "0xA33456CB60642ccD22faf98916dab6Bedd1F7702",
+        "description": "Example deployed vault"
+      }
+    }
+  },
+  "walletPermissions": {
+    "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B": {
+      "role": "Protocol Owner & Deployer",
+      "permissions": [
+        "Deploy new vaults via ProtocolCore",
+        "Manage protocol settings",
+        "Update oracle prices",
+        "Manage swap/lending adapters",
+        "Collect protocol fees"
+      ]
+    },
+    "0x578636C1CDfd5BCA3F1e787Fa49c2ea664c7bd8C": {
+      "role": "Token Owner",
+      "permissions": [
+        "Mint test tokens (MockERC20)",
+        "Transfer test tokens",
+        "Fund mock router with tokens"
+      ]
+    }
+  }
+}

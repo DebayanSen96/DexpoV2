@@ -1,0 +1,689 @@
+{
+  "network": "base-sepolia",
+  "router": "0x68EE6c87352913f3aE3446759940Bb0aFe682dE8",
+  "oracle": "0x3c5AfF213F18DFFB2a88c97206006859ffd3677c",
+  "generatedAt": "2026-03-19T05:38:43.434Z",
+  "totalTokens": 97,
+  "fundedCount": 72,
+  "tokens": [
+    {
+      "symbol": "USDC",
+      "address": "0x135542cee4208a832ecc764d4F3a365cB9300575",
+      "decimals": 6,
+      "routerBalance": "10010.0",
+      "funded": true
+    },
+    {
+      "symbol": "USDT",
+      "address": "0xe1c7d22bf32621E3a598e368e19E8d11Db7C4a38",
+      "decimals": 6,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "WETH",
+      "address": "0xB9a83987a8852cEd5B679DB919DEDa13acd829aC",
+      "decimals": 18,
+      "routerBalance": "9999.997691815871535705",
+      "funded": true
+    },
+    {
+      "symbol": "WBTC",
+      "address": "0xcd6b5755dB62f2596Ecc90d1CE82912af923af7C",
+      "decimals": 8,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "DAI",
+      "address": "0x5f582d47FAe42c0bB00F154f830bfF6176D3c6f8",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "LINK",
+      "address": "0x12d8862d9727c5e6E66f320331C27AbC1Adb0a40",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "UNI",
+      "address": "0xB0Ca5B25C8FFD271c7275ca67f2B33E4f6085d3D",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "AAVE",
+      "address": "0x5680527faf326eBCD2E53e0611772604a61230AD",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "wstETH",
+      "address": "0x85EAC2e6d062C0Cd49553494f0a680A0e2B235a5",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "cbETH",
+      "address": "0x7EeA9A47F093De760eA7639F3b2326D07a49c491",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "USDx",
+      "address": "0x878be7D3225D5D49aAA495a7bb72592462819dad",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "XLM",
+      "address": "0xfbad844bE6f8d76D622290D51CFc567c59B4D1a0",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "ONDO",
+      "address": "0x5441E86AD568f1B649b317f49099B34fE28dD6ab",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "BUIDL",
+      "address": "0xDd062d37297880404ab7917CCB0071BbDdac1407",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "CFG",
+      "address": "0x0E43B1bC895e354afd7f85B3c69aB16ac6E4c061",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "USDON",
+      "address": "0x028557F6D60F038Ed2b4F70fEe99C4Aa2bded5A4",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "TSLAX",
+      "address": "0x0B215B0f216000A5bF68Fd1e9061407e81070170",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "NALPHA",
+      "address": "0xA3437933BfF501f418E194b3EF4fad1f5393390e",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "NVDAX",
+      "address": "0x05AB9bbd41a038eb767157157Eabb780518e432a",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "NINSTO",
+      "address": "0xb6C3B2E29C7ab6e81dd8bc9D168b7CeDaE2FE3dA",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "MSTRX",
+      "address": "0x3beFD354f8D1A1789AaC4346cDFd7a603401D015",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "CRCLX",
+      "address": "0xF2B453d4689A473Ba45117a10F8FaebDbcD680Cd",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "GOOGLX",
+      "address": "0x9a367e239Eaa5D1781e87EAA17E43A94B2205607",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "AAPLX",
+      "address": "0xA36568438C62c482F53A0d8Fa47110b3bfd66885",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "METAX",
+      "address": "0x35655C11ceB78D46108dF05dCe49F431B0BDe647",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "HOODX",
+      "address": "0x72D81575914CdCc1a7b8BE91eA02B75026db03a8",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "COINX",
+      "address": "0xb57B06AEd88DCF464b2A8b30EE8Fb670fB8A4f93",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "DFDVX",
+      "address": "0xaF1aFB43e923F9445EC5EC6209aC69a6270acAe3",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "AMZNX",
+      "address": "0x15d6a2C6B09305F3efB5fAE26c8dB99431e69667",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "MCDX",
+      "address": "0x9F5dcaB5E0ec7EC7210f837B3Cb82aE2500EFD98",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "AVGOX",
+      "address": "0xD0860edaEdD799e50978D55153DF9F362E1c49e0",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "NFLXX",
+      "address": "0xb01935927e2b5EeB2D22936aae2d808Ba7F52c70",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "UNHX",
+      "address": "0xf6326811A2C988A7CAA0aAAa0807459712A45559",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "LLYX",
+      "address": "0xa4732A37f21F8246Ce797542A82955E11F925ffa",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "AMBRX",
+      "address": "0x8593260411aF0f7248d6BBe64588eC2B8daA38EC",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "ABBVX",
+      "address": "0xC1Fe08BF3ce6E958e9F4089ffD5Ca51CCE381471",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "HONX",
+      "address": "0xD8d1dd3C83483F9F6F6ABCFf92FEf22f525D9374",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "CMCSAX",
+      "address": "0x95e1e016d4A850C3B963D2951990F2829ff9306B",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "PGX",
+      "address": "0x8042c90E023C9e11D1C590d17d2823bb255b1D08",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "KOX",
+      "address": "0x8469A0f836f405AB1e0d38b0063594286e23C302",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "MAX",
+      "address": "0xe1A9f554ccd10Df763883c24564c570FdBB352b7",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "AZNX",
+      "address": "0x3957953a3f9083f476bb82952dDA5f5f369526B8",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "CSCOX",
+      "address": "0xa6aF7E62F3Db4c519e1992eF89697EEDDa36607D",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "PEPX",
+      "address": "0x91caCCAc589CeA4d68140d21431dA75A473843E9",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "HDX",
+      "address": "0x4b2671a3C99E82D1b04f7dc82903cAEdDdC846aC",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "CRWDX",
+      "address": "0x99B45DA375cE7137b0BD2616cE23d3e5Bbc27432",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "ACNX",
+      "address": "0xddA0177b37fB9c1fC1823661d8c033272792e44A",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "ABTX",
+      "address": "0x11E2F8F33D13ceFD6C90229C67cCa5206083C09C",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "DHRX",
+      "address": "0xa058C4d36c4375bF6E756d31125a95Fb4df0e0e4",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "GMEX",
+      "address": "0x1Ca07f89ADe9c8aaa54729494b86eEA2Fbe7C6d6",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "BTC",
+      "address": "0x5AEd37b12a262Be0E1dc6222d4C09F6a5331Ce90",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "ETH",
+      "address": "0x038D6E059541760E0Ad1f3F2D1C29AE604509cDD",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "XRP",
+      "address": "0x7118c14FC51D4004497554A224257C68b129CB70",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "BNB",
+      "address": "0xD3cFc3Dd40e84f47b1b52fb8A24Df25ba57269D5",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "SOL",
+      "address": "0xa5E5c7577FcC2a1bd62711724076bc56637d18EB",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "STETH",
+      "address": "0x84dACDc233c467aC9db016be942a66951B6eF9AF",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "DOGE",
+      "address": "0xedEcceD062517D57DeFFeF0EcA30C936aEa74f09",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "ADA",
+      "address": "0xB9fa3507B4A7B9aA73F051453e2F183Cd39758da",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "TRX",
+      "address": "0x1fCb7Ce149F93ae24156a459612DF0d66b23C611",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "WBETH",
+      "address": "0xa36eCF9eCfEf2645961bA5D49E6085Df9Fca33f1",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "HYPE",
+      "address": "0xF48b90c4Fe1A65543936FB2A704a0169BA639120",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "SUI",
+      "address": "0xab677Aec388D430dC4B8062032bb3a605b64EbF0",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "WEETH",
+      "address": "0x12B0331c91D34BB6B2208B9095759283CD9f8eCd",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "BCH",
+      "address": "0xEd521bb066e3B03267935dACF5BD4458670E021a",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "AVAX",
+      "address": "0xC29cd527132f0DeDc7982FC35720B2a4153Fdd78",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "HBAR",
+      "address": "0xe69ECF240d50aa9b91f62A942F167fCfe230cE06",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "LEO",
+      "address": "0x1431B4Ce968e40983830A07f410985Ada0F6FaaE",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "LTC",
+      "address": "0x65397a2782792Da377321BD9fA69017151Fd4456",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "CRO",
+      "address": "0xb6c77E33FC6B100Fc227f495b1F26839CAB7B1B0",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "TON",
+      "address": "0x4066Ec2f19f34C3d4d5364a3DBe328Fff4EB98DB",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "SHIB",
+      "address": "0xD81c67Ef2e07878C8D7A1018377167e5C0A37a08",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "CBBTC",
+      "address": "0x841aDFCC7BaC7EF8c9EEe2f02b4d01e524EdBdfA",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "DOT",
+      "address": "0x576e8fC5a1c3C16482A04483Fe41655973Af9B6e",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "WLFI",
+      "address": "0x83129520F5204A1Dc946c2019Aa0C344A53b7Bdc",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "ENA",
+      "address": "0xd2377446B78F4d5917f48602d8331628FEA8530d",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "XMR",
+      "address": "0x56Ad10EecF035AB178B62339c6E57b587048eD79",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "MNT",
+      "address": "0x6a3aa0D4323b40A8C2ed7b644207Aad0cd1945Aa",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "PEPE",
+      "address": "0xf556d21B2d67aA1c19948432155ef73b20FEEcB9",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "OKB",
+      "address": "0x282d78F5d779f591E2611D76b8621ba8EA19788b",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "WLD",
+      "address": "0x696be269FD2124B372b07b26261e7BB874A8004e",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "NEAR",
+      "address": "0xCA64B84BDE500A15c8D5d639D477F5DD1D920057",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "TAO",
+      "address": "0x0416127a4728A5415cEf8c97c656E4e22614a075",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "ETC",
+      "address": "0xfb6B43FfD84A3eB0Bf3Cdf2A97Fa9BcE567DfAdC",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "IP",
+      "address": "0xaae537BA86f861c66AE08e379E484208a868c3cb",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "APT",
+      "address": "0xFC4694152Dc8480996aBE7216Cc9C4A0B4333cA2",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    },
+    {
+      "symbol": "POL",
+      "address": "0xAf4334DCf19Bf5daF44087b1f0982b65A9B8d071",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "PI",
+      "address": "0x05C6eB760D4C52fb39526cD6069b4Faf6c167DFF",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "ARB",
+      "address": "0x0B1bA6c03D59252900694f203d8b82c260795D5b",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "ATOM",
+      "address": "0x424763eD2DB2841ec5E2BC94B8aDe4A84F36298F",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "ALGO",
+      "address": "0x48ac54254bC95600F3B318340062F672b1d1F862",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "RETH",
+      "address": "0x6Ad083896d180779b3DeB9a4884Ac1186C5a9E38",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "RENDER",
+      "address": "0x236DeFccE301DF34f9a88A691A78df7C8E100008",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "BONK",
+      "address": "0x3aDa249608Fc587b9CB41AaFb31055F9FA6A6743",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "TRUMP",
+      "address": "0x96e9CF2563EEa6C89389786A4Dfb94438BF5a2b1",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "JUP",
+      "address": "0x315044E41B92d0137b5A0085eb8b91B91634E8DD",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "SKY",
+      "address": "0x96f82946dB21D0cAfC619650390118bb6A71866d",
+      "decimals": 18,
+      "routerBalance": "10000.0",
+      "funded": true
+    },
+    {
+      "symbol": "XAUT",
+      "address": "0x247cD91976F3e26eE9872b6f5de5a302579015D8",
+      "decimals": 18,
+      "routerBalance": "0.0",
+      "funded": false
+    }
+  ]
+}

@@ -1,0 +1,124 @@
+{
+  "network": "base-sepolia",
+  "wallets": {
+    "protocolOwner": {
+      "address": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",
+      "role": "Protocol Owner & Deployer",
+      "privateKeyRequired": true,
+      "permissions": {
+        "ProtocolCore": [
+          "createIndexSwapVault",
+          "setIndexSwapFactory",
+          "setFeeCollector",
+          "pause/unpause"
+        ],
+        "IndexSwapFactory": [
+          "Deploy new vaults",
+          "Update implementation"
+        ],
+        "MockOracle": [
+          "setPrice",
+          "setPrices"
+        ],
+        "MockSwapRouter": [
+          "setPrice",
+          "setPrices",
+          "addOrUpdateToken"
+        ],
+        "SwapHub": [
+          "addAdapter",
+          "removeAdapter",
+          "setAdapterStatus"
+        ],
+        "LendingHub": [
+          "addAdapter",
+          "removeAdapter",
+          "setAdapterStatus"
+        ],
+        "FeeCollector": [
+          "Collect protocol fees",
+          "Withdraw fees"
+        ]
+      },
+      "useCases": [
+        "Deploy new vaults for users",
+        "Update oracle prices",
+        "Manage protocol configuration",
+        "Emergency pause/unpause",
+        "Fee collection and management"
+      ]
+    },
+    "tokenOwner": {
+      "address": "0x578636C1CDfd5BCA3F1e787Fa49c2ea664c7bd8C",
+      "role": "Test Token Owner",
+      "privateKeyRequired": true,
+      "permissions": {
+        "MockERC20": [
+          "mint",
+          "transfer",
+          "approve"
+        ],
+        "AllTestTokens": [
+          "Mint new tokens",
+          "Transfer tokens",
+          "Fund mock router"
+        ]
+      },
+      "useCases": [
+        "Mint test tokens for users",
+        "Fund mock swap router with liquidity",
+        "Distribute test tokens for testing",
+        "Top up router balances when needed"
+      ]
+    },
+    "endUser": {
+      "address": "ANY_USER_ADDRESS",
+      "role": "End User",
+      "privateKeyRequired": true,
+      "permissions": {
+        "ProtocolCore": [
+          "createIndexSwapVault (create own vaults)"
+        ],
+        "IndexSwapV3": [
+          "deposit",
+          "withdraw",
+          "rebalance (vault owner only)"
+        ],
+        "MockSwapRouter": [
+          "swap",
+          "quote (view only)"
+        ],
+        "LendingHub": [
+          "supply",
+          "withdraw"
+        ],
+        "ERC20Tokens": [
+          "approve",
+          "transfer",
+          "balanceOf (view only)"
+        ]
+      },
+      "useCases": [
+        "Create personal index vaults",
+        "Deposit tokens to vaults",
+        "Withdraw from vaults",
+        "Execute token swaps",
+        "Supply/withdraw from lending",
+        "Check balances and prices"
+      ]
+    }
+  },
+  "privateKeys": {
+    "protocolOwner": "STORED_SECURELY_IN_BACKEND_ENV",
+    "tokenOwner": "6e748857c30404a686a96457624bffc3e3f06346a29c7d808671687dcdc7a34b",
+    "note": "End users provide their own private keys via wallet connection (MetaMask, WalletConnect, etc.)"
+  },
+  "securityNotes": [
+    "Protocol owner key should be stored in secure backend environment variables",
+    "Token owner key is for testnet only - never use in production",
+    "End user keys should never be stored on backend - use wallet signatures",
+    "Implement proper access control in API endpoints",
+    "Use read-only RPC calls when possible to avoid gas costs",
+    "Validate all user inputs before sending transactions"
+  ]
+}

@@ -11,6 +11,10 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "../../interfaces/IProtocolCoreOwnable.sol";
 import "../../interfaces/IOracle.sol";
 
+interface IVaultSafe {
+    function isOwner(address account) external view returns (bool);
+}
+
 interface IPositionModule {
     function getPositionValue(address vault, address token) external view returns (uint256);
 }
@@ -120,11 +124,22 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     }
     
     modifier onlySafeOrProtocolOwner() {
-        if (
-            msg.sender != safe &&
-            msg.sender != vaultOwner &&
-            (protocolCore == address(0) || msg.sender != IProtocolCoreOwnable(protocolCore).owner())
-        ) revert NotAuthorized();
+        bool isSafeOwner = msg.sender == safe;
+        if (!isSafeOwner && safe != address(0)) {
+            try IVaultSafe(safe).isOwner(msg.sender) returns (bool result) {
+                isSafeOwner = result;
+            } catch {}
+        }
+        bool isVaultOwner = msg.sender == vaultOwner;
+        bool isProtocolOwner = false;
+        
+        if (protocolCore != address(0)) {
+            try IProtocolCoreOwnable(protocolCore).owner() returns (address po) {
+                isProtocolOwner = (msg.sender == po);
+            } catch {}
+        }
+        
+        if (!isSafeOwner && !isVaultOwner && !isProtocolOwner) revert NotAuthorized();
         _;
     }
     
@@ -146,7 +161,13 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     }
 
     function _authorizeUpgrade(address newImplementation) internal override {
-        if (protocolCore == address(0) || msg.sender != IProtocolCoreOwnable(protocolCore).owner()) revert NotAuthorized();
+        bool isProtocolOwner = false;
+        if (protocolCore != address(0)) {
+            try IProtocolCoreOwnable(protocolCore).owner() returns (address po) {
+                isProtocolOwner = (msg.sender == po);
+            } catch {}
+        }
+        if (!isProtocolOwner) revert NotAuthorized();
     }
     
     struct InitParams {
