@@ -73,9 +73,11 @@ contract ChainlinkOracle is IOracle, Ownable {
         
         AggregatorV3Interface priceFeed = AggregatorV3Interface(feed);
         
-        (, int256 answer,, uint256 updatedAt,) = priceFeed.latestRoundData();
+        (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) = priceFeed.latestRoundData();
         
         if (answer <= 0) revert NegativePrice(token);
+        require(updatedAt != 0, "Invalid round");
+        require(answeredInRound >= roundId, "Stale round");
         
         uint256 threshold = stalePriceThreshold[token];
         if (threshold == 0) threshold = defaultStaleThreshold;

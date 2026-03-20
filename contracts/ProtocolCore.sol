@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 /**
- * @title  ProtocolCore (Test-net v1)
+ * @title  ProtocolCore
  * @author Dexponent
  *
  * @notice
@@ -15,20 +15,14 @@ pragma solidity ^0.8.24;
  *  ▸ pulling farm revenue & splitting it among verifiers, yield-yodas and farm owner,
  *  ▸ holding verifier stakes and exposing the canonical verifier list,
  *  ▸ storing consensus round results (score + benchmark) supplied by an external
- *    `Consensus` module,
- *  ▸ supporting fast-track “time-scaling” on test-nets, and
- *  ▸ stubbing out governance/hooks for future main-net upgrades.
- *
- * NOTE: Governance (fee proposals, cross-chain updates) is intentionally left
- *       un-implemented in test-net v1; related methods are NO-OP placeholders.
+ *    `Consensus` module.
  *
  * SECURITY MODEL
  * ──────────────
  *  • Only farms created via this contract (or the special Root Farm) may call
  *    sensitive reward / bonus functions (enforced by `onlyRootFarmOrFarm`).
  *  • Verifier registration requires an on-chain DXP stake ≥ `minVerifierStake`.
- *  • All external setters are `onlyOwner`, delegated to the protocol DAO on
- *    main-net but keyed to the deployer for test-nets.
+ *  • All external setters are `onlyOwner`, intended to be delegated to the protocol DAO.
  *
  * All critical state is declared at the top of the file so auditors can track
  * storage layout with the original deployment.
@@ -615,12 +609,12 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
     }
 
     // ───────────────────────────────────────────────────────────
-    //              TIME-SCALING (test-net convenience)
+    //                         TIME SCALING
     // ───────────────────────────────────────────────────────────
 
     /**
      * @notice Convert a real-world period into an on-chain period according
-     *         to the current scale (e.g. 1 year ⇒ 12 days on Base-Sepolia).
+     *         to the current scale.
      */
     function scalePeriod(
         uint256 secondsPeriod
@@ -628,9 +622,9 @@ contract ProtocolCore is Ownable, ReentrancyGuard, IProtocolCoreV3, ICoreAccessC
         return (secondsPeriod * timeScaleNumerator) / timeScaleDenominator;
     }
 
-    /** @dev Owner-only helper to change test-net scale. */
     function setTimeScale(uint256 num, uint256 den) external onlyOwner {
         require(den != 0, "den=0");
+        require(num == 1 && den == 1, "time scaling disabled");
         timeScaleNumerator = num;
         timeScaleDenominator = den;
         emit TimeScaleUpdated(num, den);

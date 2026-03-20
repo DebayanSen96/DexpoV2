@@ -11,10 +11,6 @@ interface IProtocolCore {
     function owner() external view returns (address);
 }
 
-interface IVaultSafe {
-    function isOwner(address account) external view returns (bool);
-}
-
 interface IIndexSwap {
     function safe() external view returns (address);
 }
@@ -51,9 +47,6 @@ contract LendingHub is Ownable, ReentrancyGuard {
     mapping(bytes32 => mapping(address => uint256)) public totalShares;
     mapping(bytes32 => mapping(address => uint256)) public totalSuppliedAmount;
     
-    uint256 private constant VIRTUAL_SHARES = 1e6;
-    uint256 private constant VIRTUAL_ASSETS = 1;
-
     event AdapterAdded(bytes32 indexed adapterId, address indexed adapter, string name);
     event AdapterRemoved(bytes32 indexed adapterId);
     event AdapterUpdated(bytes32 indexed adapterId, address indexed newAdapter);
@@ -74,24 +67,11 @@ contract LendingHub is Ownable, ReentrancyGuard {
     }
 
     modifier onlyAuthorized(address vault) {
-        bool isVaultItself = (msg.sender == vault);
-        bool isSafeOwner = false;
-        bool isProtocolOwner = false;
-
-        if (!isVaultItself) {
-            address safeAddress = IIndexSwap(vault).safe();
-            isSafeOwner = (msg.sender == safeAddress);
-            if (!isSafeOwner) {
-                try IVaultSafe(safeAddress).isOwner(msg.sender) returns (bool result) {
-                    isSafeOwner = result;
-                } catch {}
-            }
-        }
-
-        address protocolOwner = IProtocolCore(protocolCore).owner();
-        isProtocolOwner = (msg.sender == protocolOwner);
-
-        if (!isVaultItself && !isSafeOwner && !isProtocolOwner) revert NotAuthorized();
+        if (
+            msg.sender != vault &&
+            msg.sender != IIndexSwap(vault).safe() &&
+            msg.sender != IProtocolCore(protocolCore).owner()
+        ) revert NotAuthorized();
         _;
     }
 
@@ -293,15 +273,7 @@ contract LendingHub is Ownable, ReentrancyGuard {
         AdapterInfo storage adapterInfo = adapters[adapterId];
         if (adapterInfo.adapterAddress == address(0)) return 0;
 
-        uint256 totalUnderlying = ILendingAdapter(adapterInfo.adapterAddress).getTotalShares(token);
-        uint256 totalSharesForToken = totalShares[adapterId][token];
-        
-        uint256 totalSharesWithVirtual = totalSharesForToken + VIRTUAL_SHARES;
-        uint256 totalUnderlyingWithVirtual = totalUnderlying + VIRTUAL_ASSETS;
-        
-        if (totalUnderlyingWithVirtual == 0 || totalSharesWithVirtual == 0) return 0;
-
-        return (shares * totalUnderlyingWithVirtual) / totalSharesWithVirtual;
+        return ILendingAdapter(adapterInfo.adapterAddress).getSharesValue(token, shares);
     }
 
     function getAdapterCount() external view returns (uint256) {

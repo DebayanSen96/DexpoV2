@@ -11,10 +11,6 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "../../interfaces/IProtocolCoreOwnable.sol";
 import "../../interfaces/IOracle.sol";
 
-interface IVaultSafe {
-    function isOwner(address account) external view returns (bool);
-}
-
 interface IPositionModule {
     function getPositionValue(address vault, address token) external view returns (uint256);
 }
@@ -56,6 +52,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     address public safe;
     address public moduleRegistry;
     address public oracle;
+    uint256 private constant MAX_PORTFOLIO_TOKENS = 32;
     
     struct TokenWeight {
         address token;
@@ -124,22 +121,11 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     }
     
     modifier onlySafeOrProtocolOwner() {
-        bool isSafeOwner = msg.sender == safe;
-        if (!isSafeOwner && safe != address(0)) {
-            try IVaultSafe(safe).isOwner(msg.sender) returns (bool result) {
-                isSafeOwner = result;
-            } catch {}
-        }
-        bool isVaultOwner = msg.sender == vaultOwner;
-        bool isProtocolOwner = false;
-        
-        if (protocolCore != address(0)) {
-            try IProtocolCoreOwnable(protocolCore).owner() returns (address po) {
-                isProtocolOwner = (msg.sender == po);
-            } catch {}
-        }
-        
-        if (!isSafeOwner && !isVaultOwner && !isProtocolOwner) revert NotAuthorized();
+        if (
+            msg.sender != safe &&
+            msg.sender != vaultOwner &&
+            (protocolCore == address(0) || msg.sender != IProtocolCoreOwnable(protocolCore).owner())
+        ) revert NotAuthorized();
         _;
     }
     
@@ -160,12 +146,13 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         _disableInitializers();
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override {
+    function _authorizeUpgrade(address) internal view override {
         bool isProtocolOwner = false;
         if (protocolCore != address(0)) {
             try IProtocolCoreOwnable(protocolCore).owner() returns (address po) {
                 isProtocolOwner = (msg.sender == po);
             } catch {}
+            
         }
         if (!isProtocolOwner) revert NotAuthorized();
     }
@@ -214,9 +201,15 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     
     function _setPortfolioInternal(TokenWeight[] calldata _portfolio) internal {
         require(_portfolio.length > 0, "Empty portfolio");
+        require(_portfolio.length <= MAX_PORTFOLIO_TOKENS, "Portfolio too large");
         
         uint256 totalWeight = 0;
         for (uint256 i = 0; i < _portfolio.length; i++) {
+            require(_portfolio[i].token != address(0), "Invalid token");
+            require(_portfolio[i].weightBps > 0, "Zero weight");
+            for (uint256 j = 0; j < i; j++) {
+                require(_portfolio[j].token != _portfolio[i].token, "Duplicate token");
+            }
             totalWeight += _portfolio[i].weightBps;
         }
         require(totalWeight == BPS_DIVISOR, "Weights must sum to 100%");
@@ -362,20 +355,8 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         uint256 userTotalShares = balanceOf(msg.sender);
         
         uint256 userProportionalCostBasis = (userCostBasisUsd[msg.sender] * shares) / userTotalShares;
-        
-        amounts = new uint256[](portfolio.length);
-        uint256 withdrawValueUsd = 0;
-        
-        for (uint256 i = 0; i < portfolio.length; i++) {
-            address token = portfolio[i].token;
-            uint256 balance = IERC20(token).balanceOf(address(this));
-            uint256 amount = (balance * shares) / supply;
-            
-            if (amount > 0) {
-                amounts[i] = amount;
-                withdrawValueUsd += _getTokenValueUsd(token, amount);
-            }
-        }
+        uint256 withdrawValueUsd;
+        (amounts, withdrawValueUsd) = _prepareWithdrawal(shares, supply);
         
         uint256 feeAmountUsd = 0;
         if (withdrawValueUsd > userProportionalCostBasis && performanceFeeBps > 0 && feeCollector != address(0)) {
@@ -411,6 +392,66 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         }
         
         emit Withdrawal(msg.sender, shares, amounts);
+    }
+    
+    function _prepareWithdrawal(uint256 shares, uint256 supply) internal returns (uint256[] memory amounts, uint256 withdrawValueUsd) {
+        require(_getBorrowPositionValueUsd() == 0, "Borrow position active");
+        require(_getStakingPositionValueUsd() == 0, "Staking position active");
+
+        amounts = new uint256[](portfolio.length);
+
+        for (uint256 i = 0; i < portfolio.length; i++) {
+            address token = portfolio[i].token;
+            uint256 directBalance = IERC20(token).balanceOf(address(this));
+            uint256 lendingAmount = _getLendingTokenAmount(token);
+            uint256 totalTokenBalance = directBalance + lendingAmount;
+            uint256 grossAmount = (totalTokenBalance * shares) / supply;
+
+            if (grossAmount > directBalance) {
+                require(lendModule != address(0), "Insufficient liquid balance");
+                uint256 shortfall = grossAmount - directBalance;
+                uint256 withdrawn = ILendingModule(lendModule).withdraw(address(this), token, shortfall);
+                directBalance += withdrawn;
+                require(directBalance >= grossAmount, "Insufficient liquidity");
+            }
+
+            amounts[i] = grossAmount;
+            if (grossAmount > 0) {
+                withdrawValueUsd += _getTokenValueUsd(token, grossAmount);
+            }
+        }
+    }
+    
+    function _getLendingTokenAmount(address token) internal view returns (uint256 amount) {
+        if (lendModule == address(0)) return 0;
+        try IPositionModule(lendModule).getPositionValue(address(this), token) returns (uint256 valueUsd) {
+            amount = _getTokenAmountFromUsd(token, valueUsd);
+        } catch {}
+    }
+
+    function _getBorrowPositionValueUsd() internal view returns (uint256 valueUsd) {
+        if (borrowModule == address(0)) return 0;
+        try IPositionModule(borrowModule).getPositionValue(address(this), address(0)) returns (uint256 borrowValue) {
+            valueUsd = borrowValue;
+        } catch {}
+    }
+
+    function _getStakingPositionValueUsd() internal view returns (uint256 valueUsd) {
+        if (moduleRegistry == address(0)) return 0;
+        try IModuleRegistry(moduleRegistry).getStakingModule() returns (address staking) {
+            if (staking != address(0)) {
+                try IStakingModule(staking).getPositionValue(address(this), address(0)) returns (uint256 stakingValue) {
+                    valueUsd = stakingValue;
+                } catch {}
+            }
+        } catch {}
+    }
+
+    function _getTokenAmountFromUsd(address token, uint256 valueUsd) internal view returns (uint256) {
+        if (valueUsd == 0) return 0;
+        uint256 priceUsd = IOracle(oracle).priceUsdE18(token);
+        uint8 decimals = IERC20Metadata(token).decimals();
+        return (valueUsd * (10 ** decimals)) / priceUsd;
     }
     
     function buyToken(address baseToken, address tokenToBuy, uint256 amountBase) 
@@ -506,9 +547,9 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         if (currentTvl <= highWaterMarkUsd) return (0, 0, 0);
         
         profitUsd = currentTvl - highWaterMarkUsd;
-        highWaterMarkUsd = currentTvl;
         
         if (feeCollector == address(0) || performanceFeeBps == 0 || vaultOwner == address(0)) {
+            highWaterMarkUsd = currentTvl;
             return (profitUsd, 0, 0);
         }
         
@@ -519,9 +560,8 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         uint256 feeTokenAmount = (feeAmountUsd * (10 ** feeTokenDecimals)) / feeTokenPrice;
         
         uint256 feeTokenBalance = IERC20(feeToken).balanceOf(address(this));
-        uint256 maxExtractable = feeTokenBalance / 2;
-        if (feeTokenAmount > maxExtractable) {
-            feeTokenAmount = maxExtractable;
+        if (feeTokenAmount > feeTokenBalance) {
+            feeTokenAmount = feeTokenBalance;
         }
         
         if (feeTokenAmount > 0) {
@@ -532,6 +572,17 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
                 performanceFeeBps,
                 vaultOwner
             );
+        }
+
+        uint256 realizedFeeUsd = 0;
+        if (feeTokenAmount > 0) {
+            realizedFeeUsd = _getTokenValueUsd(feeToken, feeTokenAmount);
+        }
+
+        if (currentTvl > realizedFeeUsd) {
+            highWaterMarkUsd = currentTvl - realizedFeeUsd;
+        } else {
+            highWaterMarkUsd = 0;
         }
         
         return (profitUsd, vaultOwnerNet, protocolFee);

@@ -11,10 +11,6 @@ interface IProtocolCore {
     function owner() external view returns (address);
 }
 
-interface IVaultSafe {
-    function isOwner(address account) external view returns (bool);
-}
-
 interface IIndexSwap {
     function safe() external view returns (address);
 }
@@ -62,24 +58,11 @@ contract SwapHub is Ownable, ReentrancyGuard {
     }
 
     modifier onlyAuthorized(address vault) {
-        bool isVaultItself = (msg.sender == vault);
-        bool isSafeOwner = false;
-        bool isProtocolOwner = false;
-
-        if (!isVaultItself) {
-            address safeAddress = IIndexSwap(vault).safe();
-            isSafeOwner = (msg.sender == safeAddress);
-            if (!isSafeOwner) {
-                try IVaultSafe(safeAddress).isOwner(msg.sender) returns (bool result) {
-                    isSafeOwner = result;
-                } catch {}
-            }
-        }
-
-        address protocolOwner = IProtocolCore(protocolCore).owner();
-        isProtocolOwner = (msg.sender == protocolOwner);
-
-        if (!isVaultItself && !isSafeOwner && !isProtocolOwner) revert NotAuthorized();
+        if (
+            msg.sender != vault &&
+            msg.sender != IIndexSwap(vault).safe() &&
+            msg.sender != IProtocolCore(protocolCore).owner()
+        ) revert NotAuthorized();
         _;
     }
 
