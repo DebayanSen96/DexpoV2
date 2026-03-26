@@ -153,7 +153,7 @@ const config: HardhatUserConfig = {
           debug: { revertStrings: "strip" },
         },
       },
-      "contracts/v3/mainnet/vault/IndexSwapV3.sol": {
+      "contracts/v3/mainnet/base-mainnet/vault/IndexSwapV3.sol": {
         version: "0.8.24",
         settings: {
           viaIR: true,
@@ -177,3 +177,5 @@ const config: HardhatUserConfig = {
 };
 
 export default config;
+
+

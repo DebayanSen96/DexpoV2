@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "../../interfaces/IOracle.sol";
+import "../../../interfaces/IOracle.sol";
 
 interface IChainlinkOracle {
     function priceUsdE18(address token) external view returns (uint256);
@@ -265,7 +265,7 @@ contract HybridOracle is IOracle, Ownable {
         }
     }
 
-    function triggerCircuitBreaker(address token) external {
+    function triggerCircuitBreaker(address token) external onlyOwner {
         OracleConfig storage config = tokenConfigs[token];
         require(config.enabled, "Token not configured");
         require(config.useChainlink && config.useTWAP, "Both sources required for circuit breaker");

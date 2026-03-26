@@ -28,11 +28,11 @@ async function main() {
   const aUsdc = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", BASE_MAINNET.AAVE_AUSDC);
   
   const vault = await ethers.getContractAt(
-    "contracts/v3/mainnet/vault/IndexSwapV3.sol:IndexSwapV3",
+    "contracts/v3/mainnet/base-mainnet/vault/IndexSwapV3.sol:IndexSwapV3",
     state.testVault.indexSwap
   );
   const lendingHub = await ethers.getContractAt(
-    "contracts/v3/mainnet/modules/lending/LendingHub.sol:LendingHub",
+    "contracts/v3/mainnet/base-mainnet/modules/lending/LendingHub.sol:LendingHub",
     state.lendingHub
   );
 
@@ -138,3 +138,5 @@ main()
     console.error("\n❌ Error:", error);
     process.exit(1);
   });
+
+

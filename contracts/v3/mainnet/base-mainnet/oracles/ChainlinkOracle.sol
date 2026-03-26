@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "../../interfaces/IOracle.sol";
+import "../../../interfaces/IOracle.sol";
 
 interface AggregatorV3Interface {
     function decimals() external view returns (uint8);

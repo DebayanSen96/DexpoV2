@@ -145,7 +145,7 @@ async function main() {
   console.log("\n[5] FeeCollector");
   if (!s.feeCollector) {
     s.feeCollector = await deployContract(wallet, provider, "FeeCollector",
-      "v3/mainnet/core/FeeCollector.sol", "FeeCollector", [s.protocolCore, wallet.address]);
+      "v3/mainnet/ethereum-mainnet/core/FeeCollector.sol", "FeeCollector", [s.protocolCore, wallet.address]);
     saveState(s);
   } else { console.log(`  ✓ ${s.feeCollector}`); }
 
@@ -153,11 +153,11 @@ async function main() {
   console.log("\n[6] ModuleRegistry");
   if (!s.moduleRegistry) {
     s.moduleRegistry = await deployContract(wallet, provider, "ModuleRegistry",
-      "v3/mainnet/core/ModuleRegistry.sol", "ModuleRegistry", []);
+      "v3/mainnet/ethereum-mainnet/core/ModuleRegistry.sol", "ModuleRegistry", []);
     saveState(s);
   } else { console.log(`  ✓ ${s.moduleRegistry}`); }
 
-  const regArt = artifact("v3/mainnet/core/ModuleRegistry.sol", "ModuleRegistry");
+  const regArt = artifact("v3/mainnet/ethereum-mainnet/core/ModuleRegistry.sol", "ModuleRegistry");
   const regRO  = new ethers.Contract(s.moduleRegistry, regArt.abi, provider);
   const currentOracle = await regRO.oracle();
   if (currentOracle === ethers.ZeroAddress) {
@@ -182,7 +182,7 @@ async function main() {
   console.log("\n[8] IndexSwapV3 Implementation");
   if (!s.indexSwapImplementation) {
     s.indexSwapImplementation = await deployContract(wallet, provider, "IndexSwapV3 (impl)",
-      "v3/mainnet/vault/IndexSwapV3.sol", "IndexSwapV3", []);
+      "v3/mainnet/ethereum-mainnet/vault/IndexSwapV3.sol", "IndexSwapV3", []);
     saveState(s);
   } else { console.log(`  ✓ ${s.indexSwapImplementation}`); }
 
@@ -273,7 +273,7 @@ async function main() {
   console.log("STAGE 2: E2E STAKING TEST (Hoodi)");
   console.log("=".repeat(60));
 
-  const vaultArt = artifact("v3/mainnet/vault/IndexSwapV3.sol", "IndexSwapV3");
+  const vaultArt = artifact("v3/mainnet/ethereum-mainnet/vault/IndexSwapV3.sol", "IndexSwapV3");
   const wethArt  = artifact("v3/test/MockWETH.sol", "MockWETH");
   const vault    = new ethers.Contract(s.csmVault, vaultArt.abi, wallet);
   const wethC    = new ethers.Contract(s.mockWETH, wethArt.abi, wallet);
@@ -385,3 +385,5 @@ async function main() {
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
+
+

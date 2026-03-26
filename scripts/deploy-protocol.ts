@@ -245,7 +245,7 @@ async function main() {
   const chainlinkOracle = await deployContract(
     deployer,
     "ChainlinkOracle",
-    "contracts/v3/mainnet/oracles/ChainlinkOracle.sol:ChainlinkOracle",
+    "contracts/v3/mainnet/base-mainnet/oracles/ChainlinkOracle.sol:ChainlinkOracle",
     [],
     state,
     "chainlinkOracle"
@@ -254,7 +254,7 @@ async function main() {
   if (state.lastStep !== "chainlinkConfigured" && !state.twapOracle) {
     console.log("  Configuring Chainlink price feeds...");
     const oracle = await ethers.getContractAt(
-      "contracts/v3/mainnet/oracles/ChainlinkOracle.sol:ChainlinkOracle",
+      "contracts/v3/mainnet/base-mainnet/oracles/ChainlinkOracle.sol:ChainlinkOracle",
       chainlinkOracle
     );
 
@@ -295,7 +295,7 @@ async function main() {
   const twapOracle = await deployContract(
     deployer,
     "UniswapV3TWAPOracle",
-    "contracts/v3/mainnet/oracles/UniswapV3TWAPOracle.sol:UniswapV3TWAPOracle",
+    "contracts/v3/mainnet/base-mainnet/oracles/UniswapV3TWAPOracle.sol:UniswapV3TWAPOracle",
     [BASE_MAINNET.WETH, BASE_MAINNET.USDC, BASE_MAINNET.CHAINLINK_ETH_USD],
     state,
     "twapOracle"
@@ -304,7 +304,7 @@ async function main() {
   if (state.lastStep !== "twapConfigured" && !state.hybridOracle) {
     console.log("  Lowering TWAP min cardinality for initial deployment...");
     const twap = await ethers.getContractAt(
-      "contracts/v3/mainnet/oracles/UniswapV3TWAPOracle.sol:UniswapV3TWAPOracle",
+      "contracts/v3/mainnet/base-mainnet/oracles/UniswapV3TWAPOracle.sol:UniswapV3TWAPOracle",
       twapOracle
     );
 
@@ -331,7 +331,7 @@ async function main() {
   const hybridOracle = await deployContract(
     deployer,
     "HybridOracle",
-    "contracts/v3/mainnet/oracles/HybridOracle.sol:HybridOracle",
+    "contracts/v3/mainnet/base-mainnet/oracles/HybridOracle.sol:HybridOracle",
     [chainlinkOracle, twapOracle],
     state,
     "hybridOracle"
@@ -340,7 +340,7 @@ async function main() {
   if (state.lastStep !== "hybridConfigured" && state.lastStep !== "feeCollector") {
     console.log("  Configuring HybridOracle token sources...");
     const hybrid = await ethers.getContractAt(
-      "contracts/v3/mainnet/oracles/HybridOracle.sol:HybridOracle",
+      "contracts/v3/mainnet/base-mainnet/oracles/HybridOracle.sol:HybridOracle",
       hybridOracle
     );
 
@@ -387,7 +387,7 @@ async function main() {
   const feeCollector = await deployContract(
     deployer,
     "FeeCollector",
-    "contracts/v3/mainnet/core/FeeCollector.sol:FeeCollector",
+    "contracts/v3/mainnet/base-mainnet/core/FeeCollector.sol:FeeCollector",
     [protocolCore, deployer.address],
     state,
     "feeCollector"
@@ -400,7 +400,7 @@ async function main() {
   const moduleRegistry = await deployContract(
     deployer,
     "ModuleRegistry",
-    "contracts/v3/mainnet/core/ModuleRegistry.sol:ModuleRegistry",
+    "contracts/v3/mainnet/base-mainnet/core/ModuleRegistry.sol:ModuleRegistry",
     [],
     state,
     "moduleRegistry"
@@ -409,7 +409,7 @@ async function main() {
   if (state.lastStep !== "registryOracleSet" && !state.swapHub) {
     console.log("  Setting oracle in registry...");
     const registry = await ethers.getContractAt(
-      "contracts/v3/mainnet/core/ModuleRegistry.sol:ModuleRegistry",
+      "contracts/v3/mainnet/base-mainnet/core/ModuleRegistry.sol:ModuleRegistry",
       moduleRegistry
     );
     
@@ -430,7 +430,7 @@ async function main() {
   const swapHub = await deployContract(
     deployer,
     "SwapHub",
-    "contracts/v3/mainnet/modules/swap/SwapHub.sol:SwapHub",
+    "contracts/v3/mainnet/base-mainnet/modules/swap/SwapHub.sol:SwapHub",
     [protocolCore, hybridOracle],
     state,
     "swapHub"
@@ -443,7 +443,7 @@ async function main() {
   const aerodromeAdapter = await deployContract(
     deployer,
     "AerodromeAdapter",
-    "contracts/v3/mainnet/modules/swap/adapters/AerodromeAdapter.sol:AerodromeAdapter",
+    "contracts/v3/mainnet/base-mainnet/modules/swap/adapters/AerodromeAdapter.sol:AerodromeAdapter",
     [BASE_MAINNET.AERODROME_ROUTER, BASE_MAINNET.AERODROME_FACTORY],
     state,
     "aerodromeAdapter"
@@ -456,11 +456,11 @@ async function main() {
     console.log("  Configuring Aerodrome adapter...");
     
     const adapter = await ethers.getContractAt(
-      "contracts/v3/mainnet/modules/swap/adapters/AerodromeAdapter.sol:AerodromeAdapter",
+      "contracts/v3/mainnet/base-mainnet/modules/swap/adapters/AerodromeAdapter.sol:AerodromeAdapter",
       aerodromeAdapter
     );
     const hub = await ethers.getContractAt(
-      "contracts/v3/mainnet/modules/swap/SwapHub.sol:SwapHub",
+      "contracts/v3/mainnet/base-mainnet/modules/swap/SwapHub.sol:SwapHub",
       swapHub
     );
 
@@ -505,7 +505,7 @@ async function main() {
   const uniswapV3Adapter = await deployContract(
     deployer,
     "UniswapV3Adapter",
-    "contracts/v3/mainnet/modules/swap/adapters/UniswapV3Adapter.sol:UniswapV3Adapter",
+    "contracts/v3/mainnet/base-mainnet/modules/swap/adapters/UniswapV3Adapter.sol:UniswapV3Adapter",
     [BASE_MAINNET.UNISWAP_SWAP_ROUTER, BASE_MAINNET.UNISWAP_QUOTER],
     state,
     "uniswapV3Adapter"
@@ -517,11 +517,11 @@ async function main() {
     console.log("  Configuring Uniswap V3 adapter...");
     
     const adapter = await ethers.getContractAt(
-      "contracts/v3/mainnet/modules/swap/adapters/UniswapV3Adapter.sol:UniswapV3Adapter",
+      "contracts/v3/mainnet/base-mainnet/modules/swap/adapters/UniswapV3Adapter.sol:UniswapV3Adapter",
       uniswapV3Adapter
     );
     const hub = await ethers.getContractAt(
-      "contracts/v3/mainnet/modules/swap/SwapHub.sol:SwapHub",
+      "contracts/v3/mainnet/base-mainnet/modules/swap/SwapHub.sol:SwapHub",
       swapHub
     );
 
@@ -561,7 +561,7 @@ async function main() {
   const lendingHub = await deployContract(
     deployer,
     "LendingHub",
-    "contracts/v3/mainnet/modules/lending/LendingHub.sol:LendingHub",
+    "contracts/v3/mainnet/base-mainnet/modules/lending/LendingHub.sol:LendingHub",
     [protocolCore, hybridOracle],
     state,
     "lendingHub"
@@ -574,7 +574,7 @@ async function main() {
   const aaveV3Adapter = await deployContract(
     deployer,
     "AaveV3Adapter",
-    "contracts/v3/mainnet/modules/lending/adapters/AaveV3Adapter.sol:AaveV3Adapter",
+    "contracts/v3/mainnet/base-mainnet/modules/lending/adapters/AaveV3Adapter.sol:AaveV3Adapter",
     [BASE_MAINNET.AAVE_POOL_PROVIDER],
     state,
     "aaveV3Adapter"
@@ -586,11 +586,11 @@ async function main() {
     console.log("  Configuring Aave V3 adapter...");
     
     const adapter = await ethers.getContractAt(
-      "contracts/v3/mainnet/modules/lending/adapters/AaveV3Adapter.sol:AaveV3Adapter",
+      "contracts/v3/mainnet/base-mainnet/modules/lending/adapters/AaveV3Adapter.sol:AaveV3Adapter",
       aaveV3Adapter
     );
     const hub = await ethers.getContractAt(
-      "contracts/v3/mainnet/modules/lending/LendingHub.sol:LendingHub",
+      "contracts/v3/mainnet/base-mainnet/modules/lending/LendingHub.sol:LendingHub",
       lendingHub
     );
 
@@ -638,7 +638,7 @@ async function main() {
   
   if (state.lastStep !== "modulesRegistered" && !state.indexSwapFactory) {
     const registry = await ethers.getContractAt(
-      "contracts/v3/mainnet/core/ModuleRegistry.sol:ModuleRegistry",
+      "contracts/v3/mainnet/base-mainnet/core/ModuleRegistry.sol:ModuleRegistry",
       moduleRegistry
     );
 
@@ -665,7 +665,7 @@ async function main() {
   const indexSwapImplementation = await deployContract(
     deployer,
     "IndexSwapV3 (Implementation)",
-    "contracts/v3/mainnet/vault/IndexSwapV3.sol:IndexSwapV3",
+    "contracts/v3/mainnet/base-mainnet/vault/IndexSwapV3.sol:IndexSwapV3",
     [],
     state,
     "indexSwapImplementation"
@@ -827,3 +827,5 @@ main()
     console.error("\n❌ Deployment failed:", error);
     process.exit(1);
   });
+
+

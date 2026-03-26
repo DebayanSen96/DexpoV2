@@ -107,18 +107,18 @@ async function main() {
   // ── 4. FeeCollector ───────────────────────────────────────────────────────
   console.log("\n[4] FeeCollector");
   if (!s.feeCollector) {
-    s.feeCollector = await deploy("FeeCollector", "contracts/v3/mainnet/core/FeeCollector.sol:FeeCollector", [s.protocolCore, deployer.address], deployer);
+    s.feeCollector = await deploy("FeeCollector", "contracts/v3/mainnet/base-mainnet/core/FeeCollector.sol:FeeCollector", [s.protocolCore, deployer.address], deployer);
     saveState(s);
   } else { console.log(`  ✓ already deployed: ${s.feeCollector}`); }
 
   // ── 5. ModuleRegistry ─────────────────────────────────────────────────────
   console.log("\n[5] ModuleRegistry");
   if (!s.moduleRegistry) {
-    s.moduleRegistry = await deploy("ModuleRegistry", "contracts/v3/mainnet/core/ModuleRegistry.sol:ModuleRegistry", [], deployer);
+    s.moduleRegistry = await deploy("ModuleRegistry", "contracts/v3/mainnet/base-mainnet/core/ModuleRegistry.sol:ModuleRegistry", [], deployer);
     saveState(s);
   } else { console.log(`  ✓ already deployed: ${s.moduleRegistry}`); }
 
-  const registry = await ethers.getContractAt("contracts/v3/mainnet/core/ModuleRegistry.sol:ModuleRegistry", s.moduleRegistry!);
+  const registry = await ethers.getContractAt("contracts/v3/mainnet/base-mainnet/core/ModuleRegistry.sol:ModuleRegistry", s.moduleRegistry!);
   const currentOracle = await registry.oracle();
   if (currentOracle === ethers.ZeroAddress) {
     await tx("Set oracle in registry", registry.setOracle(s.mockOracle!));
@@ -145,7 +145,7 @@ async function main() {
   // ── 7. IndexSwapV3 Implementation ─────────────────────────────────────────
   console.log("\n[7] IndexSwapV3 Implementation");
   if (!s.indexSwapImplementation) {
-    s.indexSwapImplementation = await deploy("IndexSwapV3 (impl)", "contracts/v3/mainnet/vault/IndexSwapV3.sol:IndexSwapV3", [], deployer);
+    s.indexSwapImplementation = await deploy("IndexSwapV3 (impl)", "contracts/v3/mainnet/base-mainnet/vault/IndexSwapV3.sol:IndexSwapV3", [], deployer);
     saveState(s);
   } else { console.log(`  ✓ already deployed: ${s.indexSwapImplementation}`); }
 
@@ -233,3 +233,5 @@ async function main() {
 }
 
 main().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
+
+

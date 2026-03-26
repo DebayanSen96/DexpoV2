@@ -2,7 +2,7 @@ import { ethers } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 
-// Only verified Base Mainnet Token Addresses with correct checksums
+// Only verified Ethereum Mainnet Token Addresses with correct checksums
 const BASE_TOKENS = {
   USDC: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
   WETH: "0x4200000000000000000000000000000000000006",
@@ -39,19 +39,19 @@ async function main() {
   console.log("AaveV3Adapter:", state.aaveV3Adapter);
 
   const oracle = await ethers.getContractAt(
-    "contracts/v3/mainnet/oracles/ChainlinkOracle.sol:ChainlinkOracle",
+    "contracts/v3/mainnet/base-mainnet/oracles/ChainlinkOracle.sol:ChainlinkOracle",
     state.chainlinkOracle
   );
   const aerodromeAdapter = await ethers.getContractAt(
-    "contracts/v3/mainnet/modules/swap/adapters/AerodromeAdapter.sol:AerodromeAdapter",
+    "contracts/v3/mainnet/base-mainnet/modules/swap/adapters/AerodromeAdapter.sol:AerodromeAdapter",
     state.aerodromeAdapter
   );
   const uniswapAdapter = await ethers.getContractAt(
-    "contracts/v3/mainnet/modules/swap/adapters/UniswapV3Adapter.sol:UniswapV3Adapter",
+    "contracts/v3/mainnet/base-mainnet/modules/swap/adapters/UniswapV3Adapter.sol:UniswapV3Adapter",
     state.uniswapV3Adapter
   );
   const aaveAdapter = await ethers.getContractAt(
-    "contracts/v3/mainnet/modules/lending/adapters/AaveV3Adapter.sol:AaveV3Adapter",
+    "contracts/v3/mainnet/base-mainnet/modules/lending/adapters/AaveV3Adapter.sol:AaveV3Adapter",
     state.aaveV3Adapter
   );
 
@@ -205,3 +205,5 @@ main()
     console.error("\n❌ Error:", error);
     process.exit(1);
   });
+
+

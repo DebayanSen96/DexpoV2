@@ -60,6 +60,7 @@ contract LendingHub is Ownable, ReentrancyGuard {
     error InsufficientPosition();
     error ZeroAmount();
     error AdapterMismatch();
+    error SharesTooSmall();
 
     constructor(address _protocolCore, address _oracle) Ownable(msg.sender) {
         protocolCore = _protocolCore;
@@ -117,10 +118,14 @@ contract LendingHub is Ownable, ReentrancyGuard {
         
         ILendingAdapter adapter = ILendingAdapter(adapterInfo.adapterAddress);
         if (!adapter.isTokenSupported(token)) revert TokenNotSupported();
+        uint256 trackedTotalBefore = totalShares[adapterId][token];
+        uint256 actualTotalBefore = adapter.getTotalShares(token);
 
         IERC20(token).safeTransferFrom(vault, adapterInfo.adapterAddress, amount);
 
-        shares = adapter.supply(token, amount, address(this));
+        uint256 actualSharesReceived = adapter.supply(token, amount, address(this));
+        shares = _toClaimShares(actualSharesReceived, trackedTotalBefore, actualTotalBefore);
+        if (shares == 0) revert SharesTooSmall();
 
         VaultPosition storage pos = positions[vault][token];
         if (pos.shares > 0 && pos.adapterId != adapterId) revert AdapterMismatch();
@@ -166,11 +171,14 @@ contract LendingHub is Ownable, ReentrancyGuard {
         } else {
             sharesToBurn = (pos.shares * amount) / currentValue;
         }
+        if (sharesToBurn == 0) revert SharesTooSmall();
+        uint256 actualSharesToBurn = _toActualShares(pos.adapterId, token, sharesToBurn);
+        if (actualSharesToBurn == 0) revert InsufficientPosition();
 
         address shareToken = adapter.getShareToken(token);
-        IERC20(shareToken).safeTransfer(adapterInfo.adapterAddress, sharesToBurn);
+        IERC20(shareToken).safeTransfer(adapterInfo.adapterAddress, actualSharesToBurn);
         
-        withdrawn = adapter.withdraw(token, sharesToBurn, vault);
+        withdrawn = adapter.withdraw(token, actualSharesToBurn, vault);
 
         pos.shares -= sharesToBurn;
         totalShares[pos.adapterId][token] -= sharesToBurn;
@@ -201,11 +209,13 @@ contract LendingHub is Ownable, ReentrancyGuard {
         if (adapterInfo.adapterAddress == address(0)) revert AdapterNotFound();
 
         ILendingAdapter adapter = ILendingAdapter(adapterInfo.adapterAddress);
+        uint256 actualSharesToBurn = _toActualShares(pos.adapterId, token, pos.shares);
+        if (actualSharesToBurn == 0) revert InsufficientPosition();
         
         address shareToken = adapter.getShareToken(token);
-        IERC20(shareToken).safeTransfer(adapterInfo.adapterAddress, pos.shares);
+        IERC20(shareToken).safeTransfer(adapterInfo.adapterAddress, actualSharesToBurn);
 
-        withdrawn = adapter.withdraw(token, pos.shares, vault);
+        withdrawn = adapter.withdraw(token, actualSharesToBurn, vault);
 
         uint256 burnedShares = pos.shares;
         uint256 suppliedToRemove = pos.suppliedAmount;
@@ -258,7 +268,6 @@ contract LendingHub is Ownable, ReentrancyGuard {
 
         AdapterInfo storage adapterInfo = adapters[pos.adapterId];
         if (adapterInfo.adapterAddress == address(0)) return 0;
-
         uint256 tokenAmount = _getShareValue(pos.adapterId, token, pos.shares);
         if (tokenAmount == 0) return 0;
 
@@ -272,8 +281,26 @@ contract LendingHub is Ownable, ReentrancyGuard {
         if (shares == 0) return 0;
         AdapterInfo storage adapterInfo = adapters[adapterId];
         if (adapterInfo.adapterAddress == address(0)) return 0;
+        uint256 actualShares = _toActualShares(adapterId, token, shares);
+        if (actualShares == 0) return 0;
+        return ILendingAdapter(adapterInfo.adapterAddress).getSharesValue(token, actualShares);
+    }
 
-        return ILendingAdapter(adapterInfo.adapterAddress).getSharesValue(token, shares);
+    function _toActualShares(bytes32 adapterId, address token, uint256 trackedShares) internal view returns (uint256 actualShares) {
+        if (trackedShares == 0) return 0;
+        AdapterInfo storage adapterInfo = adapters[adapterId];
+        if (adapterInfo.adapterAddress == address(0)) return 0;
+        uint256 trackedTotal = totalShares[adapterId][token];
+        if (trackedTotal == 0) return 0;
+        uint256 actualTotal = ILendingAdapter(adapterInfo.adapterAddress).getTotalShares(token);
+        if (actualTotal == 0) return 0;
+        actualShares = (trackedShares * actualTotal) / trackedTotal;
+    }
+
+    function _toClaimShares(uint256 actualShares, uint256 trackedTotal, uint256 actualTotal) internal pure returns (uint256 claimShares) {
+        if (actualShares == 0) return 0;
+        if (trackedTotal == 0 || actualTotal == 0) return actualShares;
+        claimShares = (actualShares * trackedTotal) / actualTotal;
     }
 
     function getAdapterCount() external view returns (uint256) {

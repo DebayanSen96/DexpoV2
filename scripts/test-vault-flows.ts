@@ -30,19 +30,19 @@ async function main() {
   const aUsdc = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", BASE_MAINNET.AAVE_AUSDC);
 
   const swapHub = await ethers.getContractAt(
-    "contracts/v3/mainnet/modules/swap/SwapHub.sol:SwapHub",
+    "contracts/v3/mainnet/base-mainnet/modules/swap/SwapHub.sol:SwapHub",
     state.swapHub
   );
   const lendingHub = await ethers.getContractAt(
-    "contracts/v3/mainnet/modules/lending/LendingHub.sol:LendingHub",
+    "contracts/v3/mainnet/base-mainnet/modules/lending/LendingHub.sol:LendingHub",
     state.lendingHub
   );
   const vault = await ethers.getContractAt(
-    "contracts/v3/mainnet/vault/IndexSwapV3.sol:IndexSwapV3",
+    "contracts/v3/mainnet/base-mainnet/vault/IndexSwapV3.sol:IndexSwapV3",
     state.testVault.indexSwap
   );
   const oracle = await ethers.getContractAt(
-    "contracts/v3/mainnet/oracles/ChainlinkOracle.sol:ChainlinkOracle",
+    "contracts/v3/mainnet/base-mainnet/oracles/ChainlinkOracle.sol:ChainlinkOracle",
     state.chainlinkOracle
   );
 
@@ -215,3 +215,5 @@ main()
     console.error("\n❌ Test failed:", error);
     process.exit(1);
   });
+
+

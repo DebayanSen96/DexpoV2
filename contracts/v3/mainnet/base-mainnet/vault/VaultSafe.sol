@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "../../interfaces/IProtocolCoreOwnable.sol";
+import "../../../interfaces/IProtocolCoreOwnable.sol";
 
 contract VaultSafe is ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -123,18 +123,20 @@ contract VaultSafe is ReentrancyGuard {
         
         emit TransactionSubmitted(txHash, msg.sender, to, value, data);
         
-        // If threshold is 1, execute immediately
-        if (threshold == 1) {
-            _executeTransaction(txHash);
-        } else {
-            // Auto-confirm for the submitter
-            _confirmTransaction(txHash, msg.sender);
+        // Auto-confirm only for listed safe owners.
+        // Protocol owner can submit but does not count as a signer.
+        if (isOwner[msg.sender]) {
+            if (threshold == 1) {
+                _executeTransaction(txHash);
+            } else {
+                _confirmTransaction(txHash, msg.sender);
+            }
         }
     }
     
     function confirmTransaction(bytes32 txHash)
         external
-        onlyOwnerOrProtocolOwner
+        onlyOwner
         txExists(txHash)
         notExecuted(txHash)
         notConfirmed(txHash)

@@ -8,8 +8,8 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "../../interfaces/IProtocolCoreOwnable.sol";
-import "../../interfaces/IOracle.sol";
+import "../../../interfaces/IProtocolCoreOwnable.sol";
+import "../../../interfaces/IOracle.sol";
 
 interface IPositionModule {
     function getPositionValue(address vault, address token) external view returns (uint256);
@@ -73,6 +73,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     uint256 public totalWithdrawalsUsd;
     
     uint256 public constant BPS_DIVISOR = 10000;
+    uint16 public constant MAX_PERFORMANCE_FEE_BPS = 3000;
     uint256 private constant DEAD_SHARES = 1e3;
     address private constant DEAD_ADDRESS = address(1);
     uint256 public minDepositAmount;
@@ -177,6 +178,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         require(params.protocolCore != address(0), "Invalid core");
         require(params.vaultOwner != address(0), "Invalid owner");
         require(params.moduleRegistry != address(0), "Invalid registry");
+        require(params.performanceFeeBps <= MAX_PERFORMANCE_FEE_BPS, "Fee too high");
         require(_portfolio.length > 0, "Empty portfolio");
         
         __ERC20_init(_name, _symbol);
@@ -244,6 +246,12 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         require(amounts.length == portfolio.length, "Invalid amounts length");
         
         uint256 totalValueUsd = 0;
+        uint256 supply = totalSupply();
+        uint256 currentTvlUsd = 0;
+        if (supply > 0) {
+            currentTvlUsd = _getTotalValueUsdStrict();
+            require(currentTvlUsd > 0, "Zero TVL");
+        }
         
         for (uint256 i = 0; i < portfolio.length; i++) {
             if (amounts[i] > 0) {
@@ -259,15 +267,12 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         if (totalValueUsd == 0) revert ZeroAmount();
         if (minDepositAmount > 0 && totalValueUsd < minDepositAmount) revert BelowMinimum();
         
-        uint256 supply = totalSupply();
         if (supply == 0) {
             shares = totalValueUsd;
             require(shares > DEAD_SHARES, "Below dead shares minimum");
             _mint(DEAD_ADDRESS, DEAD_SHARES);
             shares -= DEAD_SHARES;
         } else {
-            uint256 currentTvlUsd = getTotalValueUsd();
-            require(currentTvlUsd > 0, "Zero TVL");
             shares = (totalValueUsd * supply) / currentTvlUsd;
         }
         
@@ -277,7 +282,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         
         totalDepositsUsd += totalValueUsd;
         if (highWaterMarkUsd == 0) {
-            highWaterMarkUsd = getTotalValueUsd();
+            highWaterMarkUsd = _getTotalValueUsdStrict();
         }
         
         _updateWeightedTimestamp(msg.sender, existingShares, shares);
@@ -295,6 +300,13 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         if (depositAmount == 0) revert ZeroAmount();
         if (!isPortfolioToken[depositToken]) revert TokenNotInPortfolio();
         
+        uint256 supply = totalSupply();
+        uint256 currentTvlUsd = 0;
+        if (supply > 0) {
+            currentTvlUsd = _getTotalValueUsdStrict();
+            require(currentTvlUsd > 0, "Zero TVL");
+        }
+        
         IERC20(depositToken).safeTransferFrom(msg.sender, address(this), depositAmount);
         
         uint256 depositValueUsd = _getTokenValueUsd(depositToken, depositAmount);
@@ -302,14 +314,12 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         
         if (minDepositAmount > 0 && depositValueUsd < minDepositAmount) revert BelowMinimum();
         
-        uint256 supply = totalSupply();
         if (supply == 0) {
             shares = depositValueUsd;
             require(shares > DEAD_SHARES, "Below dead shares minimum");
             _mint(DEAD_ADDRESS, DEAD_SHARES);
             shares -= DEAD_SHARES;
         } else {
-            uint256 currentTvlUsd = getTotalValueUsd();
             shares = (depositValueUsd * supply) / currentTvlUsd;
         }
         
@@ -319,7 +329,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         
         totalDepositsUsd += depositValueUsd;
         if (highWaterMarkUsd == 0) {
-            highWaterMarkUsd = getTotalValueUsd();
+            highWaterMarkUsd = _getTotalValueUsdStrict();
         }
         
         userCostBasisUsd[msg.sender] += depositValueUsd;
@@ -358,12 +368,6 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         uint256 withdrawValueUsd;
         (amounts, withdrawValueUsd) = _prepareWithdrawal(shares, supply);
         
-        uint256 feeAmountUsd = 0;
-        if (withdrawValueUsd > userProportionalCostBasis && performanceFeeBps > 0 && feeCollector != address(0)) {
-            uint256 profitUsd = withdrawValueUsd - userProportionalCostBasis;
-            feeAmountUsd = (profitUsd * performanceFeeBps) / BPS_DIVISOR;
-        }
-
         _burn(msg.sender, shares);
         userCostBasisUsd[msg.sender] -= userProportionalCostBasis;
         totalWithdrawalsUsd += withdrawValueUsd;
@@ -371,22 +375,6 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         for (uint256 i = 0; i < portfolio.length; i++) {
             if (amounts[i] > 0) {
                 address token = portfolio[i].token;
-                uint256 feeAmount = 0;
-                
-                if (feeAmountUsd > 0 && withdrawValueUsd > 0) {
-                    feeAmount = (amounts[i] * feeAmountUsd) / withdrawValueUsd;
-                    if (feeAmount > 0 && vaultOwner != address(0)) {
-                        IERC20(token).forceApprove(feeCollector, feeAmount);
-                        IFeeCollector(feeCollector).distributePerformanceFee(
-                            token,
-                            feeAmount,
-                            performanceFeeBps,
-                            vaultOwner
-                        );
-                        amounts[i] -= feeAmount;
-                    }
-                }
-                
                 IERC20(token).safeTransfer(msg.sender, amounts[i]);
             }
         }
@@ -589,7 +577,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     }
     
     function setPerformanceFee(uint16 _feeBps) external onlySafeOrProtocolOwner {
-        require(_feeBps <= 3000, "Fee too high");
+        require(_feeBps <= MAX_PERFORMANCE_FEE_BPS, "Fee too high");
         uint16 old = performanceFeeBps;
         performanceFeeBps = _feeBps;
         emit PerformanceFeeUpdated(old, _feeBps);
@@ -743,6 +731,37 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
                     } catch {}
                 }
             } catch {}
+        }
+    }
+
+    function _getTotalValueUsdStrict() internal view returns (uint256 totalUsd) {
+        for (uint256 i = 0; i < portfolio.length; i++) {
+            address token = portfolio[i].token;
+            if (token == address(0)) continue;
+            uint256 balance = IERC20(token).balanceOf(address(this));
+            totalUsd += _getTokenValueUsd(token, balance);
+        }
+
+        if (lendModule != address(0)) {
+            uint256 lendValue = IPositionModule(lendModule).getPositionValue(address(this), address(0));
+            totalUsd += lendValue;
+        }
+
+        if (borrowModule != address(0)) {
+            uint256 borrowValue = IPositionModule(borrowModule).getPositionValue(address(this), address(0));
+            if (totalUsd > borrowValue) {
+                totalUsd -= borrowValue;
+            } else {
+                totalUsd = 0;
+            }
+        }
+
+        if (moduleRegistry != address(0)) {
+            address staking = IModuleRegistry(moduleRegistry).getStakingModule();
+            if (staking != address(0)) {
+                uint256 stakingValue = IStakingModule(staking).getPositionValue(address(this), address(0));
+                totalUsd += stakingValue;
+            }
         }
     }
     

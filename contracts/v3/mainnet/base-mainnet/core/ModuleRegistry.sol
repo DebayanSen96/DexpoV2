@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "../../interfaces/IModuleRegistry.sol";
+import "../../../interfaces/IModuleRegistry.sol";
 
 contract ModuleRegistry is IModuleRegistry, Ownable {
     address public swapModule;
@@ -109,3 +109,4 @@ contract ModuleRegistry is IModuleRegistry, Ownable {
         return modules[moduleId];
     }
 }
+

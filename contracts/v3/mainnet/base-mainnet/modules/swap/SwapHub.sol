@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -26,6 +27,7 @@ contract SwapHub is Ownable, ReentrancyGuard {
     address public oracle;
     uint256 public defaultSlippageBps = 100;
     uint256 public constant MAX_ADAPTERS_TO_CHECK = 10;
+    uint256 public constant BPS_DIVISOR = 10000;
 
     struct AdapterInfo {
         address adapterAddress;
@@ -51,6 +53,8 @@ contract SwapHub is Ownable, ReentrancyGuard {
     error SlippageExceeded();
     error SwapExpired();
     error InsufficientOutput();
+    error InvalidSlippage();
+    error ZeroMinAmountOut();
 
     constructor(address _protocolCore, address _oracle) Ownable(msg.sender) {
         protocolCore = _protocolCore;
@@ -144,6 +148,11 @@ contract SwapHub is Ownable, ReentrancyGuard {
     ) internal returns (uint256 amountOut) {
         if (block.timestamp > deadline) revert SwapExpired();
         if (amountIn == 0) revert ZeroAmount();
+        uint256 oracleMinAmountOut = _getOracleMinAmountOut(tokenIn, tokenOut, amountIn, defaultSlippageBps);
+        if (oracleMinAmountOut > minAmountOut) {
+            minAmountOut = oracleMinAmountOut;
+        }
+        if (minAmountOut == 0) revert ZeroMinAmountOut();
         
         bytes32 selectedAdapter = adapterId == bytes32(0) ? defaultAdapterId : adapterId;
         
@@ -208,6 +217,7 @@ contract SwapHub is Ownable, ReentrancyGuard {
     ) internal returns (uint256 amountOut) {
         if (block.timestamp > deadline) revert SwapExpired();
         if (amountIn == 0) revert ZeroAmount();
+        if (slippageBps > 1000) revert InvalidSlippage();
 
         bytes32 selectedAdapter = defaultAdapterId;
         uint256 bestQuote = 0;
@@ -236,6 +246,11 @@ contract SwapHub is Ownable, ReentrancyGuard {
 
         uint256 quote = adapter.getQuote(tokenIn, tokenOut, amountIn);
         uint256 minAmountOut = (quote * (10000 - slippageBps)) / 10000;
+        uint256 oracleMinAmountOut = _getOracleMinAmountOut(tokenIn, tokenOut, amountIn, slippageBps);
+        if (oracleMinAmountOut > minAmountOut) {
+            minAmountOut = oracleMinAmountOut;
+        }
+        if (minAmountOut == 0) revert ZeroMinAmountOut();
 
         uint256 balanceInBefore = IERC20(tokenIn).balanceOf(address(this));
         uint256 balanceOutBefore = IERC20(tokenOut).balanceOf(vault);
@@ -302,6 +317,38 @@ contract SwapHub is Ownable, ReentrancyGuard {
 
     function getAdapterCount() external view returns (uint256) {
         return adapterIds.length;
+    }
+
+    function _getOracleMinAmountOut(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 slippageBps
+    ) internal view returns (uint256 minAmountOut) {
+        if (oracle == address(0)) return 0;
+        if (slippageBps > BPS_DIVISOR) return 0;
+
+        uint256 priceIn;
+        uint256 priceOut;
+        try IOracle(oracle).priceUsdE18(tokenIn) returns (uint256 pIn) {
+            priceIn = pIn;
+        } catch {
+            return 0;
+        }
+
+        try IOracle(oracle).priceUsdE18(tokenOut) returns (uint256 pOut) {
+            priceOut = pOut;
+        } catch {
+            return 0;
+        }
+
+        if (priceIn == 0 || priceOut == 0) return 0;
+
+        uint8 tokenInDecimals = IERC20Metadata(tokenIn).decimals();
+        uint8 tokenOutDecimals = IERC20Metadata(tokenOut).decimals();
+        uint256 amountInUsd = (amountIn * priceIn) / (10 ** tokenInDecimals);
+        uint256 oracleAmountOut = (amountInUsd * (10 ** tokenOutDecimals)) / priceOut;
+        minAmountOut = (oracleAmountOut * (BPS_DIVISOR - slippageBps)) / BPS_DIVISOR;
     }
 
     function emergencyRescueToken(address token, address to, uint256 amount) external onlyOwner {

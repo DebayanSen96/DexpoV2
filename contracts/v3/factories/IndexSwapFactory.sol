@@ -35,6 +35,7 @@ interface IIndexSwapV3Init {
 }
 
 contract IndexSwapFactory is Ownable {
+    uint16 public constant MAX_PERFORMANCE_FEE_BPS = 3000;
     
     address public immutable protocolCore;
     address public immutable moduleRegistry;
@@ -91,6 +92,7 @@ contract IndexSwapFactory is Ownable {
     ) external onlyProtocolCore returns (address indexSwap) {
         if (vaultOwner == address(0)) revert ZeroAddress();
         if (portfolio.length == 0) revert EmptyPortfolio();
+        require(performanceFeeBps <= MAX_PERFORMANCE_FEE_BPS, "Fee too high");
         if (feeCollector == address(0)) revert FeeCollectorNotSet();
         if (implementation == address(0)) revert ImplementationNotSet();
         
