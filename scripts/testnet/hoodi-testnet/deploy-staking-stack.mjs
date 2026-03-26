@@ -7,7 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..", "..", "..");
 
 const HOODI_RPC = process.env.HOODI_RPC_URL || "https://hoodi.drpc.org";
-const PRIVATE_KEY = process.env.HOODI_PRIVATE_KEY || process.env.PRIVATE_KEY || "2f9c39ab3295bc5d0efa10ab6a042a7486d25724f2bd35135088b402880e5eca";
+const PRIVATE_KEY = process.env.HOODI_PRIVATE_KEY || process.env.MAINNET_WALLET_PK || process.env.PRIVATE_KEY || "2f9c39ab3295bc5d0efa10ab6a042a7486d25724f2bd35135088b402880e5eca";
 const CS_MODULE = "0x79CEf36D84743222f37765204Bec41E92a93E59d";
 const CS_ACCOUNTING = "0xA54b90BA34C5f326BC1485054080994e38FB4C60";
 const STETH = "0x3508A952176b3c15387C97BE809eaffB1982176a";
@@ -280,12 +280,9 @@ async function runStage2(wallet, provider, state) {
   const adapterArt = artifact(adapterPath, adapterName);
 
   const vault = new ethers.Contract(state.csmVault, vaultArt.abi, wallet);
-  const weth = new ethers.Contract(state.mockWETH, wethArt.abi, wallet);
   const adapter = new ethers.Contract(state.lidoCSMAdapter, adapterArt.abi, provider);
 
-  await sendTx(wallet, provider, "mockWETH.deposit", state.mockWETH, wethArt.abi, "deposit", [], { value: BOND_AMOUNT });
-  await sendTx(wallet, provider, "mockWETH.approve(vault)", state.mockWETH, wethArt.abi, "approve", [state.csmVault, BOND_AMOUNT]);
-  await sendTx(wallet, provider, "vault.depositSingle", state.csmVault, vaultArt.abi, "depositSingle", [state.mockWETH, BOND_AMOUNT]);
+  await sendTx(wallet, provider, "vault.depositNative", state.csmVault, vaultArt.abi, "depositNative", [state.mockWETH], { value: BOND_AMOUNT });
   await sendTx(wallet, provider, "vault.approveToken(adapter)", state.csmVault, vaultArt.abi, "approveToken", [state.mockWETH, state.lidoCSMAdapter, BOND_AMOUNT]);
 
   const validatorData = ethers.AbiCoder.defaultAbiCoder().encode(["bytes", "bytes"], [pubkey, signature]);

@@ -46,6 +46,11 @@ interface IStakingModule {
     function getPositionValue(address vault, address token) external view returns (uint256);
 }
 
+interface IWrappedNativeToken is IERC20 {
+    function deposit() external payable;
+    function withdraw(uint256 amount) external;
+}
+
 contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
     
@@ -98,6 +103,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     event MinDepositUpdated(uint256 oldAmount, uint256 newAmount);
     event HighWaterMarkReset(uint256 newHighWaterMark);
     event TokenRescued(address indexed token, address indexed to, uint256 amount);
+    event NativeDeposit(address indexed user, address indexed wrappedToken, uint256 assets, uint256 shares);
     
     error NotAuthorized();
     error ZeroAmount();
@@ -283,12 +289,33 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         if (!isPortfolioToken[depositToken]) revert TokenNotInPortfolio();
         
         IERC20(depositToken).safeTransferFrom(msg.sender, address(this), depositAmount);
-        
+        shares = _mintSharesForDeposit(msg.sender, depositToken, depositAmount);
+    }
+
+    function depositNative(address wrappedToken)
+        external
+        payable
+        nonReentrant
+        whenNotPaused
+        returns (uint256 shares)
+    {
+        if (msg.value == 0) revert ZeroAmount();
+        if (!isPortfolioToken[wrappedToken]) revert TokenNotInPortfolio();
+
+        IWrappedNativeToken(wrappedToken).deposit{value: msg.value}();
+        shares = _mintSharesForDeposit(msg.sender, wrappedToken, msg.value);
+        emit NativeDeposit(msg.sender, wrappedToken, msg.value, shares);
+    }
+
+    function _mintSharesForDeposit(address receiver, address depositToken, uint256 depositAmount)
+        internal
+        returns (uint256 shares)
+    {
         uint256 depositValueUsd = _getTokenValueUsd(depositToken, depositAmount);
         if (depositValueUsd == 0) revert InvalidPrice();
-        
+
         if (minDepositAmount > 0 && depositValueUsd < minDepositAmount) revert BelowMinimum();
-        
+
         uint256 supply = totalSupply();
         if (supply == 0) {
             shares = depositValueUsd;
@@ -299,20 +326,20 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
             uint256 currentTvlUsd = getTotalValueUsd();
             shares = (depositValueUsd * supply) / currentTvlUsd;
         }
-        
+
         require(shares > 0, "Zero shares");
-        uint256 existingShares = balanceOf(msg.sender);
-        _mint(msg.sender, shares);
-        
+        uint256 existingShares = balanceOf(receiver);
+        _mint(receiver, shares);
+
         totalDepositsUsd += depositValueUsd;
         if (highWaterMarkUsd == 0) {
             highWaterMarkUsd = getTotalValueUsd();
         }
-        
-        userCostBasisUsd[msg.sender] += depositValueUsd;
-        _updateWeightedTimestamp(msg.sender, existingShares, shares);
-        
-        emit Deposit(msg.sender, shares, depositValueUsd);
+
+        userCostBasisUsd[receiver] += depositValueUsd;
+        _updateWeightedTimestamp(receiver, existingShares, shares);
+
+        emit Deposit(receiver, shares, depositValueUsd);
     }
     
     function _updateWeightedTimestamp(address user, uint256 existingShares, uint256 newShares) internal {

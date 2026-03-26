@@ -31,7 +31,11 @@ const networks: HardhatUserConfig["networks"] = {
   },
   "ethereum-hoodi": {
     url: process.env.HOODI_RPC_URL || "https://hoodi.drpc.org",
-    accounts: ["2f9c39ab3295bc5d0efa10ab6a042a7486d25724f2bd35135088b402880e5eca"],
+    accounts: process.env.HOODI_PRIVATE_KEY
+      ? [process.env.HOODI_PRIVATE_KEY]
+      : (process.env.MAINNET_WALLET_PK
+        ? [process.env.MAINNET_WALLET_PK]
+        : (process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [])),
     chainId: 560048,
     allowUnlimitedContractSize: true,
   },
