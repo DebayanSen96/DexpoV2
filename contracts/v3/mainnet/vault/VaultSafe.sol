@@ -125,16 +125,19 @@ contract VaultSafe is ReentrancyGuard {
         
         // If threshold is 1, execute immediately
         if (threshold == 1) {
+            require(isOwner[msg.sender], "Owner confirmation required");
             _executeTransaction(txHash);
         } else {
-            // Auto-confirm for the submitter
-            _confirmTransaction(txHash, msg.sender);
+            // Auto-confirm only for listed safe owners.
+            if (isOwner[msg.sender]) {
+                _confirmTransaction(txHash, msg.sender);
+            }
         }
     }
     
     function confirmTransaction(bytes32 txHash)
         external
-        onlyOwnerOrProtocolOwner
+        onlyOwner
         txExists(txHash)
         notExecuted(txHash)
         notConfirmed(txHash)

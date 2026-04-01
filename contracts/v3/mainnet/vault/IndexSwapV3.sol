@@ -113,6 +113,8 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     error AlreadyInitialized();
     error TokenNotInPortfolio();
     error StrandedTokenBalance(address token, uint256 balance);
+    error ActiveExternalPosition(address token, uint256 valueUsd);
+    error ActiveStrategyPosition();
     error InvalidCommand();
     error CannotRescuePortfolioToken();
 
@@ -219,6 +221,8 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
             if (!stillPresent) {
                 uint256 bal = IERC20(oldToken).balanceOf(address(this));
                 if (bal > 0) revert StrandedTokenBalance(oldToken, bal);
+                uint256 externalValueUsd = _getTokenExternalPositionValueUsd(oldToken);
+                if (externalValueUsd > 0) revert ActiveExternalPosition(oldToken, externalValueUsd);
             }
             isPortfolioToken[oldToken] = false;
         }
@@ -364,6 +368,9 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
                 revert LockupActive();
             }
         }
+
+        // Avoid underpaying withdrawals when strategy positions are still active.
+        if (_hasAnyExternalPosition()) revert ActiveStrategyPosition();
         
         uint256 supply = totalSupply();
         uint256 userTotalShares = balanceOf(msg.sender);
@@ -513,9 +520,9 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         if (currentTvl <= highWaterMarkUsd) return (0, 0, 0);
         
         profitUsd = currentTvl - highWaterMarkUsd;
-        highWaterMarkUsd = currentTvl;
         
         if (feeCollector == address(0) || performanceFeeBps == 0 || vaultOwner == address(0)) {
+            highWaterMarkUsd = currentTvl;
             return (profitUsd, 0, 0);
         }
         
@@ -530,6 +537,11 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         if (feeTokenAmount > maxExtractable) {
             feeTokenAmount = maxExtractable;
         }
+
+        uint256 extractedFeeUsd = 0;
+        if (feeTokenAmount > 0) {
+            extractedFeeUsd = (feeTokenAmount * feeTokenPrice) / (10 ** feeTokenDecimals);
+        }
         
         if (feeTokenAmount > 0) {
             IERC20(feeToken).forceApprove(feeCollector, feeTokenAmount);
@@ -539,6 +551,12 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
                 performanceFeeBps,
                 vaultOwner
             );
+        }
+
+        if (currentTvl > extractedFeeUsd) {
+            highWaterMarkUsd = currentTvl - extractedFeeUsd;
+        } else {
+            highWaterMarkUsd = 0;
         }
         
         return (profitUsd, vaultOwnerNet, protocolFee);
@@ -732,6 +750,44 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         uint8 decimals = IERC20Metadata(token).decimals();
         
         return (amount * priceUsd) / (10 ** decimals);
+    }
+
+    function _getTokenExternalPositionValueUsd(address token) internal view returns (uint256 valueUsd) {
+        if (lendModule != address(0)) {
+            try IPositionModule(lendModule).getPositionValue(address(this), token) returns (uint256 lendValue) {
+                valueUsd += lendValue;
+            } catch {}
+        }
+
+        if (moduleRegistry != address(0)) {
+            try IModuleRegistry(moduleRegistry).getStakingModule() returns (address staking) {
+                if (staking != address(0)) {
+                    try IPositionModule(staking).getPositionValue(address(this), token) returns (uint256 stakingValue) {
+                        valueUsd += stakingValue;
+                    } catch {}
+                }
+            } catch {}
+        }
+    }
+
+    function _hasAnyExternalPosition() internal view returns (bool) {
+        if (lendModule != address(0)) {
+            try IPositionModule(lendModule).getPositionValue(address(this), address(0)) returns (uint256 lendValue) {
+                if (lendValue > 0) return true;
+            } catch {}
+        }
+
+        if (moduleRegistry != address(0)) {
+            try IModuleRegistry(moduleRegistry).getStakingModule() returns (address staking) {
+                if (staking != address(0)) {
+                    try IPositionModule(staking).getPositionValue(address(this), address(0)) returns (uint256 stakingValue) {
+                        if (stakingValue > 0) return true;
+                    } catch {}
+                }
+            } catch {}
+        }
+
+        return false;
     }
     
     function emergencyRescueETH(address to, uint256 amount) external onlySafeOrProtocolOwner {
