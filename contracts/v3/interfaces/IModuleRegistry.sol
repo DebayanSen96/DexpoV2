@@ -7,6 +7,7 @@ interface IModuleRegistry {
     function getLendModule() external view returns (address);
     function getBorrowModule() external view returns (address);
     function getStakingModule() external view returns (address);
+    function getOracle() external view returns (address);
     
     function setSwapModule(address module) external;
     function setBuySellModule(address module) external;

@@ -108,6 +108,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     error AlreadyInitialized();
     error TokenNotInPortfolio();
     error StrandedTokenBalance(address token, uint256 balance);
+    error ActiveExternalPosition(address token, uint256 valueUsd);
     error InvalidCommand();
     error CannotRescuePortfolioToken();
 
@@ -228,6 +229,8 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
             if (!stillPresent) {
                 uint256 bal = IERC20(oldToken).balanceOf(address(this));
                 if (bal > 0) revert StrandedTokenBalance(oldToken, bal);
+                uint256 externalValueUsd = _getExternalTokenPositionValueUsd(oldToken);
+                if (externalValueUsd > 0) revert ActiveExternalPosition(oldToken, externalValueUsd);
             }
             isPortfolioToken[oldToken] = false;
         }
@@ -433,6 +436,24 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
                 } catch {}
             }
         } catch {}
+    }
+
+    function _getExternalTokenPositionValueUsd(address token) internal view returns (uint256 valueUsd) {
+        if (lendModule != address(0)) {
+            try IPositionModule(lendModule).getPositionValue(address(this), token) returns (uint256 lendValue) {
+                valueUsd += lendValue;
+            } catch {}
+        }
+
+        if (moduleRegistry != address(0)) {
+            try IModuleRegistry(moduleRegistry).getStakingModule() returns (address staking) {
+                if (staking != address(0)) {
+                    try IPositionModule(staking).getPositionValue(address(this), token) returns (uint256 stakingValue) {
+                        valueUsd += stakingValue;
+                    } catch {}
+                }
+            } catch {}
+        }
     }
 
     function _getTokenAmountFromUsd(address token, uint256 valueUsd) internal view returns (uint256) {
