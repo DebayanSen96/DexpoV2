@@ -121,7 +121,7 @@
   ],
   "lendingHub": "0xDaD94dD929e4b6D2A057f6Ab3071425d2057e7C1",
   "mockLendingAdapter": "0x2F7232972850e31d434086BDeaE833bf117FdBFb",
-  "indexSwapImplementation": "0x6cC0D3d056c50d8E9D965Ebed30E39C917b01052",
+  "indexSwapImplementation": "0xE5c73f468C39b148ffbFC8E7F4702E5aA3F5Ea7d",
   "indexSwapFactory": "0x08f635A3927900de5dBb69Ce75c42eD98E256321",
   "testVault": {
     "safe": "0xC7ab880FE31B36eaF606b9a68e47a9AAbB5fb17B",

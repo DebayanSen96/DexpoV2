@@ -239,39 +239,28 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     
     function deposit(uint256[] calldata amounts) external nonReentrant whenNotPaused returns (uint256 shares) {
         require(amounts.length == portfolio.length, "Invalid amounts length");
-        
+        uint256 supplyBefore = totalSupply();
+        uint256 tvlBeforeUsd = supplyBefore == 0 ? 0 : getTotalValueUsd();
         uint256 totalValueUsd = 0;
-        
+
         for (uint256 i = 0; i < portfolio.length; i++) {
             if (amounts[i] > 0) {
                 address token = portfolio[i].token;
-                IERC20(token).safeTransferFrom(msg.sender, address(this), amounts[i]);
-                
                 uint256 valueUsd = _getTokenValueUsd(token, amounts[i]);
                 if (valueUsd == 0) revert InvalidPrice();
                 totalValueUsd += valueUsd;
+                IERC20(token).safeTransferFrom(msg.sender, address(this), amounts[i]);
             }
         }
-        
+
         if (totalValueUsd == 0) revert ZeroAmount();
         if (minDepositAmount > 0 && totalValueUsd < minDepositAmount) revert BelowMinimum();
-        
-        uint256 supply = totalSupply();
-        if (supply == 0) {
-            shares = totalValueUsd;
-            require(shares > DEAD_SHARES, "Below dead shares minimum");
-            _mint(DEAD_ADDRESS, DEAD_SHARES);
-            shares -= DEAD_SHARES;
-        } else {
-            uint256 currentTvlUsd = getTotalValueUsd();
-            require(currentTvlUsd > 0, "Zero TVL");
-            shares = (totalValueUsd * supply) / currentTvlUsd;
-        }
-        
+
+        shares = _quoteDepositShares(totalValueUsd, supplyBefore, tvlBeforeUsd);
         require(shares > 0, "Zero shares");
         uint256 existingShares = balanceOf(msg.sender);
         _mint(msg.sender, shares);
-        
+
         totalDepositsUsd += totalValueUsd;
         if (highWaterMarkUsd == 0) {
             highWaterMarkUsd = getTotalValueUsd();
@@ -291,9 +280,10 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     {
         if (depositAmount == 0) revert ZeroAmount();
         if (!isPortfolioToken[depositToken]) revert TokenNotInPortfolio();
-        
+        uint256 supplyBefore = totalSupply();
+        uint256 tvlBeforeUsd = supplyBefore == 0 ? 0 : getTotalValueUsd();
         IERC20(depositToken).safeTransferFrom(msg.sender, address(this), depositAmount);
-        shares = _mintSharesForDeposit(msg.sender, depositToken, depositAmount);
+        shares = _mintSharesForDeposit(msg.sender, depositToken, depositAmount, supplyBefore, tvlBeforeUsd);
     }
 
     function depositNative(address wrappedToken)
@@ -305,13 +295,20 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     {
         if (msg.value == 0) revert ZeroAmount();
         if (!isPortfolioToken[wrappedToken]) revert TokenNotInPortfolio();
-
+        uint256 supplyBefore = totalSupply();
+        uint256 tvlBeforeUsd = supplyBefore == 0 ? 0 : getTotalValueUsd();
         IWrappedNativeToken(wrappedToken).deposit{value: msg.value}();
-        shares = _mintSharesForDeposit(msg.sender, wrappedToken, msg.value);
+        shares = _mintSharesForDeposit(msg.sender, wrappedToken, msg.value, supplyBefore, tvlBeforeUsd);
         emit NativeDeposit(msg.sender, wrappedToken, msg.value, shares);
     }
 
-    function _mintSharesForDeposit(address receiver, address depositToken, uint256 depositAmount)
+    function _mintSharesForDeposit(
+        address receiver,
+        address depositToken,
+        uint256 depositAmount,
+        uint256 supplyBefore,
+        uint256 tvlBeforeUsd
+    )
         internal
         returns (uint256 shares)
     {
@@ -320,17 +317,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
 
         if (minDepositAmount > 0 && depositValueUsd < minDepositAmount) revert BelowMinimum();
 
-        uint256 supply = totalSupply();
-        if (supply == 0) {
-            shares = depositValueUsd;
-            require(shares > DEAD_SHARES, "Below dead shares minimum");
-            _mint(DEAD_ADDRESS, DEAD_SHARES);
-            shares -= DEAD_SHARES;
-        } else {
-            uint256 currentTvlUsd = getTotalValueUsd();
-            shares = (depositValueUsd * supply) / currentTvlUsd;
-        }
-
+        shares = _quoteDepositShares(depositValueUsd, supplyBefore, tvlBeforeUsd);
         require(shares > 0, "Zero shares");
         uint256 existingShares = balanceOf(receiver);
         _mint(receiver, shares);
@@ -344,6 +331,26 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         _updateWeightedTimestamp(receiver, existingShares, shares);
 
         emit Deposit(receiver, shares, depositValueUsd);
+    }
+
+    function _quoteDepositShares(
+        uint256 depositValueUsd,
+        uint256 supplyBefore,
+        uint256 tvlBeforeUsd
+    ) internal returns (uint256 shares) {
+        if (supplyBefore == 0) {
+            shares = depositValueUsd;
+            require(shares > DEAD_SHARES, "Below dead shares minimum");
+            _mint(DEAD_ADDRESS, DEAD_SHARES);
+            shares -= DEAD_SHARES;
+        } else if (supplyBefore <= DEAD_SHARES) {
+            // If only dead shares remain, treat the next depositor as a fresh bootstrap.
+            // This prevents residual dust TVL from poisoning the exchange rate forever.
+            shares = depositValueUsd;
+        } else {
+            require(tvlBeforeUsd > 0, "Zero TVL");
+            shares = (depositValueUsd * supplyBefore) / tvlBeforeUsd;
+        }
     }
     
     function _updateWeightedTimestamp(address user, uint256 existingShares, uint256 newShares) internal {
@@ -369,7 +376,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
             }
         }
 
-        // Avoid underpaying withdrawals when strategy positions are still active.
+        // Safety: prevent underpayment when part of the vault value is deployed in strategy modules.
         if (_hasAnyExternalPosition()) revert ActiveStrategyPosition();
         
         uint256 supply = totalSupply();
