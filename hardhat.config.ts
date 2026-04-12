@@ -166,6 +166,24 @@ const config: HardhatUserConfig = {
           debug: { revertStrings: "strip" },
         },
       },
+      "contracts/v3/testnet/sepolia-testnet/vault/SepoliaTestnetIndexSwapV3.sol": {
+        version: "0.8.24",
+        settings: {
+          viaIR: true,
+          optimizer: { enabled: true, runs: 1 },
+          metadata: { bytecodeHash: "none" },
+          debug: { revertStrings: "strip" },
+        },
+      },
+      "contracts/v3/testnet/hoodi-testnet/vault/HoodiTestnetIndexSwapV3.sol": {
+        version: "0.8.24",
+        settings: {
+          viaIR: true,
+          optimizer: { enabled: true, runs: 1 },
+          metadata: { bytecodeHash: "none" },
+          debug: { revertStrings: "strip" },
+        },
+      },
       "contracts/v3/vault/VaultSafe.sol": {
         version: "0.8.24",
         settings: {

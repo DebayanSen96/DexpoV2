@@ -39,6 +39,12 @@ interface ILendingModule {
     function withdrawAll(address vault, address token) external returns (uint256 withdrawn);
 }
 
+interface IBorrowModule {
+    function borrow(address vault, address token, uint256 amount, bytes32 adapterId) external returns (uint256 debtIssued);
+    function repay(address vault, address token, uint256 amount) external returns (uint256 debtRepaid);
+    function repayAll(address vault, address token) external returns (uint256 debtRepaid);
+}
+
 interface IStakingModule {
     function depositBond(address vault, uint256 amount, bytes calldata validatorData) external;
     function claimRewards(address vault) external returns (uint256);
@@ -125,7 +131,10 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         SWAP,
         SWAP_WITH_SLIPPAGE,
         STAKE_BOND,
-        STAKE_CLAIM
+        STAKE_CLAIM,
+        BORROW_OPEN,
+        BORROW_REPAY,
+        BORROW_REPAY_ALL
     }
     
     modifier onlySafeOrProtocolOwner() {
@@ -693,6 +702,27 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
                 claimed = IStakingModule(staking).claimRewards(address(this), cumulativeFeeShares, rewardsProof);
             }
             return abi.encode(claimed);
+        } else if (command == ModuleCommand.BORROW_OPEN) {
+            (address token, uint256 amount, bytes32 adapterId) = abi.decode(params, (address, uint256, bytes32));
+            address borrow = IModuleRegistry(moduleRegistry).getBorrowModule();
+            require(borrow != address(0), "Borrow module not set");
+            uint256 debtIssued = IBorrowModule(borrow).borrow(address(this), token, amount, adapterId);
+            return abi.encode(debtIssued);
+        } else if (command == ModuleCommand.BORROW_REPAY) {
+            (address token, uint256 amount) = abi.decode(params, (address, uint256));
+            address borrow = IModuleRegistry(moduleRegistry).getBorrowModule();
+            require(borrow != address(0), "Borrow module not set");
+            IERC20(token).forceApprove(borrow, amount);
+            uint256 debtRepaid = IBorrowModule(borrow).repay(address(this), token, amount);
+            return abi.encode(debtRepaid);
+        } else if (command == ModuleCommand.BORROW_REPAY_ALL) {
+            address token = abi.decode(params, (address));
+            address borrow = IModuleRegistry(moduleRegistry).getBorrowModule();
+            require(borrow != address(0), "Borrow module not set");
+            uint256 balance = IERC20(token).balanceOf(address(this));
+            IERC20(token).forceApprove(borrow, balance);
+            uint256 debtRepaid = IBorrowModule(borrow).repayAll(address(this), token);
+            return abi.encode(debtRepaid);
         } else {
             revert InvalidCommand();
         }

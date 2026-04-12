@@ -23,11 +23,14 @@ type DeploymentState = {
   mockSwapAdapter?: string;
   lendingHub?: string;
   mockLendingAdapter?: string;
+  borrowHub?: string;
+  mockBorrowAdapter?: string;
   indexSwapImplementation?: string;
   indexSwapFactory?: string;
   adapterIds?: {
     mockSwap?: string;
     mockLending?: string;
+    mockBorrow?: string;
   };
   testVault?: {
     safe: string;
@@ -42,6 +45,13 @@ const TEST_TOKENS_PATH = path.join(__dirname, "..", "..", "..", "contracts", "v3
 const DEFAULT_PRICE_E18 = 10n ** 18n;
 const MOCK_SWAP_ADAPTER_ID = ethers.keccak256(ethers.toUtf8Bytes("MOCK_SWAP"));
 const MOCK_LENDING_ADAPTER_ID = ethers.keccak256(ethers.toUtf8Bytes("MOCK_LENDING"));
+const MOCK_BORROW_ADAPTER_ID = ethers.keccak256(ethers.toUtf8Bytes("MOCK_BORROW"));
+const DEFAULT_BORROW_LTV_BPS = 5000;
+const BORROW_TOKEN_SYMBOLS = new Set([
+  "USDC", "USDT", "DAI", "USDX", "USDON", "BUIDL",
+  "WETH", "ETH", "WSTETH", "CBETH", "STETH", "WEETH", "RETH",
+  "WBTC", "BTC", "CBBTC", "LINK", "AAVE", "UNI", "SOL"
+]);
 
 function loadTestTokens(): TokenConfig[] {
   const raw = JSON.parse(fs.readFileSync(TEST_TOKENS_PATH, "utf8"));
@@ -73,6 +83,10 @@ function pickPortfolio(tokens: TokenConfig[]): Array<{ token: string; weightBps:
     { token: stable.address, weightBps: 5000 },
     { token: growth.address, weightBps: 5000 }
   ];
+}
+
+function pickBorrowTokens(tokens: TokenConfig[]): TokenConfig[] {
+  return tokens.filter((token) => BORROW_TOKEN_SYMBOLS.has(token.symbol.toUpperCase()));
 }
 
 function getStatePath(): string {
@@ -238,6 +252,7 @@ async function main() {
   const tokenAddresses = tokens.map((token) => token.address);
   const tokenPrices = tokens.map((token) => normalizePrice(token.priceUsd));
   const portfolio = pickPortfolio(tokens);
+  const borrowTokens = pickBorrowTokens(tokens);
 
   let state = loadState();
   state.deployer = deployer.address;
@@ -245,13 +260,13 @@ async function main() {
   state.adapterIds = state.adapterIds || {};
   saveState(state);
 
-  console.log("\n[1/11] DXP Token");
+  console.log("\n[1/12] DXP Token");
   const dxpToken = await deployContract(deployer, "DXPToken", "contracts/v3/testnet/sepolia-testnet/core/SepoliaTestnetDXPToken.sol:SepoliaTestnetDXPToken", [], state, "dxpToken");
 
-  console.log("\n[2/11] Protocol Core");
+  console.log("\n[2/12] Protocol Core");
   const protocolCore = await deployContract(deployer, "ProtocolCore", "contracts/v3/testnet/sepolia-testnet/core/SepoliaTestnetProtocolCore.sol:SepoliaTestnetProtocolCore", [dxpToken, 100, 10, 20], state, "protocolCore");
 
-  console.log("\n[3/11] Mock Oracle");
+  console.log("\n[3/12] Mock Oracle");
   const oracle = await deployContract(deployer, "MockOracle", "contracts/v3/testnet/sepolia-testnet/oracles/SepoliaTestnetMockOracle.sol:SepoliaTestnetMockOracle", [], state, "oracle");
   if (!state.completedSteps?.oracleConfigured) {
     const nm = new ethers.NonceManager(deployer);
@@ -268,10 +283,10 @@ async function main() {
     markStep(state, "oracleConfigured");
   }
 
-  console.log("\n[4/11] Fee Collector");
+  console.log("\n[4/12] Fee Collector");
   const feeCollector = await deployContract(deployer, "FeeCollector", "contracts/v3/testnet/sepolia-testnet/core/SepoliaTestnetFeeCollector.sol:SepoliaTestnetFeeCollector", [protocolCore, deployer.address], state, "feeCollector");
 
-  console.log("\n[5/11] Module Registry");
+  console.log("\n[5/12] Module Registry");
   const moduleRegistry = await deployContract(deployer, "ModuleRegistry", "contracts/v3/testnet/sepolia-testnet/core/SepoliaTestnetModuleRegistry.sol:SepoliaTestnetModuleRegistry", [], state, "moduleRegistry");
   if (!state.completedSteps?.registryOracleSet) {
     await delay(3000);
@@ -283,7 +298,7 @@ async function main() {
     markStep(state, "registryOracleSet");
   }
 
-  console.log("\n[6/11] Swap Infra");
+  console.log("\n[6/12] Swap Infra");
   const swapHub = await deployContract(deployer, "SwapHub", "contracts/v3/testnet/sepolia-testnet/modules/SepoliaTestnetSwapHub.sol:SepoliaTestnetSwapHub", [protocolCore, oracle], state, "swapHub");
   const mockSwapRouter = await deployContract(deployer, "MockSwapRouter", "contracts/libraries/testnet/MockSwapRouter.sol:MockSwapRouter", [deployer.address, tokenAddresses, tokenPrices], state, "mockSwapRouter");
   const mockSwapAdapter = await deployContract(deployer, "MockSwapAdapter", "contracts/v3/testnet/sepolia-testnet/modules/SepoliaTestnetMockSwapAdapter.sol:SepoliaTestnetMockSwapAdapter", [mockSwapRouter], state, "mockSwapAdapter");
@@ -302,7 +317,7 @@ async function main() {
     markStep(state, "routerFunded");
   }
 
-  console.log("\n[7/11] Lending Infra");
+  console.log("\n[7/12] Lending Infra");
   const lendingHub = await deployContract(deployer, "LendingHub", "contracts/v3/testnet/sepolia-testnet/modules/SepoliaTestnetLendingHub.sol:SepoliaTestnetLendingHub", [protocolCore, oracle], state, "lendingHub");
   const mockLendingAdapter = await deployContract(deployer, "MockLendingAdapter", "contracts/v3/testnet/sepolia-testnet/modules/SepoliaTestnetMockLendingAdapter.sol:SepoliaTestnetMockLendingAdapter", [], state, "mockLendingAdapter");
   if (!state.adapterIds?.mockLending) {
@@ -332,20 +347,50 @@ async function main() {
     saveState(state);
   }
 
-  console.log("\n[8/11] Register Modules");
+  console.log("\n[8/12] Borrow Infra");
+  const borrowHub = await deployContract(deployer, "BorrowHub", "contracts/v3/testnet/sepolia-testnet/modules/SepoliaTestnetBorrowHub.sol:SepoliaTestnetBorrowHub", [protocolCore, oracle], state, "borrowHub");
+  const mockBorrowAdapter = await deployContract(deployer, "MockBorrowAdapter", "contracts/v3/testnet/sepolia-testnet/modules/SepoliaTestnetMockBorrowAdapter.sol:SepoliaTestnetMockBorrowAdapter", [], state, "mockBorrowAdapter");
+  if (!state.adapterIds?.mockBorrow) {
+    const nm = new ethers.NonceManager(deployer);
+    const adapter = await ethers.getContractAt("contracts/v3/testnet/sepolia-testnet/modules/SepoliaTestnetMockBorrowAdapter.sol:SepoliaTestnetMockBorrowAdapter", mockBorrowAdapter);
+    const hub = await ethers.getContractAt("contracts/v3/testnet/sepolia-testnet/modules/SepoliaTestnetBorrowHub.sol:SepoliaTestnetBorrowHub", borrowHub);
+    const adapterNm = adapter.connect(nm) as typeof adapter;
+    const hubNm = hub.connect(nm) as typeof hub;
+    let tx = await adapterNm.setBorrowHub(borrowHub);
+    await tx.wait(1);
+    console.log("  -> mockBorrow.setBorrowHub ✓");
+    for (const token of borrowTokens) {
+      try {
+        const cap = ethers.parseUnits("1000000000", token.decimals);
+        tx = await adapterNm.setTokenConfig(token.address, true, DEFAULT_BORROW_LTV_BPS, cap, 0);
+        await tx.wait(1);
+        console.log(`  -> mockBorrow ${token.symbol} ✓`);
+      } catch (e: any) {
+        console.log(`  ⚠ mockBorrow ${token.symbol}: ${e.message?.slice(0, 60)}`);
+      }
+    }
+    tx = await hubNm.addAdapter(MOCK_BORROW_ADAPTER_ID, mockBorrowAdapter);
+    await tx.wait(1);
+    console.log("  -> borrowHub.addAdapter ✓");
+    state.adapterIds.mockBorrow = MOCK_BORROW_ADAPTER_ID;
+    saveState(state);
+  }
+
+  console.log("\n[9/12] Register Modules");
   if (!state.completedSteps?.modulesRegistered) {
     await delay(3000);
     const nm = new ethers.NonceManager(deployer);
     const registry = (await ethers.getContractAt("contracts/v3/testnet/sepolia-testnet/core/SepoliaTestnetModuleRegistry.sol:SepoliaTestnetModuleRegistry", moduleRegistry)).connect(nm);
     let tx = await registry.setSwapModule(swapHub); await tx.wait(1); console.log("  -> registry.setSwapModule ✓");
     tx = await registry.setLendModule(lendingHub); await tx.wait(1); console.log("  -> registry.setLendModule ✓");
+    tx = await registry.setBorrowModule(borrowHub); await tx.wait(1); console.log("  -> registry.setBorrowModule ✓");
     markStep(state, "modulesRegistered");
   }
 
-  console.log("\n[9/11] IndexSwapV3 Implementation");
+  console.log("\n[10/12] IndexSwapV3 Implementation");
   const indexSwapImplementation = await deployContract(deployer, "IndexSwapV3 (Implementation)", "contracts/v3/testnet/sepolia-testnet/vault/SepoliaTestnetIndexSwapV3.sol:SepoliaTestnetIndexSwapV3", [], state, "indexSwapImplementation");
 
-  console.log("\n[10/11] Index Swap Factory");
+  console.log("\n[11/12] Index Swap Factory");
   const indexSwapFactory = await deployContract(deployer, "IndexSwapFactory", "contracts/v3/testnet/sepolia-testnet/factories/SepoliaTestnetIndexSwapFactory.sol:SepoliaTestnetIndexSwapFactory", [protocolCore, moduleRegistry, indexSwapImplementation, feeCollector], state, "indexSwapFactory");
   if (!state.completedSteps?.factoryRegistered) {
     await delay(3000);
@@ -356,7 +401,7 @@ async function main() {
     markStep(state, "factoryRegistered");
   }
 
-  console.log("\n[11/11] Test Vault via ProtocolCore");
+  console.log("\n[12/12] Test Vault via ProtocolCore");
   if (!state.testVault) {
     await delay(3000);
     const nm = new ethers.NonceManager(deployer);
@@ -364,7 +409,14 @@ async function main() {
     const tx = await core.createIndexSwapVault(deployer.address, "Test Index Vault", "TIV", portfolio, 0, 1000);
     await tx.wait(1);
     const factory = await ethers.getContractAt("contracts/v3/testnet/sepolia-testnet/factories/SepoliaTestnetIndexSwapFactory.sol:SepoliaTestnetIndexSwapFactory", indexSwapFactory);
-    const vaultCount = await factory.vaultCount();
+    let vaultCount = await factory.vaultCount();
+    for (let i = 0; i < 5 && vaultCount === 0n; i++) {
+      await delay(2000);
+      vaultCount = await factory.vaultCount();
+    }
+    if (vaultCount === 0n) {
+      throw new Error("Vault creation succeeded but vaultCount is still zero");
+    }
     const vaultAddress = await factory.vaults(vaultCount - 1n);
     state.testVault = { safe: deployer.address, indexSwap: vaultAddress };
     saveState(state);
@@ -391,6 +443,10 @@ async function main() {
   console.log("  LendingHub:         ", state.lendingHub);
   console.log("  MockLendingAdapter: ", state.mockLendingAdapter);
   console.log("  MockLending ID:     ", state.adapterIds?.mockLending);
+  console.log("\n Borrow Infrastructure:");
+  console.log("  BorrowHub:          ", state.borrowHub);
+  console.log("  MockBorrowAdapter:  ", state.mockBorrowAdapter);
+  console.log("  MockBorrow ID:      ", state.adapterIds?.mockBorrow);
   console.log("\n Factory & Implementation:");
   console.log("  IndexSwapV3 Impl:   ", state.indexSwapImplementation);
   console.log("  IndexSwapFactory:   ", state.indexSwapFactory);
@@ -399,7 +455,8 @@ async function main() {
   console.log("  IndexSwapV3:        ", state.testVault?.indexSwap);
   console.log("\n Supported Test Tokens:");
   for (const token of tokens) {
-    console.log(`  ${token.symbol.padEnd(8)} ${token.address} [MockOracle+MockSwap+MockLending]`);
+    const borrowTag = BORROW_TOKEN_SYMBOLS.has(token.symbol.toUpperCase()) ? "+MockBorrow" : "";
+    console.log(`  ${token.symbol.padEnd(8)} ${token.address} [MockOracle+MockSwap+MockLending${borrowTag}]`);
   }
   console.log("\n State saved to:", getStatePath());
   console.log("=".repeat(70));

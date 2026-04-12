@@ -13,7 +13,7 @@ type DeploymentState = {
 const DEFAULT_TARGET_VAULT = "0x03838644433d83a2a8abb5cec9b8e7a3e171fc81";
 
 function statePath(): string {
-  return path.join(__dirname, "..", "..", "deployments", "v3-latest", `${network.name}.json`);
+  return path.join(__dirname, "..", "..", "..", "deployments", "testnet", `${network.name}.json`);
 }
 
 function loadState(): DeploymentState {
