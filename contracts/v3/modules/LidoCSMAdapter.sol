@@ -39,6 +39,21 @@ interface ICSAccounting {
     ) external returns (uint256);
 }
 
+interface ICSEjector {
+    function voluntaryEject(
+        uint256 nodeOperatorId,
+        uint256 startFrom,
+        uint256 keysCount,
+        address refundRecipient
+    ) external payable;
+
+    function voluntaryEjectByArray(
+        uint256 nodeOperatorId,
+        uint256[] calldata keyIndices,
+        address refundRecipient
+    ) external payable;
+}
+
 interface ILidoStETH {
     function balanceOf(address account) external view returns (uint256);
     function transfer(address to, uint256 amount) external returns (bool);
@@ -66,6 +81,7 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
     address public immutable csModule;
     address public immutable csAccounting;
     address public immutable permissionlessGate;
+    address public immutable csejector;
     address public oracle;
     address public weth;
     address public steth;
@@ -80,6 +96,8 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
     event VaultRegistered(address indexed vault, uint256 noId);
     event BondDeposited(address indexed vault, uint256 amount, uint256 noId);
     event RewardsClaimed(address indexed vault, uint256 amount);
+    event ValidatorExitRequested(address indexed vault, uint256 indexed noId, uint256 startFrom, uint256 keysCount, address refundRecipient);
+    event ValidatorExitRequestedByKeyIndices(address indexed vault, uint256 indexed noId, uint256[] keyIndices, address refundRecipient);
     event EmergencyETHRescued(address indexed to, uint256 amount);
     event EmergencyTokenRescued(address indexed token, address indexed to, uint256 amount);
 
@@ -87,6 +105,7 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
         address _csModule,
         address _csAccounting,
         address _permissionlessGate,
+        address _csejector,
         address _oracle,
         address _weth,
         address _steth
@@ -94,6 +113,7 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
         csModule = _csModule;
         csAccounting = _csAccounting;
         permissionlessGate = _permissionlessGate;
+        csejector = _csejector;
         oracle = _oracle;
         weth = _weth;
         steth = _steth;
@@ -186,6 +206,40 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
         bytes32[] calldata rewardsProof
     ) external onlyVaultCaller(vault) returns (uint256 claimed) {
         claimed = _claimRewardsWithProof(vault, cumulativeFeeShares, rewardsProof);
+    }
+
+    function requestValidatorExit(
+        address vault,
+        uint256 startFrom,
+        uint256 keysCount,
+        address refundRecipient
+    ) external payable override onlyOwner {
+        require(vaultRegistered[vault], "Not registered");
+        require(keysCount > 0, "No keys");
+        uint256 noId = vaultNodeOperatorId[vault];
+        ICSEjector(csejector).voluntaryEject{value: msg.value}(
+            noId,
+            startFrom,
+            keysCount,
+            refundRecipient
+        );
+        emit ValidatorExitRequested(vault, noId, startFrom, keysCount, refundRecipient);
+    }
+
+    function requestValidatorExitByKeyIndices(
+        address vault,
+        uint256[] calldata keyIndices,
+        address refundRecipient
+    ) external payable override onlyOwner {
+        require(vaultRegistered[vault], "Not registered");
+        require(keyIndices.length > 0, "No keys");
+        uint256 noId = vaultNodeOperatorId[vault];
+        ICSEjector(csejector).voluntaryEjectByArray{value: msg.value}(
+            noId,
+            keyIndices,
+            refundRecipient
+        );
+        emit ValidatorExitRequestedByKeyIndices(vault, noId, keyIndices, refundRecipient);
     }
 
     function _claimRewardsWithProof(

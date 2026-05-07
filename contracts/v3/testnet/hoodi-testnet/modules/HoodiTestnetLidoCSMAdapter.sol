@@ -8,8 +8,9 @@ contract HoodiTestnetLidoCSMAdapter is LidoCSMAdapter {
         address csModule,
         address csAccounting,
         address permissionlessGate,
+        address csejector,
         address oracle,
         address weth,
         address steth
-    ) LidoCSMAdapter(csModule, csAccounting, permissionlessGate, oracle, weth, steth) {}
+    ) LidoCSMAdapter(csModule, csAccounting, permissionlessGate, csejector, oracle, weth, steth) {}
 }

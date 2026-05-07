@@ -11,7 +11,8 @@ const PRIVATE_KEY = process.env.HOODI_PRIVATE_KEY || process.env.MAINNET_WALLET_
 const CS_MODULE = "0x79CEf36D84743222f37765204Bec41E92a93E59d";
 const CS_ACCOUNTING = "0xA54b90BA34C5f326BC1485054080994e38FB4C60";
 const STETH = "0x3508A952176b3c15387C97BE809eaffB1982176a";
-const PERMISSIONLESS_GATE = "0x5553077102322689876A6AdFd48D75014c28acfb";
+const PERMISSIONLESS_GATE = "0xd7bD8D2A9888D1414c770B35ACF55890B15de26a";
+const CS_EJECTOR = "0xCAe028378d69D54dc8bF809e6C44CF751F997b80";
 const STAKING_ROUTER = "0xCc820558B39ee15C7C45B59390B503b83fb499A8";
 const ETH_SENTINEL = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const BOND_AMOUNT = ethers.parseEther(process.env.HOODI_BOND_ETH || "2.4");
@@ -323,7 +324,7 @@ async function main() {
   state.protocolCore = await deployContract(wallet, provider, state, "protocolCore", "HoodiTestnetProtocolCore", ...PATHS.protocolCore, [state.dxpToken, 100, 10, 20]);
   state.feeCollector = await deployContract(wallet, provider, state, "feeCollector", "HoodiTestnetFeeCollector", ...PATHS.feeCollector, [state.protocolCore, wallet.address]);
   state.moduleRegistry = await deployContract(wallet, provider, state, "moduleRegistry", "HoodiTestnetModuleRegistry", ...PATHS.moduleRegistry, []);
-  state.lidoCSMAdapter = await deployContract(wallet, provider, state, "lidoCSMAdapter", "HoodiTestnetLidoCSMAdapter", ...PATHS.staking, [CS_MODULE, CS_ACCOUNTING, PERMISSIONLESS_GATE, state.mockOracle, state.mockWETH, STETH]);
+  state.lidoCSMAdapter = await deployContract(wallet, provider, state, "lidoCSMAdapter", "HoodiTestnetLidoCSMAdapter", ...PATHS.staking, [CS_MODULE, CS_ACCOUNTING, PERMISSIONLESS_GATE, CS_EJECTOR, state.mockOracle, state.mockWETH, STETH]);
   state.indexSwapImplementation = await deployContract(wallet, provider, state, "indexSwapImplementation", "HoodiTestnetIndexSwapV3", ...PATHS.vaultImpl, []);
   state.indexSwapFactory = await deployContract(wallet, provider, state, "indexSwapFactory", "HoodiTestnetIndexSwapFactory", ...PATHS.factory, [state.protocolCore, state.moduleRegistry, state.indexSwapImplementation, state.feeCollector]);
 
