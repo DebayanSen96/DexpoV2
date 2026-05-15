@@ -8,7 +8,7 @@
   "feeCollector": "0xeAc37446FA10d76EFD2Cbc363583489B5C670675",
   "moduleRegistry": "0x0c914cc97D118Bf1fe26dfcCF0C0DD13f04A824B",
   "lidoCSMAdapter": "0xFF98698007149d7075e7bE64a2b7C70CCD400b35",
-  "indexSwapImplementation": "0x9b91Dc56Ed0fe8F4FfFDe2266cfcE9a4bc3AA9b3",
+  "indexSwapImplementation": "0xba49eD8e43CD4B1D81d171e55eF4F43b62D04B65",
   "indexSwapFactory": "0xd6E14C0Faa499e2AC33559b8eE363a935A284787",
   "csmVault": "0xE5B685D469d2C15402f4f81b45d1F080e5b389de"
 }
