@@ -91,6 +91,7 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
     mapping(address => uint256) public vaultNodeOperatorId;
     mapping(address => uint256) public vaultBondedEth;
     mapping(address => uint256) public vaultAccruedRewardsEth;
+    mapping(address => uint256) public vaultClaimedRewardsStEth;
     mapping(address => bool) public vaultRegistered;
 
     event VaultRegistered(address indexed vault, uint256 noId);
@@ -266,7 +267,7 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
         if (claimed == 0) return 0;
 
         vaultAccruedRewardsEth[vault] += claimed;
-        require(ILidoStETH(steth).transfer(vault, claimed), "stETH transfer failed");
+        vaultClaimedRewardsStEth[vault] += claimed;
         emit RewardsClaimed(vault, claimed);
     }
 
@@ -275,7 +276,7 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
         uint256 noId = vaultNodeOperatorId[vault];
         try ICSAccounting(csAccounting).getBondSummary(noId) returns (uint256 current, uint256) {
             uint256 ethPrice = IOracle(oracle).priceUsdE18(weth);
-            return (current * ethPrice) / 1e18;
+            return ((current + vaultClaimedRewardsStEth[vault]) * ethPrice) / 1e18;
         } catch {
             return 0;
         }
@@ -294,8 +295,9 @@ contract LidoCSMAdapter is IStakingModule, Ownable {
         uint256 noId = vaultNodeOperatorId[vault];
         (uint256 current, ) = ICSAccounting(csAccounting).getBondSummary(noId);
         uint256 principal = vaultBondedEth[vault];
-        if (current <= principal) return 0;
-        return current - principal;
+        uint256 trackedClaimed = vaultClaimedRewardsStEth[vault];
+        if (current <= principal) return trackedClaimed;
+        return (current - principal) + trackedClaimed;
     }
 
     function setOracle(address _oracle) external onlyOwner {

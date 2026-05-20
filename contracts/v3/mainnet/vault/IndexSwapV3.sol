@@ -52,6 +52,11 @@ interface IStakingModule {
     function getPositionValue(address vault, address token) external view returns (uint256);
 }
 
+interface IStakingRewardAssets {
+    function steth() external view returns (address);
+    function weth() external view returns (address);
+}
+
 interface IWrappedNativeToken is IERC20 {
     function deposit() external payable;
     function withdraw(uint256 amount) external;
@@ -123,6 +128,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
     error ActiveStrategyPosition();
     error InvalidCommand();
     error CannotRescuePortfolioToken();
+    error ActiveStakingRewardToken(address token, uint256 balance);
 
     enum ModuleCommand {
         LEND_SUPPLY,
@@ -758,6 +764,7 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
                     try IStakingModule(staking).getPositionValue(address(this), address(0)) returns (uint256 stakingValue) {
                         totalUsd += stakingValue;
                     } catch {}
+                    totalUsd += _getStakingRewardTokenBalanceValueUsd(staking);
                 }
             } catch {}
         }
@@ -787,6 +794,42 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
         uint8 decimals = IERC20Metadata(token).decimals();
         
         return (amount * priceUsd) / (10 ** decimals);
+    }
+
+    function _getTokenValueUsdWithFallback(address token, uint256 amount, address fallbackPriceToken) internal view returns (uint256) {
+        if (amount == 0) return 0;
+
+        uint256 priceUsd = 0;
+        try IOracle(oracle).priceUsdE18(token) returns (uint256 tokenPrice) {
+            priceUsd = tokenPrice;
+        } catch {}
+
+        if (priceUsd == 0 && fallbackPriceToken != address(0)) {
+            try IOracle(oracle).priceUsdE18(fallbackPriceToken) returns (uint256 fallbackPrice) {
+                priceUsd = fallbackPrice;
+            } catch {}
+        }
+
+        if (priceUsd == 0) return 0;
+        uint8 decimals = IERC20Metadata(token).decimals();
+        return (amount * priceUsd) / (10 ** decimals);
+    }
+
+    function _getStakingRewardToken(address staking) internal view returns (address rewardToken, address fallbackPriceToken) {
+        if (staking == address(0)) return (address(0), address(0));
+        try IStakingRewardAssets(staking).steth() returns (address token) {
+            rewardToken = token;
+        } catch {}
+        try IStakingRewardAssets(staking).weth() returns (address token) {
+            fallbackPriceToken = token;
+        } catch {}
+    }
+
+    function _getStakingRewardTokenBalanceValueUsd(address staking) internal view returns (uint256) {
+        (address rewardToken, address fallbackPriceToken) = _getStakingRewardToken(staking);
+        if (rewardToken == address(0) || isPortfolioToken[rewardToken]) return 0;
+        uint256 rewardBalance = IERC20(rewardToken).balanceOf(address(this));
+        return _getTokenValueUsdWithFallback(rewardToken, rewardBalance, fallbackPriceToken);
     }
 
     function _getTokenExternalPositionValueUsd(address token) internal view returns (uint256 valueUsd) {
@@ -820,6 +863,11 @@ contract IndexSwapV3 is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradea
                     try IPositionModule(staking).getPositionValue(address(this), address(0)) returns (uint256 stakingValue) {
                         if (stakingValue > 0) return true;
                     } catch {}
+                    (address rewardToken, ) = _getStakingRewardToken(staking);
+                    if (rewardToken != address(0) && !isPortfolioToken[rewardToken]) {
+                        uint256 rewardBalance = IERC20(rewardToken).balanceOf(address(this));
+                        if (rewardBalance > 0) return true;
+                    }
                 }
             } catch {}
         }
